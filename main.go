@@ -62,6 +62,29 @@ var (
 			Foreground(lipgloss.Color("#FFFDF5")).
 			Background(lipgloss.Color("#25A065")).
 			Padding(0, 1)
+
+	verificationBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(baseBlue).
+			Padding(2, 4).
+			Margin(1, 0).
+			Align(lipgloss.Center)
+
+	codeBox = lipgloss.NewStyle().
+		Border(lipgloss.ThickBorder()).
+		BorderForeground(baseYellow).
+		Padding(0, 1).
+		Margin(1, 0).
+		Bold(true)
+
+	finePrint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Italic(true).
+			MarginTop(1)
+
+	successIcon = lipgloss.NewStyle().
+			Foreground(baseGreen).
+			Bold(true)
 )
 
 // Messages
@@ -990,47 +1013,85 @@ func (m model) View() string {
 	case stateSelectAccount:
 		// Show loading spinner while fetching accounts
 		if len(m.accounts) == 0 {
-			var verificationInfo string
 			if m.verificationUri != "" && m.verificationCode != "" {
-				verificationInfo = fmt.Sprintf(
-					"\n\nTo login, visit: %s\nOr go to: %s and enter code: %s",
-					highlightStyle.Render(m.verificationUriComplete),
-					m.verificationUri,
-					highlightStyle.Render(m.verificationCode),
+				// Create a more structured and visually appealing verification screen
+				header := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#FFFDF5")).
+					Background(baseBlue).
+					Padding(0, 1).
+					MarginLeft(1).
+					Render("AWS SSO Authentication")
+
+				instructions := verificationBox.Render(
+					lipgloss.JoinVertical(lipgloss.Center,
+						"Your browser should open automatically for SSO login.",
+						"If it doesn't, you can authenticate manually:",
+						"",
+						fmt.Sprintf("1. Visit: %s", highlightStyle.Render(m.verificationUri)),
+						"2. Enter the following code:",
+						"",
+						codeBox.Render(m.verificationCode),
+						"",
+						finePrint.Render("You can also click the link below to open directly:"),
+						highlightStyle.Render(m.verificationUriComplete),
+					),
+				)
+
+				loadingStatus := lipgloss.JoinHorizontal(lipgloss.Center,
+					m.spinner.View(),
+					" "+m.loadingText,
+				)
+
+				s = lipgloss.JoinVertical(lipgloss.Left,
+					header,
+					"",
+					instructions,
+					"",
+					loadingStatus,
+				)
+			} else {
+				s = lipgloss.JoinVertical(lipgloss.Center,
+					m.spinner.View()+" "+m.loadingText,
 				)
 			}
-
-			s = lipgloss.JoinVertical(lipgloss.Center,
-				m.spinner.View()+" "+m.loadingText,
-				"Your browser should open for SSO login. Please complete the login process.",
-				verificationInfo,
-			)
 		} else {
 			s = m.accountList.View()
 		}
 
 	case stateSessionSuccess:
-		// Create more consistent session success view
-		sessionContent := successBox.Render(
-			fmt.Sprintf("%s Session activated!\n\n"+
-				"Account: %s (%s)\n"+
-				"Role: %s\n\n"+
-				"AWS environment variables have been set.",
-				m.spinner.View(),
-				m.selectedAcc.Name,
-				m.selectedAcc.AccountID,
-				m.selectedAcc.SelectedRole))
+		// Create a more engaging success view with a checkmark icon
+		header := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(baseGreen).
+			Padding(0, 1).
+			MarginLeft(1).
+			Render("AWS Session Activated Successfully")
 
-		helpText := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Render("Press ESC to go back or q to quit")
+		checkmark := successIcon.Render("✓")
+
+		details := successBox.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				fmt.Sprintf("%s AWS Session Active", checkmark),
+				"",
+				fmt.Sprintf("Account: %s", highlightStyle.Render(m.selectedAcc.Name)),
+				fmt.Sprintf("Account ID: %s", m.selectedAcc.AccountID),
+				fmt.Sprintf("Role: %s", highlightStyle.Render(m.selectedAcc.SelectedRole)),
+				"",
+				successStyle.Render("AWS credentials have been configured successfully."),
+			),
+		)
+
+		helpText := finePrint.Render("Press ESC to go back or q to quit")
 
 		s = lipgloss.JoinVertical(lipgloss.Left,
-			sessionContent,
+			header,
+			"",
+			details,
 			helpText,
 		)
 
 	case stateAddSSO, stateEditSSO:
+		// ...existing code for add/edit SSO forms...
 		var formTitle string
 		if m.state == stateAddSSO {
 			formTitle = titleStyle.Render("Add New AWS SSO Profile")
