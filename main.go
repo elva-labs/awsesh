@@ -577,16 +577,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "a":
 				// Switch to add SSO form - works even with no profiles
-				m.state = stateAddSSO
-				m.formError = ""
-				m.formSuccess = ""
-				m.inputs = initialInputs()
-				m.focusIndex = 0
-				return m, nil
+				if m.ssoList.FilterState() == 0 {
+					m.state = stateAddSSO
+					m.formError = ""
+					m.formSuccess = ""
+					m.inputs = initialInputs()
+					m.focusIndex = 0
+					return m, nil
+				}
 
 			case "e":
 				// Edit selected SSO only if profiles exist
-				if len(m.ssoProfiles) > 0 {
+				if len(m.ssoProfiles) > 0 && m.ssoList.FilterState() == 0 {
 					if i, ok := m.ssoList.SelectedItem().(item); ok {
 						for idx, profile := range m.ssoProfiles {
 							if profile.Name == i.Title() {
@@ -611,7 +613,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "d":
 				// Delete selected SSO only if profiles exist
-				if len(m.ssoProfiles) > 0 {
+				if len(m.ssoProfiles) > 0 && m.ssoList.FilterState() == 0 {
 					if i, ok := m.ssoList.SelectedItem().(item); ok {
 						for idx, profile := range m.ssoProfiles {
 							if profile.Name == i.Title() {
