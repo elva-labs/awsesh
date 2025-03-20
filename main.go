@@ -473,16 +473,8 @@ func listAccountRoles(ctx context.Context, client *sso.Client, accessToken strin
 	return roles, nil
 }
 
-// Set AWS credentials in environment variables
-func setAWSCredentials(accessKeyID, secretAccessKey, sessionToken, region string) {
-	os.Setenv("AWS_ACCESS_KEY_ID", accessKeyID)
-	os.Setenv("AWS_SECRET_ACCESS_KEY", secretAccessKey)
-	os.Setenv("AWS_SESSION_TOKEN", sessionToken)
-	os.Setenv("AWS_DEFAULT_REGION", region)
-}
-
 // Set AWS credentials in credentials file
-func writeAWSCredentialsFile(accessKeyID, secretAccessKey, sessionToken, region string, profile string) error {
+func writeAWSCredentialsFile(accessKeyID, secretAccessKey, sessionToken, region string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
@@ -537,23 +529,16 @@ func getRoleCredentials(client *sso.Client, accessToken, accountID, roleName str
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to get role credentials: %w", err)}
 		}
 
-		// Generate profile name based on account and role
-		profile := fmt.Sprintf("%s_%s", accountID, roleName)
-
 		// Write credentials to file instead of setting environment variables
 		err = writeAWSCredentialsFile(
 			*resp.RoleCredentials.AccessKeyId,
 			*resp.RoleCredentials.SecretAccessKey,
 			*resp.RoleCredentials.SessionToken,
 			client.Options().Region,
-			profile,
 		)
 		if err != nil {
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to write credentials: %w", err)}
 		}
-
-		// Set the AWS_PROFILE environment variable to use the new profile
-		os.Setenv("AWS_PROFILE", profile)
 
 		return credentialsSetMsg{}
 	}
