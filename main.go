@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,10 +166,8 @@ func (i item) FilterValue() string { return i.title }
 // Initialize form inputs
 func initialInputs() []textinput.Model {
 	inputs := make([]textinput.Model, 3)
-
 	var t textinput.Model
 
-	// Alias input
 	t = textinput.New()
 	t.Placeholder = "My Company SSO"
 	t.Focus()
@@ -180,16 +177,14 @@ func initialInputs() []textinput.Model {
 	t.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	inputs[0] = t
 
-	// Portal URL input
 	t = textinput.New()
-	t.Placeholder = "https://company.awsapps.com/start"
+	t.Placeholder = "company"
 	t.CharLimit = 100
 	t.Width = 40
 	t.Prompt = "› "
 	t.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	inputs[1] = t
 
-	// Region input
 	t = textinput.New()
 	t.Placeholder = "us-east-1"
 	t.CharLimit = 20
@@ -292,52 +287,40 @@ func startSSOLogin(startUrl string, region string) tea.Cmd {
 		// Create a temporary context for this operation
 		ctx := context.Background()
 
-		log.Printf("Starting SSO login for region %s and URL %s", region, startUrl)
-
 		// Load AWS SDK configuration
 		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 		if err != nil {
-			log.Printf("Failed to load AWS config: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to load AWS config: %w", err)}
 		}
 
 		// Create OIDC client for authentication
 		oidcClient := ssooidc.NewFromConfig(cfg)
 
-		log.Printf("Registering OIDC client...")
 		// Register client
 		registerOutput, err := oidcClient.RegisterClient(ctx, &ssooidc.RegisterClientInput{
 			ClientName: aws.String("aws-sso-cli-tool"),
 			ClientType: aws.String("public"),
 		})
 		if err != nil {
-			log.Printf("Failed to register OIDC client: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to register OIDC client: %w", err)}
 		}
-		log.Printf("OIDC client registered successfully")
 
 		// Start device authorization
-		log.Printf("Starting device authorization...")
 		deviceAuthOutput, err := oidcClient.StartDeviceAuthorization(ctx, &ssooidc.StartDeviceAuthorizationInput{
 			ClientId:     registerOutput.ClientId,
 			ClientSecret: registerOutput.ClientSecret,
 			StartUrl:     aws.String(startUrl),
 		})
 		if err != nil {
-			log.Printf("Failed to start device authorization: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to start device authorization: %w", err)}
 		}
-		log.Printf("Device authorization started successfully")
 
 		// Open browser for the user to login
-		log.Printf("Opening browser for SSO login: %s", *deviceAuthOutput.VerificationUriComplete)
 		if err := openBrowser(*deviceAuthOutput.VerificationUriComplete); err != nil {
-			log.Printf("Failed to open browser: %v", err)
 		}
 
 		// Calculate expiration time
 		expiresIn := time.Now().Add(time.Duration(deviceAuthOutput.ExpiresIn) * time.Second)
-		log.Printf("Authorization will expire at: %v", expiresIn)
 
 		// Return an interim message to update the UI with verification info
 		return ssoVerificationStartedMsg{
@@ -358,11 +341,8 @@ func pollForSSOToken(msg ssoVerificationStartedMsg) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
-		log.Printf("Poll attempt - checking token status")
-
 		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(msg.region))
 		if err != nil {
-			log.Printf("Failed to load AWS config for token polling: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to load AWS config: %w", err)}
 		}
 
@@ -379,7 +359,6 @@ func pollForSSOToken(msg ssoVerificationStartedMsg) tea.Cmd {
 
 		// First check for successful token creation
 		if tokenOutput != nil && tokenOutput.AccessToken != nil && *tokenOutput.AccessToken != "" {
-			log.Printf("Authentication successful - token received")
 			return ssoLoginSuccessMsg{accessToken: *tokenOutput.AccessToken}
 		}
 
@@ -390,43 +369,35 @@ func pollForSSOToken(msg ssoVerificationStartedMsg) tea.Cmd {
 				switch apiErr.ErrorCode() {
 				case "AuthorizationPendingException":
 					if time.Now().After(msg.expiresAt) {
-						log.Printf("Authentication timed out")
 						return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out")}
 					}
 
 					// timeLeft := msg.expiresAt.Sub(time.Now())
-					pollInterval := time.Duration(msg.interval) * time.Second
+					// pollInterval := time.Duration(msg.interval) * time.Second
 
-					log.Printf("Authorization pending - next poll in %v seconds", pollInterval.Seconds())
 					return ssoTokenPollingTickMsg{verification: msg}
 
 				case "SlowDownException":
-					pollInterval := time.Duration(msg.interval*2) * time.Second
-					log.Printf("Received slow down error - next poll in %v seconds", pollInterval.Seconds())
+					// pollInterval := time.Duration(msg.interval*2) * time.Second
 					return ssoTokenPollingTickMsg{verification: msg}
 
 				case "ExpiredTokenException":
-					log.Printf("Device code expired")
 					return ssoLoginErrMsg{err: fmt.Errorf("device code expired")}
 
 				default:
-					log.Printf("Unexpected API error: %s", apiErr.ErrorCode())
 					return ssoLoginErrMsg{err: fmt.Errorf("API error: %s - %s",
 						apiErr.ErrorCode(), apiErr.ErrorMessage())}
 				}
 			}
 
 			if time.Now().After(msg.expiresAt) {
-				log.Printf("Authentication timed out")
 				return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out")}
 			}
 
-			log.Printf("Non-API error - returning to poll")
 			return ssoTokenPollingTickMsg{verification: msg}
 		}
 
 		// If we get here, we have a response but no valid token
-		log.Printf("No valid token received - returning to poll")
 		return ssoTokenPollingTickMsg{verification: msg}
 	}
 }
@@ -504,15 +475,10 @@ func listAccountRoles(ctx context.Context, client *sso.Client, accessToken strin
 
 // Set AWS credentials in environment variables
 func setAWSCredentials(accessKeyID, secretAccessKey, sessionToken, region string) {
-	log.Printf("Access key: %v", accessKeyID)
-	log.Printf("secret: %v", secretAccessKey)
-	log.Printf("token: %v", sessionToken)
 	os.Setenv("AWS_ACCESS_KEY_ID", accessKeyID)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secretAccessKey)
 	os.Setenv("AWS_SESSION_TOKEN", sessionToken)
 	os.Setenv("AWS_DEFAULT_REGION", region)
-
-	log.Printf("AWS credentials set successfully for region %s", region)
 }
 
 // Set AWS credentials in credentials file
@@ -554,7 +520,6 @@ func writeAWSCredentialsFile(accessKeyID, secretAccessKey, sessionToken, region 
 		return fmt.Errorf("failed to save credentials file: %w", err)
 	}
 
-	log.Printf("AWS credentials written to %s for profile %s", credentialsPath, profile)
 	return nil
 }
 
@@ -693,9 +658,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								m.formSuccess = ""
 								m.inputs = initialInputs()
 
+								// Extract company name from URL
+								companyName := strings.TrimPrefix(profile.StartURL, "https://")
+								companyName = strings.TrimSuffix(companyName, ".awsapps.com/start")
+
 								// Set values from selected profile
 								m.inputs[0].SetValue(profile.Name)
-								m.inputs[1].SetValue(profile.StartURL)
+								m.inputs[1].SetValue(companyName)
 								m.inputs[2].SetValue(profile.Region)
 
 								m.focusIndex = 0
@@ -922,24 +891,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
-	// Get values from inputs
 	alias := strings.TrimSpace(m.inputs[0].Value())
-	portalURL := strings.TrimSpace(m.inputs[1].Value())
+	companyName := strings.TrimSpace(m.inputs[1].Value())
 	region := strings.TrimSpace(m.inputs[2].Value())
 
-	// Validate inputs
 	if alias == "" {
 		m.formError = "Alias cannot be empty"
 		return m, nil
 	}
 
-	if portalURL == "" {
-		m.formError = "Portal URL cannot be empty"
-		return m, nil
-	}
-
-	if !strings.HasPrefix(portalURL, "https://") || !strings.Contains(portalURL, ".awsapps.com/start") {
-		m.formError = "Portal URL should be in format: https://company.awsapps.com/start"
+	if companyName == "" {
+		m.formError = "Company name cannot be empty"
 		return m, nil
 	}
 
@@ -948,7 +910,8 @@ func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Check for duplicate alias
+	portalURL := fmt.Sprintf("https://%s.awsapps.com/start", companyName)
+
 	for _, profile := range m.ssoProfiles {
 		if profile.Name == alias {
 			m.formError = "An SSO profile with this alias already exists"
@@ -956,24 +919,16 @@ func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Create new SSO profile
 	newProfile := SSOProfile{
 		Name:     alias,
 		StartURL: portalURL,
 		Region:   region,
 	}
 
-	// Add to profiles
 	m.ssoProfiles = append(m.ssoProfiles, newProfile)
-
-	// Update SSO list
 	m.updateSSOList()
-
-	// Show success message
 	m.formSuccess = "SSO profile added successfully!"
 	m.formError = ""
-
-	// Reset form
 	m.inputs = initialInputs()
 	m.focusIndex = 0
 
@@ -981,24 +936,17 @@ func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
-	// Get values from inputs
 	alias := strings.TrimSpace(m.inputs[0].Value())
-	portalURL := strings.TrimSpace(m.inputs[1].Value())
+	companyName := strings.TrimSpace(m.inputs[1].Value())
 	region := strings.TrimSpace(m.inputs[2].Value())
 
-	// Validate inputs
 	if alias == "" {
 		m.formError = "Alias cannot be empty"
 		return m, nil
 	}
 
-	if portalURL == "" {
-		m.formError = "Portal URL cannot be empty"
-		return m, nil
-	}
-
-	if !strings.HasPrefix(portalURL, "https://") || !strings.Contains(portalURL, ".awsapps.com/start") {
-		m.formError = "Portal URL should be in format: https://company.awsapps.com/start"
+	if companyName == "" {
+		m.formError = "Company name cannot be empty"
 		return m, nil
 	}
 
@@ -1007,7 +955,8 @@ func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Check for duplicate alias
+	portalURL := fmt.Sprintf("https://%s.awsapps.com/start", companyName)
+
 	for idx, profile := range m.ssoProfiles {
 		if profile.Name == alias && idx != m.editingIndex {
 			m.formError = "An SSO profile with this alias already exists"
@@ -1015,17 +964,13 @@ func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update the profile
 	m.ssoProfiles[m.editingIndex] = SSOProfile{
 		Name:     alias,
 		StartURL: portalURL,
 		Region:   region,
 	}
 
-	// Update SSO list
 	m.updateSSOList()
-
-	// Show success message
 	m.formSuccess = "SSO profile updated successfully!"
 	m.formError = ""
 
@@ -1101,7 +1046,6 @@ func (m model) View() string {
 		)
 
 	case stateAddSSO, stateEditSSO:
-		// Form view
 		var formTitle string
 		if m.state == stateAddSSO {
 			formTitle = titleStyle.Render("Add New AWS SSO Profile")
@@ -1109,19 +1053,15 @@ func (m model) View() string {
 			formTitle = titleStyle.Render("Edit AWS SSO Profile")
 		}
 
-		// Form fields
 		fields := []string{
 			"Alias (friendly name):",
-			"Portal URL:",
+			"Company Name (e.g. 'mycompany' from mycompany.awsapps.com):",
 			"Default Region:",
 		}
 
 		var formContent strings.Builder
-
-		// Add spacing
 		formContent.WriteString("\n\n")
 
-		// Render each form field
 		for i, field := range fields {
 			input := m.inputs[i].View()
 			if i == m.focusIndex {
@@ -1131,14 +1071,12 @@ func (m model) View() string {
 			}
 		}
 
-		// Submit button
 		button := "[ Submit ]"
 		if m.focusIndex == len(m.inputs) {
 			button = highlightStyle.Render("[ Submit ]")
 		}
 		formContent.WriteString("\n" + button + "\n\n")
 
-		// Error or success message
 		if m.formError != "" {
 			formContent.WriteString("\n" + errorStyle.Render(m.formError) + "\n")
 		}
@@ -1147,10 +1085,8 @@ func (m model) View() string {
 			formContent.WriteString("\n" + successStyle.Render(m.formSuccess) + "\n")
 		}
 
-		// Help text
 		formContent.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("Press ESC to cancel") + "\n")
 
-		// Combine all parts
 		s = lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String())
 	}
 
