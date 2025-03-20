@@ -653,6 +653,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+
 		case stateSelectAccount:
 			if msg.String() == "enter" {
 				i, ok := m.accountList.SelectedItem().(item)
@@ -764,12 +765,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.verificationUriComplete = msg.verificationUriComplete
 		m.verificationCode = msg.userCode
 
-		// Start polling for token
-		return m, pollForSSOToken(msg)
+		// Start polling for token and keep spinner going
+		return m, tea.Batch(
+			pollForSSOToken(msg),
+			m.spinner.Tick,
+		)
 
 	case ssoTokenPollingTickMsg:
-		// Continue polling
-		return m, pollForSSOToken(msg.verification)
+		// Continue polling and keep spinner going
+		return m, tea.Batch(
+			pollForSSOToken(msg.verification),
+			m.spinner.Tick,
+		)
+
+	case spinner.TickMsg:
+		// Handle spinner ticks
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	}
 
 	// Handle updates for the individual components based on state
