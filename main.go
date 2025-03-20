@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -36,7 +37,6 @@ const (
 
 // Styling
 var (
-	basePink   = lipgloss.Color("#fea7e5")
 	baseBlue   = lipgloss.Color("#00f5ff")
 	baseYellow = lipgloss.Color("#fcf75f")
 	baseGreen  = lipgloss.Color("#a0f077")
@@ -61,11 +61,6 @@ var (
 			Foreground(lipgloss.Color("#FFFDF5")).
 			Background(lipgloss.Color("#25A065")).
 			Padding(0, 1)
-
-	inputStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("240")).
-			PaddingLeft(1)
 )
 
 // Messages
@@ -96,6 +91,7 @@ type ssoVerificationStartedMsg struct {
 	clientId                string
 	clientSecret            string
 	expiresAt               time.Time
+	region                  string // Add region field
 }
 
 type ssoTokenPollingTickMsg struct {
@@ -128,9 +124,11 @@ type model struct {
 	ssooidcClient *ssooidc.Client
 	stsClient     *sts.Client
 	accessToken   string
-	sessionExpiry time.Time
 	errorMessage  string
 	loadingText   string
+
+	// Add region field
+	currentRegion string
 
 	// SSO verification fields
 	verificationUri         string
@@ -292,40 +290,52 @@ func startSSOLogin(startUrl string, region string) tea.Cmd {
 		// Create a temporary context for this operation
 		ctx := context.Background()
 
+		log.Printf("Starting SSO login for region %s and URL %s", region, startUrl)
+
 		// Load AWS SDK configuration
 		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 		if err != nil {
+			log.Printf("Failed to load AWS config: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to load AWS config: %w", err)}
 		}
 
 		// Create OIDC client for authentication
 		oidcClient := ssooidc.NewFromConfig(cfg)
 
+		log.Printf("Registering OIDC client...")
 		// Register client
 		registerOutput, err := oidcClient.RegisterClient(ctx, &ssooidc.RegisterClientInput{
 			ClientName: aws.String("aws-sso-cli-tool"),
 			ClientType: aws.String("public"),
 		})
 		if err != nil {
+			log.Printf("Failed to register OIDC client: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to register OIDC client: %w", err)}
 		}
+		log.Printf("OIDC client registered successfully")
 
 		// Start device authorization
+		log.Printf("Starting device authorization...")
 		deviceAuthOutput, err := oidcClient.StartDeviceAuthorization(ctx, &ssooidc.StartDeviceAuthorizationInput{
 			ClientId:     registerOutput.ClientId,
 			ClientSecret: registerOutput.ClientSecret,
 			StartUrl:     aws.String(startUrl),
 		})
 		if err != nil {
+			log.Printf("Failed to start device authorization: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to start device authorization: %w", err)}
 		}
+		log.Printf("Device authorization started successfully")
 
 		// Open browser for the user to login
-		_ = openBrowser(*deviceAuthOutput.VerificationUriComplete)
-		// Ignore browser open errors - we'll show the URL in the UI
+		log.Printf("Opening browser for SSO login: %s", *deviceAuthOutput.VerificationUriComplete)
+		if err := openBrowser(*deviceAuthOutput.VerificationUriComplete); err != nil {
+			log.Printf("Failed to open browser: %v", err)
+		}
 
 		// Calculate expiration time
 		expiresIn := time.Now().Add(time.Duration(deviceAuthOutput.ExpiresIn) * time.Second)
+		log.Printf("Authorization will expire at: %v", expiresIn)
 
 		// Return an interim message to update the UI with verification info
 		return ssoVerificationStartedMsg{
@@ -337,20 +347,23 @@ func startSSOLogin(startUrl string, region string) tea.Cmd {
 			clientId:                *registerOutput.ClientId,
 			clientSecret:            *registerOutput.ClientSecret,
 			expiresAt:               expiresIn,
+			region:                  region, // Add region to the message
 		}
 	}
 }
 
 func pollForSSOToken(msg ssoVerificationStartedMsg) tea.Cmd {
 	return func() tea.Msg {
-		// Create a temporary context for this operation
 		ctx := context.Background()
 
-		// Create OIDC client
-		cfg, err := config.LoadDefaultConfig(ctx)
+		log.Printf("Poll attempt - checking token status")
+
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(msg.region))
 		if err != nil {
+			log.Printf("Failed to load AWS config for token polling: %v", err)
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to load AWS config: %w", err)}
 		}
+
 		oidcClient := ssooidc.NewFromConfig(cfg)
 
 		tokenInput := &ssooidc.CreateTokenInput{
@@ -360,48 +373,59 @@ func pollForSSOToken(msg ssoVerificationStartedMsg) tea.Cmd {
 			GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
 		}
 
-		// Poll once for token
 		tokenOutput, err := oidcClient.CreateToken(ctx, tokenInput)
+
+		// First check for successful token creation
+		if tokenOutput != nil && tokenOutput.AccessToken != nil && *tokenOutput.AccessToken != "" {
+			log.Printf("Authentication successful - token received")
+			return ssoLoginSuccessMsg{accessToken: *tokenOutput.AccessToken}
+		}
+
+		// Handle error cases
 		if err != nil {
-			// Check for specific error types
 			var apiErr smithy.APIError
 			if errors.As(err, &apiErr) {
-				// Handle API errors
 				switch apiErr.ErrorCode() {
 				case "AuthorizationPendingException":
-					// This is expected while waiting for user to complete login
 					if time.Now().After(msg.expiresAt) {
+						log.Printf("Authentication timed out")
 						return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out")}
 					}
-					// Return a cmd to poll again after the interval
-					return tea.Tick(time.Duration(msg.interval)*time.Second, func(time.Time) tea.Msg {
-						return ssoTokenPollingTickMsg{verification: msg}
-					})
+
+					// timeLeft := msg.expiresAt.Sub(time.Now())
+					pollInterval := time.Duration(msg.interval) * time.Second
+
+					log.Printf("Authorization pending - next poll in %v seconds", pollInterval.Seconds())
+					return ssoTokenPollingTickMsg{verification: msg}
+
 				case "SlowDownException":
-					// We're polling too quickly
-					// Poll again with longer interval
-					return tea.Tick(time.Duration(msg.interval*2)*time.Second, func(time.Time) tea.Msg {
-						return ssoTokenPollingTickMsg{verification: msg}
-					})
+					pollInterval := time.Duration(msg.interval*2) * time.Second
+					log.Printf("Received slow down error - next poll in %v seconds", pollInterval.Seconds())
+					return ssoTokenPollingTickMsg{verification: msg}
+
 				case "ExpiredTokenException":
+					log.Printf("Device code expired")
 					return ssoLoginErrMsg{err: fmt.Errorf("device code expired")}
+
 				default:
-					return ssoLoginErrMsg{err: fmt.Errorf("API error during token creation: %s: %s",
+					log.Printf("Unexpected API error: %s", apiErr.ErrorCode())
+					return ssoLoginErrMsg{err: fmt.Errorf("API error: %s - %s",
 						apiErr.ErrorCode(), apiErr.ErrorMessage())}
 				}
 			}
 
-			// For unrecognized errors, wait and try again
 			if time.Now().After(msg.expiresAt) {
+				log.Printf("Authentication timed out")
 				return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out")}
 			}
-			return tea.Tick(time.Duration(msg.interval)*time.Second, func(time.Time) tea.Msg {
-				return ssoTokenPollingTickMsg{verification: msg}
-			})
+
+			log.Printf("Non-API error - returning to poll")
+			return ssoTokenPollingTickMsg{verification: msg}
 		}
 
-		// Successfully got token
-		return ssoLoginSuccessMsg{accessToken: *tokenOutput.AccessToken}
+		// If we get here, we have a response but no valid token
+		log.Printf("No valid token received - returning to poll")
+		return ssoTokenPollingTickMsg{verification: msg}
 	}
 }
 
@@ -759,11 +783,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ssoVerificationStartedMsg:
-		// Update model with verification information
+		// Update model with verification information and region
 		m.loadingText = "Waiting for browser authentication..."
 		m.verificationUri = msg.verificationUri
 		m.verificationUriComplete = msg.verificationUriComplete
 		m.verificationCode = msg.userCode
+		m.currentRegion = msg.region // Store the region in the model
 
 		// Start polling for token and keep spinner going
 		return m, tea.Batch(
@@ -772,10 +797,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case ssoTokenPollingTickMsg:
-		// Continue polling and keep spinner going
+		// Continue polling for token completion
+		if time.Now().After(msg.verification.expiresAt) {
+			m.errorMessage = "Authentication timed out"
+			m.state = stateSelectSSO
+			return m, nil
+		}
+
+		// Update UI and continue polling
+		m.loadingText = fmt.Sprintf("Waiting for authentication... (%.0fs remaining)",
+			time.Until(msg.verification.expiresAt).Seconds())
+
 		return m, tea.Batch(
-			pollForSSOToken(msg.verification),
 			m.spinner.Tick,
+			pollForSSOToken(msg.verification),
 		)
 
 	case spinner.TickMsg:
