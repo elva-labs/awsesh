@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"gopkg.in/ini.v1"
 )
 
 // Model states
@@ -500,6 +502,62 @@ func listAccountRoles(ctx context.Context, client *sso.Client, accessToken strin
 	return roles, nil
 }
 
+// Set AWS credentials in environment variables
+func setAWSCredentials(accessKeyID, secretAccessKey, sessionToken, region string) {
+	log.Printf("Access key: %v", accessKeyID)
+	log.Printf("secret: %v", secretAccessKey)
+	log.Printf("token: %v", sessionToken)
+	os.Setenv("AWS_ACCESS_KEY_ID", accessKeyID)
+	os.Setenv("AWS_SECRET_ACCESS_KEY", secretAccessKey)
+	os.Setenv("AWS_SESSION_TOKEN", sessionToken)
+	os.Setenv("AWS_DEFAULT_REGION", region)
+
+	log.Printf("AWS credentials set successfully for region %s", region)
+}
+
+// Set AWS credentials in credentials file
+func writeAWSCredentialsFile(accessKeyID, secretAccessKey, sessionToken, region string, profile string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	awsDir := filepath.Join(homeDir, ".aws")
+	if err := os.MkdirAll(awsDir, 0700); err != nil {
+		return fmt.Errorf("failed to create .aws directory: %w", err)
+	}
+
+	credentialsPath := filepath.Join(awsDir, "credentials")
+
+	// Load existing credentials file or create new one
+	cfg, err := ini.Load(credentialsPath)
+	if err != nil {
+		// If file doesn't exist, create new one
+		cfg = ini.Empty()
+	}
+
+	// Create or update the profile section
+	section, err := cfg.NewSection("default")
+	if err != nil {
+		return fmt.Errorf("failed to create profile section: %w", err)
+	}
+
+	section.Key("aws_access_key_id").SetValue(accessKeyID)
+	section.Key("aws_secret_access_key").SetValue(secretAccessKey)
+	if sessionToken != "" {
+		section.Key("aws_session_token").SetValue(sessionToken)
+	}
+	section.Key("region").SetValue(region)
+
+	// Save the file
+	if err := cfg.SaveTo(credentialsPath); err != nil {
+		return fmt.Errorf("failed to save credentials file: %w", err)
+	}
+
+	log.Printf("AWS credentials written to %s for profile %s", credentialsPath, profile)
+	return nil
+}
+
 // Get credentials for a specific role
 func getRoleCredentials(client *sso.Client, accessToken, accountID, roleName string) tea.Cmd {
 	return func() tea.Msg {
@@ -514,11 +572,23 @@ func getRoleCredentials(client *sso.Client, accessToken, accountID, roleName str
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to get role credentials: %w", err)}
 		}
 
-		// Set AWS environment variables
-		os.Setenv("AWS_ACCESS_KEY_ID", *resp.RoleCredentials.AccessKeyId)
-		os.Setenv("AWS_SECRET_ACCESS_KEY", *resp.RoleCredentials.SecretAccessKey)
-		os.Setenv("AWS_SESSION_TOKEN", *resp.RoleCredentials.SessionToken)
-		os.Setenv("AWS_DEFAULT_REGION", client.Options().Region)
+		// Generate profile name based on account and role
+		profile := fmt.Sprintf("%s_%s", accountID, roleName)
+
+		// Write credentials to file instead of setting environment variables
+		err = writeAWSCredentialsFile(
+			*resp.RoleCredentials.AccessKeyId,
+			*resp.RoleCredentials.SecretAccessKey,
+			*resp.RoleCredentials.SessionToken,
+			client.Options().Region,
+			profile,
+		)
+		if err != nil {
+			return ssoLoginErrMsg{err: fmt.Errorf("failed to write credentials: %w", err)}
+		}
+
+		// Set the AWS_PROFILE environment variable to use the new profile
+		os.Setenv("AWS_PROFILE", profile)
 
 		return credentialsSetMsg{}
 	}
