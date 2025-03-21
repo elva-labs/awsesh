@@ -1,9 +1,12 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	awsclient "awsesh/aws"
@@ -28,6 +31,113 @@ type SSOProfile struct {
 type Manager struct {
 	configPath string
 	tokensPath string
+}
+
+// CachedAccounts represents the cached accounts for an SSO profile
+type CachedAccounts struct {
+	ProfileName string
+	StartURL    string
+	Accounts    []awsclient.Account
+	LastUpdated time.Time
+}
+
+// SaveCachedAccounts saves accounts to the cache file
+func (m *Manager) SaveCachedAccounts(profileName, startURL string, accounts []awsclient.Account) error {
+	cachePath, err := getAwseshAccountsCachePath()
+	if err != nil {
+		return err
+	}
+
+	// Load existing cache file
+	var allCaches []CachedAccounts
+	data, err := os.ReadFile(cachePath)
+	if err == nil {
+		if err = json.Unmarshal(data, &allCaches); err != nil {
+			// If there's an error parsing, just start with a new cache
+			allCaches = []CachedAccounts{}
+		}
+	}
+
+	// Sort accounts by name for consistent ordering
+	slices.SortFunc(accounts, func(a, b awsclient.Account) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	// Find and update existing cache or add new one
+	found := false
+	for i, cache := range allCaches {
+		if cache.StartURL == startURL {
+			allCaches[i].Accounts = accounts
+			allCaches[i].LastUpdated = time.Now()
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		allCaches = append(allCaches, CachedAccounts{
+			ProfileName: profileName,
+			StartURL:    startURL,
+			Accounts:    accounts,
+			LastUpdated: time.Now(),
+		})
+	}
+
+	// Save the updated cache
+	jsonData, err := json.Marshal(allCaches)
+	if err != nil {
+		return fmt.Errorf("failed to marshal accounts cache: %w", err)
+	}
+
+	if err := os.WriteFile(cachePath, jsonData, 0600); err != nil {
+		return fmt.Errorf("failed to write accounts cache: %w", err)
+	}
+
+	return nil
+}
+
+// LoadCachedAccounts loads cached accounts for a specific SSO profile
+func (m *Manager) LoadCachedAccounts(startURL string) ([]awsclient.Account, time.Time, error) {
+	cachePath, err := getAwseshAccountsCachePath()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, time.Time{}, nil
+		}
+		return nil, time.Time{}, fmt.Errorf("failed to read accounts cache: %w", err)
+	}
+
+	var allCaches []CachedAccounts
+	if err = json.Unmarshal(data, &allCaches); err != nil {
+		return nil, time.Time{}, fmt.Errorf("failed to parse accounts cache: %w", err)
+	}
+
+	for _, cache := range allCaches {
+		if cache.StartURL == startURL {
+			return cache.Accounts, cache.LastUpdated, nil
+		}
+	}
+
+	return nil, time.Time{}, nil
+}
+
+// Helper function to get the accounts cache file path
+func getAwseshAccountsCachePath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	awsDir := filepath.Join(homeDir, ".aws")
+	if err := os.MkdirAll(awsDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create .aws directory: %w", err)
+	}
+
+	return filepath.Join(awsDir, "awsesh-accounts"), nil
 }
 
 // NewManager creates a new configuration manager

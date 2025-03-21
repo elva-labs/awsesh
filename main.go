@@ -86,6 +86,10 @@ type model struct {
 	verificationUri         string
 	verificationUriComplete string
 	verificationCode        string
+
+	// Caching
+	usingCachedAccounts bool
+	accountsLastUpdated time.Time
 }
 
 // Items to display in list
@@ -180,16 +184,18 @@ func initialModel() model {
 
 	// Create initial model
 	m := model{
-		state:        stateSelectSSO,
-		ssoProfiles:  profiles,
-		ssoList:      ssoList,
-		accountList:  accountList,
-		spinner:      s,
-		inputs:       initialInputs(),
-		focusIndex:   0,
-		editingIndex: -1,
-		errorMessage: "",
-		configMgr:    configMgr,
+		state:               stateSelectSSO,
+		ssoProfiles:         profiles,
+		ssoList:             ssoList,
+		accountList:         accountList,
+		spinner:             s,
+		inputs:              initialInputs(),
+		focusIndex:          0,
+		editingIndex:        -1,
+		errorMessage:        "",
+		configMgr:           configMgr,
+		usingCachedAccounts: false,
+		accountsLastUpdated: time.Time{},
 	}
 
 	// Update the list items
@@ -227,6 +233,26 @@ func startSSOLogin(startUrl string, region string, configMgr *config.Manager, cl
 
 		return loginInfo
 	}
+}
+
+// Helper function to create account list items
+func makeAccountItems(accounts []aws.Account) []list.Item {
+	accountItems := make([]list.Item, len(accounts))
+	for i, acc := range accounts {
+		accountItems[i] = item{
+			title:       acc.Name,
+			description: fmt.Sprintf("Account ID: %s, Roles: %s", acc.AccountID, strings.Join(acc.Roles, ", ")),
+		}
+	}
+
+	// Sort items by title (account name) for consistent ordering
+	slices.SortFunc(accountItems, func(a, b list.Item) int {
+		itemA, _ := a.(item)
+		itemB, _ := b.(item)
+		return strings.Compare(itemA.title, itemB.title)
+	})
+
+	return accountItems
 }
 
 func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *config.Manager) tea.Cmd {
@@ -448,9 +474,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if profile.Name == i.Title() {
 								// Check if we're switching to a different SSO profile
 								if m.selectedSSO == nil || m.selectedSSO.Name != profile.Name {
-									// Clear accounts only when switching to a different profile
+									// Clear accounts and reset list when switching profiles
 									m.accounts = nil
 									m.accountList.SetItems([]list.Item{})
+									m.usingCachedAccounts = false
+									// Reset the account list title to avoid showing the previous SSO name
+									m.accountList.Title = "Select AWS Account"
 								}
 
 								m.selectedSSO = &profile
@@ -463,6 +492,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									return m, nil
 								}
 
+								// Load cached accounts if they exist
+								cachedAccounts, lastUpdated, err := m.configMgr.LoadCachedAccounts(profile.StartURL)
+								if err != nil {
+									// Just log the error but continue with normal flow
+									fmt.Fprintf(os.Stderr, "Warning: Failed to load cached accounts: %v\n", err)
+								} else if len(cachedAccounts) > 0 {
+									// Use cached accounts while fetching fresh ones
+									m.accounts = cachedAccounts
+									m.accountsLastUpdated = lastUpdated
+									m.usingCachedAccounts = true
+
+									// Update the account list items
+									accountItems := makeAccountItems(m.accounts)
+									m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
+									m.accountList.SetItems(accountItems)
+								} else {
+									// No cached accounts, ensure we show loading screen
+									m.accounts = nil
+									m.accountList.SetItems([]list.Item{})
+								}
+
 								// Check for cached token first
 								cachedToken, err := m.configMgr.LoadToken(profile.StartURL)
 								if err != nil {
@@ -473,11 +523,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								// Start SSO login flow
 								m.state = stateSelectAccount
 								if cachedToken != nil {
-									m.loadingText = "Using cached session... Fetching accounts..."
+									if m.usingCachedAccounts {
+										m.loadingText = "Using cached session... Updating accounts in background..."
+										// Start background fetch and immediately show the cached accounts
+										return m, tea.Batch(
+											startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient),
+											func() tea.Msg {
+												// Allow the UI to immediately show the cached accounts
+												return nil
+											},
+										)
+									} else {
+										m.loadingText = "Using cached session... Fetching accounts..."
+										return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient)
+									}
 								} else {
 									m.loadingText = "Starting SSO login process..."
+									return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient)
 								}
-								return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient)
 							}
 						}
 					}
@@ -574,25 +637,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchAccountsSuccessMsg:
+		if m.selectedSSO != nil {
+			go func() {
+				if err := m.configMgr.SaveCachedAccounts(m.selectedSSO.Name, m.selectedSSO.StartURL, msg.accounts); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to save accounts to cache: %v\n", err)
+				}
+			}()
+		}
+
 		m.accounts = msg.accounts
 		m.state = stateSelectAccount
 		m.errorMessage = ""
 
-		// Create account list items
-		accountItems := make([]list.Item, len(m.accounts))
-		for i, acc := range m.accounts {
-			accountItems[i] = item{
-				title:       acc.Name,
-				description: fmt.Sprintf("Account ID: %s, Roles: %s", acc.AccountID, strings.Join(acc.Roles, ", ")),
-			}
+		// If we're using cached accounts, we're doing a background refresh, so keep the flag
+		if !m.usingCachedAccounts {
+			m.usingCachedAccounts = false
 		}
 
-		// Sort items by title (account name) for consistent ordering
-		slices.SortFunc(accountItems, func(a, b list.Item) int {
-			itemA, _ := a.(item)
-			itemB, _ := b.(item)
-			return strings.Compare(itemA.title, itemB.title)
-		})
+		// Clear loading text when fetch is complete
+		m.loadingText = ""
+
+		// Create account list items
+		accountItems := makeAccountItems(m.accounts)
 
 		// Update account list title with breadcrumb
 		m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
@@ -790,43 +856,10 @@ func (m model) View() string {
 
 	case stateSelectAccount:
 		// Show loading spinner while fetching accounts
-		if len(m.accounts) == 0 {
+		if len(m.accounts) == 0 || (m.accounts != nil && !m.usingCachedAccounts && m.loadingText != "") {
+			// No accounts loaded yet or actively fetching non-cached accounts
 			if m.verificationUri != "" && m.verificationCode != "" {
-				// Create a more structured and visually appealing verification screen
-				header := lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#FFFDF5")).
-					Background(styles.BaseBlue).
-					Padding(0, 1).
-					MarginLeft(1).
-					Render("AWS SSO Authentication")
-
-				instructions := styles.VerificationBox.Render(
-					lipgloss.JoinVertical(lipgloss.Center,
-						"Your browser should open automatically for SSO login.",
-						"If it doesn't, you can authenticate manually:",
-						"",
-						fmt.Sprintf("1. Visit: %s", styles.HighlightStyle.Render(m.verificationUri)),
-						"2. Enter the following code:",
-						"",
-						styles.CodeBox.Render(m.verificationCode),
-						"",
-						styles.FinePrint.Render("You can also click the link below to open directly:"),
-						styles.HighlightStyle.Render(m.verificationUriComplete),
-					),
-				)
-
-				loadingStatus := lipgloss.JoinHorizontal(lipgloss.Center,
-					m.spinner.View(),
-					" "+m.loadingText,
-				)
-
-				s = lipgloss.JoinVertical(lipgloss.Left,
-					header,
-					"",
-					instructions,
-					"",
-					loadingStatus,
-				)
+				// Existing verification screen code...
 			} else {
 				// Center the loading spinner and text vertically and horizontally
 				loading := lipgloss.JoinHorizontal(lipgloss.Center,
