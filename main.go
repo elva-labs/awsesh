@@ -34,19 +34,23 @@ const (
 
 // Messages
 type fetchAccountsSuccessMsg struct {
-	accounts []aws.Account
+	accounts  []aws.Account
+	requestID string
 }
 
 type fetchAccountsErrMsg struct {
-	err error
+	err       error
+	requestID string
 }
 
 type ssoLoginSuccessMsg struct {
 	accessToken string
+	requestID   string
 }
 
 type ssoLoginErrMsg struct {
-	err error
+	err       error
+	requestID string
 }
 
 type credentialsSetMsg struct{}
@@ -73,7 +77,7 @@ type model struct {
 	formError    string
 	formSuccess  string
 	focusIndex   int
-	editingIndex int // Index of the profile being edited
+	editingIndex int
 
 	// AWS
 	awsClient    *aws.Client
@@ -90,6 +94,7 @@ type model struct {
 	// Caching
 	usingCachedAccounts bool
 	accountsLastUpdated time.Time
+	currentRequestID    string
 }
 
 // Items to display in list
@@ -196,6 +201,7 @@ func initialModel() model {
 		configMgr:           configMgr,
 		usingCachedAccounts: false,
 		accountsLastUpdated: time.Time{},
+		currentRequestID:    "",
 	}
 
 	// Update the list items
@@ -207,25 +213,28 @@ func initialModel() model {
 }
 
 // Start SSO login process
-func startSSOLogin(startUrl string, region string, configMgr *config.Manager, client *aws.Client) tea.Cmd {
+func startSSOLogin(startUrl string, region string, configMgr *config.Manager, client *aws.Client, requestID string) tea.Cmd {
 	return func() tea.Msg {
 		// First check if we have a valid cached token
 		cachedToken, err := configMgr.LoadToken(startUrl)
 		if err != nil {
-			return ssoLoginErrMsg{err: fmt.Errorf("failed to check token cache: %w", err)}
+			return ssoLoginErrMsg{err: fmt.Errorf("failed to check token cache: %w", err), requestID: requestID}
 		}
 
 		// If we have a valid token, immediately return success
 		if cachedToken != nil {
-			return ssoLoginSuccessMsg{accessToken: cachedToken.AccessToken}
+			return ssoLoginSuccessMsg{accessToken: cachedToken.AccessToken, requestID: requestID}
 		}
 
 		// Start new SSO login process
 		ctx := context.Background()
 		loginInfo, err := client.StartSSOLogin(ctx, startUrl)
 		if err != nil {
-			return ssoLoginErrMsg{err: err}
+			return ssoLoginErrMsg{err: err, requestID: requestID}
 		}
+
+		// Store the requestID in loginInfo for passing through the chain
+		loginInfo.RequestID = requestID
 
 		// Open browser for login
 		if err := utils.OpenBrowser(loginInfo.VerificationUriComplete); err != nil {
@@ -267,7 +276,7 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 				switch apiErr.ErrorCode() {
 				case "AuthorizationPendingException":
 					if time.Now().After(info.ExpiresAt) {
-						return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out")}
+						return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out"), requestID: info.RequestID}
 					}
 					return ssoTokenPollingTickMsg{info: info}
 
@@ -275,16 +284,16 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 					return ssoTokenPollingTickMsg{info: info}
 
 				case "ExpiredTokenException":
-					return ssoLoginErrMsg{err: fmt.Errorf("device code expired")}
+					return ssoLoginErrMsg{err: fmt.Errorf("device code expired"), requestID: info.RequestID}
 
 				default:
 					return ssoLoginErrMsg{err: fmt.Errorf("API error: %s - %s",
-						apiErr.ErrorCode(), apiErr.ErrorMessage())}
+						apiErr.ErrorCode(), apiErr.ErrorMessage()), requestID: info.RequestID}
 				}
 			}
 
 			if time.Now().After(info.ExpiresAt) {
-				return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out")}
+				return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out"), requestID: info.RequestID}
 			}
 
 			return ssoTokenPollingTickMsg{info: info}
@@ -299,7 +308,7 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 				fmt.Fprintf(os.Stderr, "Warning: Failed to save token to cache: %v\n", err)
 			}
 
-			return ssoLoginSuccessMsg{accessToken: token}
+			return ssoLoginSuccessMsg{accessToken: token, requestID: info.RequestID}
 		}
 
 		return ssoTokenPollingTickMsg{info: info}
@@ -307,27 +316,27 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 }
 
 // Fetch AWS accounts
-func fetchAccounts(client *aws.Client, accessToken string) tea.Cmd {
+func fetchAccounts(client *aws.Client, accessToken string, requestID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
 		accounts, err := client.ListAccounts(ctx, accessToken)
 		if err != nil {
-			return fetchAccountsErrMsg{err: err}
+			return fetchAccountsErrMsg{err: err, requestID: requestID}
 		}
 
-		return fetchAccountsSuccessMsg{accounts: accounts}
+		return fetchAccountsSuccessMsg{accounts: accounts, requestID: requestID}
 	}
 }
 
 // Get credentials for a role
-func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName string) tea.Cmd {
+func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName string, requestID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
 		resp, err := client.GetRoleCredentials(ctx, accessToken, accountID, roleName)
 		if err != nil {
-			return ssoLoginErrMsg{err: fmt.Errorf("failed to get role credentials: %w", err)}
+			return ssoLoginErrMsg{err: fmt.Errorf("failed to get role credentials: %w", err), requestID: requestID}
 		}
 
 		err = config.WriteCredentials(
@@ -337,7 +346,7 @@ func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName str
 			client.Region(),
 		)
 		if err != nil {
-			return ssoLoginErrMsg{err: fmt.Errorf("failed to write credentials: %w", err)}
+			return ssoLoginErrMsg{err: fmt.Errorf("failed to write credentials: %w", err), requestID: requestID}
 		}
 
 		return credentialsSetMsg{}
@@ -367,16 +376,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+
 		case "q":
 			if m.state != stateAddSSO && m.state != stateEditSSO {
 				return m, tea.Quit
 			}
+
 		case "esc":
 			switch m.state {
 			case stateSelectAccount:
 				m.state = stateSelectSSO
 				m.errorMessage = ""
 				return m, nil
+
 			case stateSessionSuccess:
 				// Clear cached token when exiting to allow fresh login next time
 				if m.selectedSSO != nil {
@@ -386,6 +398,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.state = stateSelectAccount
 				return m, nil
+
 			case stateAddSSO, stateEditSSO:
 				// Reset form
 				m.inputs = initialInputs()
@@ -472,6 +485,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if ok {
 						for _, profile := range m.ssoProfiles {
 							if profile.Name == i.Title() {
+								// Generate a new request ID for this SSO operation
+								newRequestID := fmt.Sprintf("%s-%d", profile.Name, time.Now().UnixNano())
+								m.currentRequestID = newRequestID
+
 								// Check if we're switching to a different SSO profile
 								if m.selectedSSO == nil || m.selectedSSO.Name != profile.Name {
 									// Clear accounts and reset list when switching profiles
@@ -527,7 +544,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										m.loadingText = "Using cached session... Updating accounts in background..."
 										// Start background fetch and immediately show the cached accounts
 										return m, tea.Batch(
-											startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient),
+											startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID),
 											func() tea.Msg {
 												// Allow the UI to immediately show the cached accounts
 												return nil
@@ -535,11 +552,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										)
 									} else {
 										m.loadingText = "Using cached session... Fetching accounts..."
-										return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient)
+										return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
 									}
 								} else {
 									m.loadingText = "Starting SSO login process..."
-									return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient)
+									return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
 								}
 							}
 						}
@@ -564,6 +581,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.accessToken,
 									m.selectedAcc.AccountID,
 									m.selectedAcc.SelectedRole,
+									m.currentRequestID, // Add this parameter
 								)
 							}
 						}
@@ -613,6 +631,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case *aws.SSOLoginInfo:
+		// Ignore messages for outdated requests
+		if msg.RequestID != m.currentRequestID {
+			return m, nil
+		}
+
 		// Store verification info in the model for display
 		m.verificationUri = msg.VerificationUri
 		m.verificationUriComplete = msg.VerificationUriComplete
@@ -626,17 +649,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case ssoLoginSuccessMsg:
+		// Ignore messages for outdated requests
+		if msg.requestID != m.currentRequestID {
+			return m, nil
+		}
+
 		m.accessToken = msg.accessToken
 		m.loadingText = "SSO login successful! Fetching accounts..."
 		m.errorMessage = ""
-		return m, fetchAccounts(m.awsClient, m.accessToken)
+		return m, fetchAccounts(m.awsClient, m.accessToken, m.currentRequestID)
 
 	case ssoLoginErrMsg:
+		// Ignore messages for outdated requests
+		if msg.requestID != m.currentRequestID {
+			return m, nil
+		}
+
 		m.errorMessage = msg.err.Error()
 		m.state = stateSelectSSO
 		return m, nil
 
 	case fetchAccountsSuccessMsg:
+		// Ignore messages for outdated requests
+		if msg.requestID != m.currentRequestID {
+			return m, nil
+		}
+
+		// Save the accounts to cache
 		if m.selectedSSO != nil {
 			go func() {
 				if err := m.configMgr.SaveCachedAccounts(m.selectedSSO.Name, m.selectedSSO.StartURL, msg.accounts); err != nil {
@@ -666,6 +705,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchAccountsErrMsg:
+		// Ignore messages for outdated requests
+		if msg.requestID != m.currentRequestID {
+			return m, nil
+		}
+
 		m.errorMessage = msg.err.Error()
 		m.state = stateSelectSSO
 		return m, nil

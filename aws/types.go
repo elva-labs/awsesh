@@ -21,6 +21,7 @@ type SSOLoginInfo struct {
 	ClientSecret            string
 	ExpiresAt               time.Time
 	StartUrl                string
+	RequestID               string
 }
 
 // TokenCache represents cached SSO token information
