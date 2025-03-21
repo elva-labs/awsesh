@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -25,6 +23,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"gopkg.in/ini.v1"
+
+	"awsesh/styles"
+	"awsesh/utils"
 )
 
 // Model states
@@ -34,57 +35,6 @@ const (
 	stateSessionSuccess
 	stateAddSSO
 	stateEditSSO
-)
-
-// Styling
-var (
-	baseBlue   = lipgloss.Color("#00f5ff")
-	baseYellow = lipgloss.Color("#fcf75f")
-	baseGreen  = lipgloss.Color("#a0f077")
-	baseRed    = lipgloss.Color("#ff4d4d")
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(baseRed)
-
-	successStyle = lipgloss.NewStyle().
-			Foreground(baseGreen)
-
-	highlightStyle = lipgloss.NewStyle().
-			Foreground(baseBlue)
-
-	successBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(baseYellow).
-			Padding(1, 3).
-			Margin(1, 0)
-
-	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#25A065")).
-			Padding(0, 1)
-
-	verificationBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(baseBlue).
-			Padding(2, 4).
-			Margin(1, 0).
-			Align(lipgloss.Center)
-
-	codeBox = lipgloss.NewStyle().
-		Border(lipgloss.ThickBorder()).
-		BorderForeground(baseYellow).
-		Padding(0, 1).
-		Margin(1, 0).
-		Bold(true)
-
-	finePrint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Italic(true).
-			MarginTop(1)
-
-	successIcon = lipgloss.NewStyle().
-			Foreground(baseGreen).
-			Bold(true)
 )
 
 // Messages
@@ -539,7 +489,7 @@ func startSSOLogin(startUrl string, region string) tea.Cmd {
 		}
 
 		// Open browser for the user to login
-		if err := openBrowser(*deviceAuthOutput.VerificationUriComplete); err != nil {
+		if err := utils.OpenBrowser(*deviceAuthOutput.VerificationUriComplete); err != nil {
 		}
 
 		// Calculate expiration time
@@ -771,29 +721,6 @@ func getRoleCredentials(client *sso.Client, accessToken, accountID, roleName str
 
 		return credentialsSetMsg{}
 	}
-}
-
-// Helper function to open browser for SSO login
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-	var err error
-
-	switch runtime.GOOS {
-	case "linux":
-		for _, cmd := range []string{"xdg-open", "sensible-browser", "x-www-browser", "gnome-open", "kde-open"} {
-			if _, err = exec.LookPath(cmd); err == nil {
-				return exec.Command(cmd, url).Start()
-			}
-		}
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		return fmt.Errorf("unsupported platform")
-	}
-
-	return cmd.Start()
 }
 
 func (m model) Init() tea.Cmd {
@@ -1245,7 +1172,7 @@ func (m model) View() string {
 	// If there's an error message, show it at the bottom
 	errorBar := ""
 	if m.errorMessage != "" {
-		errorBar = "\n" + errorStyle.Render(m.errorMessage)
+		errorBar = "\n" + styles.ErrorStyle.Render(m.errorMessage)
 	}
 
 	switch m.state {
@@ -1259,23 +1186,23 @@ func (m model) View() string {
 				// Create a more structured and visually appealing verification screen
 				header := lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#FFFDF5")).
-					Background(baseBlue).
+					Background(styles.BaseBlue).
 					Padding(0, 1).
 					MarginLeft(1).
 					Render("AWS SSO Authentication")
 
-				instructions := verificationBox.Render(
+				instructions := styles.VerificationBox.Render(
 					lipgloss.JoinVertical(lipgloss.Center,
 						"Your browser should open automatically for SSO login.",
 						"If it doesn't, you can authenticate manually:",
 						"",
-						fmt.Sprintf("1. Visit: %s", highlightStyle.Render(m.verificationUri)),
+						fmt.Sprintf("1. Visit: %s", styles.HighlightStyle.Render(m.verificationUri)),
 						"2. Enter the following code:",
 						"",
-						codeBox.Render(m.verificationCode),
+						styles.CodeBox.Render(m.verificationCode),
 						"",
-						finePrint.Render("You can also click the link below to open directly:"),
-						highlightStyle.Render(m.verificationUriComplete),
+						styles.FinePrint.Render("You can also click the link below to open directly:"),
+						styles.HighlightStyle.Render(m.verificationUriComplete),
 					),
 				)
 
@@ -1304,26 +1231,26 @@ func (m model) View() string {
 		// Create a more engaging success view with a checkmark icon
 		header := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(baseGreen).
+			Background(styles.BaseGreen).
 			Padding(0, 1).
 			MarginLeft(1).
 			Render("AWS Session Activated Successfully")
 
-		checkmark := successIcon.Render("✓")
+		checkmark := styles.SuccessIcon.Render("✓")
 
-		details := successBox.Render(
+		details := styles.SuccessBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
 				fmt.Sprintf("%s AWS Session Active", checkmark),
 				"",
-				fmt.Sprintf("Account: %s", highlightStyle.Render(m.selectedAcc.Name)),
+				fmt.Sprintf("Account: %s", styles.HighlightStyle.Render(m.selectedAcc.Name)),
 				fmt.Sprintf("Account ID: %s", m.selectedAcc.AccountID),
-				fmt.Sprintf("Role: %s", highlightStyle.Render(m.selectedAcc.SelectedRole)),
+				fmt.Sprintf("Role: %s", styles.HighlightStyle.Render(m.selectedAcc.SelectedRole)),
 				"",
-				successStyle.Render("AWS credentials have been configured successfully."),
+				styles.SuccessStyle.Render("AWS credentials have been configured successfully."),
 			),
 		)
 
-		helpText := finePrint.Render("Press ESC to go back or q to quit")
+		helpText := styles.FinePrint.Render("Press ESC to go back or q to quit")
 
 		s = lipgloss.JoinVertical(lipgloss.Left,
 			header,
@@ -1336,9 +1263,9 @@ func (m model) View() string {
 		// ...existing code for add/edit SSO forms...
 		var formTitle string
 		if m.state == stateAddSSO {
-			formTitle = titleStyle.Render("Add New AWS SSO Profile")
+			formTitle = styles.TitleStyle.Render("Add New AWS SSO Profile")
 		} else {
-			formTitle = titleStyle.Render("Edit AWS SSO Profile")
+			formTitle = styles.TitleStyle.Render("Edit AWS SSO Profile")
 		}
 
 		fields := []string{
@@ -1353,7 +1280,7 @@ func (m model) View() string {
 		for i, field := range fields {
 			input := m.inputs[i].View()
 			if i == m.focusIndex {
-				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", highlightStyle.Render(field), input))
+				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.HighlightStyle.Render(field), input))
 			} else {
 				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(field), input))
 			}
@@ -1361,16 +1288,16 @@ func (m model) View() string {
 
 		button := "[ Submit ]"
 		if m.focusIndex == len(m.inputs) {
-			button = highlightStyle.Render("[ Submit ]")
+			button = styles.HighlightStyle.Render("[ Submit ]")
 		}
 		formContent.WriteString("\n" + button + "\n\n")
 
 		if m.formError != "" {
-			formContent.WriteString("\n" + errorStyle.Render(m.formError) + "\n")
+			formContent.WriteString("\n" + styles.ErrorStyle.Render(m.formError) + "\n")
 		}
 
 		if m.formSuccess != "" {
-			formContent.WriteString("\n" + successStyle.Render(m.formSuccess) + "\n")
+			formContent.WriteString("\n" + styles.SuccessStyle.Render(m.formSuccess) + "\n")
 		}
 
 		formContent.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("Press ESC to cancel") + "\n")
