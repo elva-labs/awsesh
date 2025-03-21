@@ -219,14 +219,102 @@ func initialInputs() []textinput.Model {
 	return inputs
 }
 
+// Constants for configuration
+const (
+	awseshConfigFileName = "awsesh"
+)
+
+// Get the path to the awsesh config file
+func getAwseshConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	awsDir := filepath.Join(homeDir, ".aws")
+	if err := os.MkdirAll(awsDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create .aws directory: %w", err)
+	}
+
+	return filepath.Join(awsDir, awseshConfigFileName), nil
+}
+
+// Save SSO profiles to configuration file
+func saveSSOProfiles(profiles []SSOProfile) error {
+	configPath, err := getAwseshConfigPath()
+	if err != nil {
+		return err
+	}
+
+	// Create new INI file
+	cfg := ini.Empty()
+
+	// Create sections for each profile
+	for _, profile := range profiles {
+		section, err := cfg.NewSection(profile.Name)
+		if err != nil {
+			return fmt.Errorf("failed to create section for profile %s: %w", profile.Name, err)
+		}
+
+		section.Key("start_url").SetValue(profile.StartURL)
+		section.Key("region").SetValue(profile.Region)
+	}
+
+	// Save the file
+	if err := cfg.SaveTo(configPath); err != nil {
+		return fmt.Errorf("failed to save awsesh config file: %w", err)
+	}
+
+	return nil
+}
+
+// Load SSO profiles from configuration file
+func loadSSOProfilesFromConfig() ([]SSOProfile, error) {
+	configPath, err := getAwseshConfigPath()
+	if err != nil {
+		return nil, err
+	}
+
+	// Load config file
+	cfg, err := ini.Load(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Return empty list if file doesn't exist
+			return []SSOProfile{}, nil
+		}
+		return nil, fmt.Errorf("failed to load awsesh config file: %w", err)
+	}
+
+	var profiles []SSOProfile
+
+	// Read each section as a profile
+	for _, section := range cfg.Sections() {
+		// Skip the default section
+		if section.Name() == ini.DefaultSection {
+			continue
+		}
+
+		profile := SSOProfile{
+			Name:     section.Name(),
+			StartURL: section.Key("start_url").String(),
+			Region:   section.Key("region").String(),
+		}
+
+		profiles = append(profiles, profile)
+	}
+
+	return profiles, nil
+}
+
 // Load SSO profiles from configuration
 func loadSSOProfiles() []SSOProfile {
-	// Mock data for SSO profiles (replace with actual config file loading in production)
-	return []SSOProfile{
-		{Name: "Donedev", StartURL: "https://donedev.awsapps.com/start", Region: "eu-north-1"},
-		{Name: "Company Prod", StartURL: "https://company-prod.awsapps.com/start", Region: "us-west-2"},
-		{Name: "Personal", StartURL: "https://personal.awsapps.com/start", Region: "eu-west-1"},
+	profiles, err := loadSSOProfilesFromConfig()
+	if err != nil {
+		// Log error but continue with empty list
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load SSO profiles: %v\n", err)
+		return []SSOProfile{}
 	}
+	return profiles
 }
 
 // Initialize the application
@@ -693,6 +781,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 								// Update the list
 								m.updateSSOList()
+
+								// Save the updated profiles
+								if err := saveSSOProfiles(m.ssoProfiles); err != nil {
+									m.errorMessage = fmt.Sprintf("Failed to save SSO profiles: %v", err)
+									return m, nil
+								}
 								return m, nil
 							}
 						}
@@ -940,6 +1034,12 @@ func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 	m.inputs = initialInputs()
 	m.focusIndex = 0
 
+	// Save profiles to config file
+	if err := saveSSOProfiles(m.ssoProfiles); err != nil {
+		m.formError = fmt.Sprintf("Failed to save SSO profiles: %v", err)
+		return m, nil
+	}
+
 	return m, nil
 }
 
@@ -981,6 +1081,12 @@ func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
 	m.updateSSOList()
 	m.formSuccess = "SSO profile updated successfully!"
 	m.formError = ""
+
+	// Save profiles to config file
+	if err := saveSSOProfiles(m.ssoProfiles); err != nil {
+		m.formError = fmt.Sprintf("Failed to save SSO profiles: %v", err)
+		return m, nil
+	}
 
 	return m, nil
 }
