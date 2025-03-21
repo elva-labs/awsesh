@@ -851,6 +851,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if ok {
 						for _, profile := range m.ssoProfiles {
 							if profile.Name == i.Title() {
+								// Check if we're switching to a different SSO profile
+								if m.selectedSSO == nil || m.selectedSSO.Name != profile.Name {
+									// Clear accounts only when switching to a different profile
+									m.accounts = nil
+									m.accountList.SetItems([]list.Item{})
+								}
+
 								m.selectedSSO = &profile
 
 								// Initialize AWS clients for the selected region
@@ -970,6 +977,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				description: fmt.Sprintf("Account ID: %s, Roles: %s", acc.AccountID, strings.Join(acc.Roles, ", ")),
 			}
 		}
+
+		// Sort items by title (account name) for consistent ordering
+		slices.SortFunc(accountItems, func(a, b list.Item) int {
+			itemA, _ := a.(item)
+			itemB, _ := b.(item)
+			return strings.Compare(itemA.title, itemB.title)
+		})
 
 		// Update account list title with breadcrumb
 		m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
@@ -1219,8 +1233,14 @@ func (m model) View() string {
 					loadingStatus,
 				)
 			} else {
-				s = lipgloss.JoinVertical(lipgloss.Center,
-					m.spinner.View()+" "+m.loadingText,
+				// Center the loading spinner and text vertically and horizontally
+				loading := lipgloss.JoinHorizontal(lipgloss.Center,
+					m.spinner.View(),
+					" "+m.loadingText,
+				)
+				s = lipgloss.Place(m.width, m.height,
+					lipgloss.Center, lipgloss.Center,
+					loading,
 				)
 			}
 		} else {
