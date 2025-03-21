@@ -115,7 +115,8 @@ type ssoVerificationStartedMsg struct {
 	clientId                string
 	clientSecret            string
 	expiresAt               time.Time
-	region                  string // Add region field
+	region                  string
+	startUrl                string
 }
 
 type ssoTokenPollingTickMsg struct {
@@ -222,7 +223,15 @@ func initialInputs() []textinput.Model {
 // Constants for configuration
 const (
 	awseshConfigFileName = "awsesh"
+	awseshTokensFileName = "awsesh-tokens"
 )
+
+// TokenCache represents cached SSO token information
+type TokenCache struct {
+	AccessToken string    `json:"access_token"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	StartURL    string    `json:"start_url"`
+}
 
 // Get the path to the awsesh config file
 func getAwseshConfigPath() (string, error) {
@@ -237,6 +246,21 @@ func getAwseshConfigPath() (string, error) {
 	}
 
 	return filepath.Join(awsDir, awseshConfigFileName), nil
+}
+
+// Get the path to the awsesh tokens file
+func getAwseshTokensPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	awsDir := filepath.Join(homeDir, ".aws")
+	if err := os.MkdirAll(awsDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create .aws directory: %w", err)
+	}
+
+	return filepath.Join(awsDir, awseshTokensFileName), nil
 }
 
 // Save SSO profiles to configuration file
@@ -266,6 +290,86 @@ func saveSSOProfiles(profiles []SSOProfile) error {
 	}
 
 	return nil
+}
+
+// Save token to cache file
+func saveTokenToCache(startURL string, token string, expiresAt time.Time) error {
+	tokensPath, err := getAwseshTokensPath()
+	if err != nil {
+		return err
+	}
+
+	// Create new INI file or load existing
+	cfg, err := ini.Load(tokensPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg = ini.Empty()
+		} else {
+			return fmt.Errorf("failed to load tokens file: %w", err)
+		}
+	}
+
+	// Create or update section for this start URL
+	section, err := cfg.NewSection(startURL)
+	if err != nil {
+		return fmt.Errorf("failed to create section for token: %w", err)
+	}
+
+	section.Key("access_token").SetValue(token)
+	section.Key("expires_at").SetValue(expiresAt.Format(time.RFC3339))
+
+	// Save the file
+	if err := cfg.SaveTo(tokensPath); err != nil {
+		return fmt.Errorf("failed to save tokens file: %w", err)
+	}
+
+	return nil
+}
+
+// Load token from cache file
+func loadTokenFromCache(startURL string) (*TokenCache, error) {
+	tokensPath, err := getAwseshTokensPath()
+	if err != nil {
+		return nil, err
+	}
+
+	// Load config file
+	cfg, err := ini.Load(tokensPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to load tokens file: %w", err)
+	}
+
+	// Get section for this start URL
+	section, err := cfg.GetSection(startURL)
+	if err != nil {
+		return nil, nil
+	}
+
+	// Get token and expiration
+	token := section.Key("access_token").String()
+	expiresAtStr := section.Key("expires_at").String()
+	if token == "" || expiresAtStr == "" {
+		return nil, nil
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token expiration: %w", err)
+	}
+
+	// Check if token is expired
+	if time.Now().After(expiresAt) {
+		return nil, nil
+	}
+
+	return &TokenCache{
+		AccessToken: token,
+		ExpiresAt:   expiresAt,
+		StartURL:    startURL,
+	}, nil
 }
 
 // Load SSO profiles from configuration file
@@ -395,16 +499,24 @@ func (m *model) initAWSClients(region string) error {
 // Start SSO login process
 func startSSOLogin(startUrl string, region string) tea.Cmd {
 	return func() tea.Msg {
-		// Create a temporary context for this operation
-		ctx := context.Background()
+		// First check if we have a valid cached token
+		cachedToken, err := loadTokenFromCache(startUrl)
+		if err != nil {
+			return ssoLoginErrMsg{err: fmt.Errorf("failed to check token cache: %w", err)}
+		}
 
-		// Load AWS SDK configuration
+		// If we have a valid token, immediately return success to proceed with account fetching
+		if cachedToken != nil {
+			return ssoLoginSuccessMsg{accessToken: cachedToken.AccessToken}
+		}
+
+		// No valid cached token, proceed with SSO authentication
+		ctx := context.Background()
 		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 		if err != nil {
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to load AWS config: %w", err)}
 		}
 
-		// Create OIDC client for authentication
 		oidcClient := ssooidc.NewFromConfig(cfg)
 
 		// Register client
@@ -443,7 +555,8 @@ func startSSOLogin(startUrl string, region string) tea.Cmd {
 			clientId:                *registerOutput.ClientId,
 			clientSecret:            *registerOutput.ClientSecret,
 			expiresAt:               expiresIn,
-			region:                  region, // Add region to the message
+			region:                  region,
+			startUrl:                startUrl,
 		}
 	}
 }
@@ -470,6 +583,16 @@ func pollForSSOToken(msg ssoVerificationStartedMsg) tea.Cmd {
 
 		// First check for successful token creation
 		if tokenOutput != nil && tokenOutput.AccessToken != nil && *tokenOutput.AccessToken != "" {
+			// Calculate token expiration (standard 8 hour session)
+			expiresAt := time.Now().Add(8 * time.Hour)
+
+			// Save the token to cache
+			startUrl := msg.startUrl
+			if err := saveTokenToCache(startUrl, *tokenOutput.AccessToken, expiresAt); err != nil {
+				// Log error but continue since we still have a valid token
+				fmt.Fprintf(os.Stderr, "Warning: Failed to save token to cache: %v\n", err)
+			}
+
 			return ssoLoginSuccessMsg{accessToken: *tokenOutput.AccessToken}
 		}
 
@@ -482,14 +605,9 @@ func pollForSSOToken(msg ssoVerificationStartedMsg) tea.Cmd {
 					if time.Now().After(msg.expiresAt) {
 						return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out")}
 					}
-
-					// timeLeft := msg.expiresAt.Sub(time.Now())
-					// pollInterval := time.Duration(msg.interval) * time.Second
-
 					return ssoTokenPollingTickMsg{verification: msg}
 
 				case "SlowDownException":
-					// pollInterval := time.Duration(msg.interval*2) * time.Second
 					return ssoTokenPollingTickMsg{verification: msg}
 
 				case "ExpiredTokenException":
@@ -712,6 +830,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errorMessage = ""
 				return m, nil
 			case stateSessionSuccess:
+				// Clear cached token when exiting to allow fresh login next time
+				if m.selectedSSO != nil {
+					if err := saveTokenToCache(m.selectedSSO.StartURL, "", time.Now()); err != nil {
+						m.errorMessage = fmt.Sprintf("Failed to clear token cache: %v", err)
+					}
+				}
 				m.state = stateSelectAccount
 				return m, nil
 			case stateAddSSO, stateEditSSO:
@@ -809,9 +933,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									return m, nil
 								}
 
+								// Check for cached token first
+								cachedToken, err := loadTokenFromCache(profile.StartURL)
+								if err != nil {
+									m.errorMessage = fmt.Sprintf("Failed to check token cache: %v", err)
+									return m, nil
+								}
+
 								// Start SSO login flow
 								m.state = stateSelectAccount
-								m.loadingText = "Starting SSO login process..."
+								if cachedToken != nil {
+									m.loadingText = "Using cached session... Fetching accounts..."
+								} else {
+									m.loadingText = "Starting SSO login process..."
+								}
 								return m, startSSOLogin(profile.StartURL, profile.Region)
 							}
 						}
@@ -949,6 +1084,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingText = fmt.Sprintf("Waiting for authentication... (%.0fs remaining)",
 			time.Until(msg.verification.expiresAt).Seconds())
 
+		// Pass through the verification message with all fields including startUrl
 		return m, tea.Batch(
 			m.spinner.Tick,
 			pollForSSOToken(msg.verification),
