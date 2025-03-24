@@ -421,22 +421,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global keybindings
 		switch msg.String() {
 		case "ctrl+c":
-			// Clear cached token when quitting
-			if m.selectedSSO != nil {
+			// Only clear cached token if we haven't set up a session
+			if m.selectedSSO != nil && m.selectedAcc == nil {
 				if err := m.configMgr.SaveToken(m.selectedSSO.StartURL, "", time.Now()); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: Failed to clear token cache: %v\n", err)
 				}
 			}
+
+			// Print session information if we have an active session
+			if m.selectedAcc != nil {
+				fmt.Printf("\nActive AWS Session:\n")
+				fmt.Printf("SSO Profile: %s\n", m.selectedSSO.Name)
+				fmt.Printf("Account: %s (%s)\n", m.selectedAcc.Name, m.selectedAcc.AccountID)
+				fmt.Printf("Role: %s\n", m.selectedAcc.SelectedRole)
+				fmt.Printf("Region: %s\n\n", m.selectedSSO.Region)
+			}
+
 			return m, tea.Quit
 
 		case "q":
 			if m.state != stateAddSSO && m.state != stateEditSSO && m.state != stateDeleteConfirm {
-				// Clear cached token when quitting
-				if m.selectedSSO != nil {
+				// Only clear cached token if we haven't set up a session
+				if m.selectedSSO != nil && m.selectedAcc == nil {
 					if err := m.configMgr.SaveToken(m.selectedSSO.StartURL, "", time.Now()); err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: Failed to clear token cache: %v\n", err)
 					}
 				}
+
+				// Print session information if we have an active session
+				if m.selectedAcc != nil {
+					fmt.Printf("\nActive AWS Session:\n")
+					fmt.Printf("SSO Profile: %s\n", m.selectedSSO.Name)
+					fmt.Printf("Account: %s (%s)\n", m.selectedAcc.Name, m.selectedAcc.AccountID)
+					fmt.Printf("Role: %s\n", m.selectedAcc.SelectedRole)
+					fmt.Printf("Region: %s\n\n", m.selectedSSO.Region)
+				}
+
 				return m, tea.Quit
 			}
 
@@ -1253,8 +1273,24 @@ func main() {
 	os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
 
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	m, err := p.Run()
+	if err != nil {
 		fmt.Printf("Error running program: %v", err)
 		os.Exit(1)
+	}
+
+	// Print session information after program has quit
+	if model, ok := m.(model); ok {
+		if model.selectedAcc != nil {
+			details := styles.SuccessBox.Render(
+				lipgloss.JoinVertical(lipgloss.Left,
+					fmt.Sprintf("SSO Profile: %s", styles.HighlightStyle.Render(model.selectedSSO.Name)),
+					fmt.Sprintf("Account: %s (%s)", styles.HighlightStyle.Render(model.selectedAcc.Name), model.selectedAcc.AccountID),
+					fmt.Sprintf("Role: %s", styles.HighlightStyle.Render(model.selectedAcc.SelectedRole)),
+					fmt.Sprintf("Region: %s", styles.HighlightStyle.Render(model.selectedSSO.Region)),
+				),
+			)
+			fmt.Printf("\n%s\n\n", details)
+		}
 	}
 }
