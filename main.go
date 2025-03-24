@@ -1015,16 +1015,18 @@ func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 
 	m.ssoProfiles = append(m.ssoProfiles, newProfile)
 	m.updateSSOList()
-	m.formSuccess = "SSO profile added successfully!"
-	m.formError = ""
-	m.inputs = initialInputs()
-	m.focusIndex = 0
 
 	// Save profiles to config file
 	if err := m.configMgr.SaveProfiles(m.ssoProfiles); err != nil {
 		m.formError = fmt.Sprintf("Failed to save SSO profiles: %v", err)
 		return m, nil
 	}
+
+	// Reset form and return to SSO selection screen
+	m.inputs = initialInputs()
+	m.focusIndex = 0
+	m.formError = ""
+	m.state = stateSelectSSO
 
 	return m, nil
 }
