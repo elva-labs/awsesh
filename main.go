@@ -495,15 +495,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			switch m.state {
 			case stateSelectAccount:
-				// Cancel any ongoing fetch by clearing the request ID
-				m.currentRequestID = ""
-				m.state = stateSelectSSO
-				m.errorMessage = ""
-				return m, nil
+				// Only handle escape if we're not filtering
+				if m.accountList.FilterState() != list.Filtering {
+					// Cancel any ongoing fetch by clearing the request ID
+					m.currentRequestID = ""
+					m.state = stateSelectSSO
+					m.errorMessage = ""
+					// Clear the filter when leaving the view
+					m.accountList.ResetFilter()
+					return m, nil
+				}
 
 			case stateSelectRole:
-				m.state = stateSelectAccount
-				return m, nil
+				// Only handle escape if we're not filtering
+				if m.roleList.FilterState() != list.Filtering {
+					m.state = stateSelectAccount
+					// Clear the filter when leaving the view
+					m.roleList.ResetFilter()
+					return m, nil
+				}
 
 			case stateSessionSuccess:
 				m.state = stateSelectAccount
@@ -517,11 +527,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formSuccess = ""
 				m.editingIndex = -1
 				m.state = stateSelectSSO
+				// Clear the filter when returning to SSO list
+				m.ssoList.ResetFilter()
 				return m, nil
 
 			case stateDeleteConfirm:
 				m.state = stateSelectSSO
 				m.deleteProfileName = ""
+				// Clear the filter when returning to SSO list
+				m.ssoList.ResetFilter()
 				return m, nil
 			}
 		}
@@ -529,143 +543,148 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// State-specific logic
 		switch m.state {
 		case stateSelectSSO:
-			var cmd tea.Cmd
-			m.ssoList, cmd = m.ssoList.Update(msg)
-			cmds = append(cmds, cmd)
-
-			switch msg.String() {
-			case "a":
-				// Switch to add SSO form - works even with no profiles
-				if m.ssoList.FilterState() == 0 {
+			// Only process special keybindings if we're not filtering
+			if m.ssoList.FilterState() != list.Filtering {
+				switch msg.String() {
+				case "a":
+					// Switch to add SSO form - works even with no profiles
 					m.state = stateAddSSO
 					m.formError = ""
 					m.formSuccess = ""
 					m.inputs = initialInputs()
 					m.focusIndex = 0
+					// Clear the filter when leaving the view
+					m.ssoList.ResetFilter()
 					return m, nil
-				}
 
-			case "e":
-				// Edit selected SSO only if profiles exist
-				if len(m.ssoProfiles) > 0 && m.ssoList.FilterState() == 0 {
-					if i, ok := m.ssoList.SelectedItem().(item); ok {
-						for idx, profile := range m.ssoProfiles {
-							if profile.Name == i.Title() {
-								// Initialize form with existing values
-								m.editingIndex = idx
-								m.state = stateEditSSO
-								m.formError = ""
-								m.formSuccess = ""
-								m.inputs = initialInputs()
+				case "e":
+					// Edit selected SSO only if profiles exist
+					if len(m.ssoProfiles) > 0 {
+						if i, ok := m.ssoList.SelectedItem().(item); ok {
+							for idx, profile := range m.ssoProfiles {
+								if profile.Name == i.Title() {
+									// Initialize form with existing values
+									m.editingIndex = idx
+									m.state = stateEditSSO
+									m.formError = ""
+									m.formSuccess = ""
+									m.inputs = initialInputs()
 
-								// Extract company name from URL
-								companyName := strings.TrimPrefix(profile.StartURL, "https://")
-								companyName = strings.TrimSuffix(companyName, ".awsapps.com/start")
+									// Extract company name from URL
+									companyName := strings.TrimPrefix(profile.StartURL, "https://")
+									companyName = strings.TrimSuffix(companyName, ".awsapps.com/start")
 
-								// Set values from selected profile
-								m.inputs[0].SetValue(profile.Name)
-								m.inputs[1].SetValue(companyName)
-								m.inputs[2].SetValue(profile.Region)
+									// Set values from selected profile
+									m.inputs[0].SetValue(profile.Name)
+									m.inputs[1].SetValue(companyName)
+									m.inputs[2].SetValue(profile.Region)
 
-								m.focusIndex = 0
-								return m, nil
+									m.focusIndex = 0
+									// Clear the filter when leaving the view
+									m.ssoList.ResetFilter()
+									return m, nil
+								}
 							}
 						}
 					}
-				}
 
-			case "d":
-				// Delete selected SSO only if profiles exist
-				if len(m.ssoProfiles) > 0 && m.ssoList.FilterState() == 0 {
-					if i, ok := m.ssoList.SelectedItem().(item); ok {
-						m.deleteProfileName = i.Title()
-						m.state = stateDeleteConfirm
-						return m, nil
+				case "d":
+					// Delete selected SSO only if profiles exist
+					if len(m.ssoProfiles) > 0 {
+						if i, ok := m.ssoList.SelectedItem().(item); ok {
+							m.deleteProfileName = i.Title()
+							m.state = stateDeleteConfirm
+							// Clear the filter when leaving the view
+							m.ssoList.ResetFilter()
+							return m, nil
+						}
 					}
-				}
 
-			case "enter":
-				// Only proceed if profiles exist
-				if len(m.ssoProfiles) > 0 {
-					i, ok := m.ssoList.SelectedItem().(item)
-					if ok {
-						for _, profile := range m.ssoProfiles {
-							if profile.Name == i.Title() {
-								// Generate a new request ID for this SSO operation
-								newRequestID := fmt.Sprintf("%s-%d", profile.Name, time.Now().UnixNano())
-								m.currentRequestID = newRequestID
+				case "enter":
+					// Only proceed if profiles exist
+					if len(m.ssoProfiles) > 0 {
+						i, ok := m.ssoList.SelectedItem().(item)
+						if ok {
+							for _, profile := range m.ssoProfiles {
+								if profile.Name == i.Title() {
+									// Generate a new request ID for this SSO operation
+									newRequestID := fmt.Sprintf("%s-%d", profile.Name, time.Now().UnixNano())
+									m.currentRequestID = newRequestID
 
-								// Check if we're switching to a different SSO profile
-								if m.selectedSSO == nil || m.selectedSSO.Name != profile.Name {
-									// Clear accounts and reset list when switching profiles
-									m.accounts = nil
-									m.accountList.SetItems([]list.Item{})
-									m.usingCachedAccounts = false
-									// Reset the account list title to avoid showing the previous SSO name
-									m.accountList.Title = "Select AWS Account"
-								}
+									// Check if we're switching to a different SSO profile
+									if m.selectedSSO == nil || m.selectedSSO.Name != profile.Name {
+										// Clear accounts and reset list when switching profiles
+										m.accounts = nil
+										m.accountList.SetItems([]list.Item{})
+										m.usingCachedAccounts = false
+										// Reset the account list title to avoid showing the previous SSO name
+										m.accountList.Title = "Select AWS Account"
+									}
 
-								m.selectedSSO = &profile
+									m.selectedSSO = &profile
 
-								// Initialize AWS client for the selected region
-								var err error
-								m.awsClient, err = aws.NewClient(profile.Region)
-								if err != nil {
-									m.errorMessage = fmt.Sprintf("Failed to initialize AWS client: %v", err)
-									return m, nil
-								}
+									// Initialize AWS client for the selected region
+									var err error
+									m.awsClient, err = aws.NewClient(profile.Region)
+									if err != nil {
+										m.errorMessage = fmt.Sprintf("Failed to initialize AWS client: %v", err)
+										return m, nil
+									}
 
-								// Load cached accounts if they exist
-								cachedAccounts, lastUpdated, err := m.configMgr.LoadCachedAccounts(profile.StartURL)
-								if err != nil {
-									// Just log the error but continue with normal flow
-									fmt.Fprintf(os.Stderr, "Warning: Failed to load cached accounts: %v\n", err)
-								} else if len(cachedAccounts) > 0 {
-									// Use cached accounts while fetching fresh ones
-									m.accounts = cachedAccounts
-									m.accountsLastUpdated = lastUpdated
-									m.usingCachedAccounts = true
+									// Load cached accounts if they exist
+									cachedAccounts, lastUpdated, err := m.configMgr.LoadCachedAccounts(profile.StartURL)
+									if err != nil {
+										// Just log the error but continue with normal flow
+										fmt.Fprintf(os.Stderr, "Warning: Failed to load cached accounts: %v\n", err)
+									} else if len(cachedAccounts) > 0 {
+										// Use cached accounts while fetching fresh ones
+										m.accounts = cachedAccounts
+										m.accountsLastUpdated = lastUpdated
+										m.usingCachedAccounts = true
 
-									// Update the account list items
-									accountItems := makeAccountItems(m.accounts)
-									m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
-									m.accountList.SetItems(accountItems)
+										// Update the account list items
+										accountItems := makeAccountItems(m.accounts)
+										m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
+										m.accountList.SetItems(accountItems)
 
-									// Try to select the previously selected account if it exists
-									m.selectLastUsedAccount(profile.Name)
-								} else {
-									// No cached accounts, ensure we show loading screen
-									m.accounts = nil
-									m.accountList.SetItems([]list.Item{})
-								}
-
-								// Check for cached token first
-								cachedToken, err := m.configMgr.LoadToken(profile.StartURL)
-								if err != nil {
-									m.errorMessage = fmt.Sprintf("Failed to check token cache: %v", err)
-									return m, nil
-								}
-
-								// Start SSO login flow
-								m.state = stateSelectAccount
-								if cachedToken != nil {
-									if m.usingCachedAccounts {
-										m.loadingText = "Using cached session... Updating accounts in background..."
-										// Start background fetch and immediately show the cached accounts
-										return m, tea.Batch(
-											startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID),
-											func() tea.Msg {
-												// Allow the UI to immediately show the cached accounts
-												return nil
-											},
-										)
+										// Try to select the previously selected account if it exists
+										m.selectLastUsedAccount(profile.Name)
 									} else {
-										m.loadingText = "Using cached session... Fetching accounts..."
+										// No cached accounts, ensure we show loading screen
+										m.accounts = nil
+										m.accountList.SetItems([]list.Item{})
+									}
+
+									// Check for cached token first
+									cachedToken, err := m.configMgr.LoadToken(profile.StartURL)
+									if err != nil {
+										m.errorMessage = fmt.Sprintf("Failed to check token cache: %v", err)
+										return m, nil
+									}
+
+									// Start SSO login flow
+									m.state = stateSelectAccount
+									// Clear the filter when leaving the view
+									m.ssoList.ResetFilter()
+									if cachedToken != nil {
+										if m.usingCachedAccounts {
+											m.loadingText = "Using cached session... Updating accounts in background..."
+											// Start background fetch and immediately show the cached accounts
+											return m, tea.Batch(
+												startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID),
+												func() tea.Msg {
+													// Allow the UI to immediately show the cached accounts
+													return nil
+												},
+											)
+										} else {
+											m.loadingText = "Using cached session... Fetching accounts..."
+											return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
+										}
+									} else {
+										m.loadingText = "Starting SSO login process..."
 										return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
 									}
-								} else {
-									m.loadingText = "Starting SSO login process..."
-									return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
 								}
 							}
 						}
@@ -704,11 +723,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case stateSelectAccount:
-			var cmd tea.Cmd
-			m.accountList, cmd = m.accountList.Update(msg)
-			cmds = append(cmds, cmd)
-
-			if msg.String() == "enter" {
+			// Only process enter key if we're not filtering
+			if m.accountList.FilterState() != list.Filtering && msg.String() == "enter" {
 				i, ok := m.accountList.SelectedItem().(item)
 				if ok {
 					for idx, acc := range m.accounts {
@@ -756,11 +772,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case stateSelectRole:
-			var cmd tea.Cmd
-			m.roleList, cmd = m.roleList.Update(msg)
-			cmds = append(cmds, cmd)
-
-			if msg.String() == "enter" {
+			// Only process enter key if we're not filtering
+			if m.roleList.FilterState() != list.Filtering && msg.String() == "enter" {
 				i, ok := m.roleList.SelectedItem().(item)
 				if ok {
 					// Set the selected role
@@ -956,11 +969,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle updates for the individual components based on state
 	switch m.state {
 	case stateSelectSSO:
-		// List updates already handled in state-specific section
+		var cmd tea.Cmd
+		m.ssoList, cmd = m.ssoList.Update(msg)
+		cmds = append(cmds, cmd)
+
 	case stateSelectAccount:
-		// List updates already handled in state-specific section
+		var cmd tea.Cmd
+		m.accountList, cmd = m.accountList.Update(msg)
+		cmds = append(cmds, cmd)
+
 	case stateSelectRole:
-		// List updates already handled in state-specific section
+		var cmd tea.Cmd
+		m.roleList, cmd = m.roleList.Update(msg)
+		cmds = append(cmds, cmd)
+
 	case stateSessionSuccess:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
