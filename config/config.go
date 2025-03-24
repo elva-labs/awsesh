@@ -17,7 +17,7 @@ import (
 const (
 	awseshConfigFileName = "awsesh"
 	awseshTokensFileName = "awsesh-tokens"
-	
+
 	// Error message constants
 	errGetHomeDir       = "failed to get home directory: %w"
 	errCreateAwsDir     = "failed to create .aws directory: %w"
@@ -388,4 +388,52 @@ func (m *Manager) GetLastSelectedAccount(profileName string) (string, error) {
 	}
 
 	return section.Key("last_account").String(), nil
+}
+
+// SaveLastSelectedRole saves the last selected role for a specific SSO profile and account
+func (m *Manager) SaveLastSelectedRole(profileName, accountName, roleName string) error {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg = ini.Empty()
+		} else {
+			return fmt.Errorf(errLoadAwseshConfig, err)
+		}
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		// If section doesn't exist, create it
+		section, err = cfg.NewSection(profileName)
+		if err != nil {
+			return fmt.Errorf("failed to create section for profile %s: %w", profileName, err)
+		}
+	}
+
+	// Store the role under a key that includes the account name
+	section.Key(fmt.Sprintf("last_role_%s", accountName)).SetValue(roleName)
+
+	if err := cfg.SaveTo(m.configPath); err != nil {
+		return fmt.Errorf(errSaveAwseshConfig, err)
+	}
+
+	return nil
+}
+
+// GetLastSelectedRole retrieves the last selected role for a specific SSO profile and account
+func (m *Manager) GetLastSelectedRole(profileName, accountName string) (string, error) {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf(errLoadAwseshConfig, err)
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		return "", nil
+	}
+
+	return section.Key(fmt.Sprintf("last_role_%s", accountName)).String(), nil
 }

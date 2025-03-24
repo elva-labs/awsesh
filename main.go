@@ -655,6 +655,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.roleList.SetItems(roleItems)
 							m.roleList.Title = fmt.Sprintf("Select Role for %s", m.selectedAcc.Name)
 							m.state = stateSelectRole
+
+							// Try to select the previously selected role if it exists
+							m.selectLastUsedRole(m.selectedSSO.Name, m.selectedAcc.Name)
+
 							return m, nil
 						}
 					}
@@ -670,6 +674,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					// Set the selected role
 					m.selectedAcc.SelectedRole = i.Title()
+
+					// Save the selected role for this SSO profile and account
+					if m.selectedSSO != nil {
+						go func() {
+							if err := m.configMgr.SaveLastSelectedRole(m.selectedSSO.Name, m.selectedAcc.Name, m.selectedAcc.SelectedRole); err != nil {
+								fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected role: %v\n", err)
+							}
+						}()
+					}
 
 					// Get credentials for the selected role
 					return m, getRoleCredentials(
@@ -904,6 +917,30 @@ func (m *model) selectLastUsedAccount(profileName string) {
 	for i, acc := range m.accounts {
 		if acc.Name == lastAccount {
 			m.accountList.Select(i)
+			break
+		}
+	}
+}
+
+func (m *model) selectLastUsedRole(profileName, accountName string) {
+	if profileName == "" || accountName == "" {
+		return
+	}
+
+	lastRole, err := m.configMgr.GetLastSelectedRole(profileName, accountName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get last selected role: %v\n", err)
+		return
+	}
+
+	if lastRole == "" {
+		return
+	}
+
+	// Find the role in the list and select it
+	for i, listItem := range m.roleList.Items() {
+		if listItem.(item).Title() == lastRole {
+			m.roleList.Select(i)
 			break
 		}
 	}
