@@ -11,3 +11,9 @@ Sesh is a simple to use AWS session manager with charm!
   - [Lib Gloss](https://github.com/charmbracelet/lipgloss)
   - [VHS](https://github.com/charmbracelet/vhs)
 - [AWS SDK for Go](https://github.com/aws/aws-sdk-go-v2)
+
+## Building the application
+
+```sh
+go build -o build/awsesh
+```
