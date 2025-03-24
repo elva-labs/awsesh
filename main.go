@@ -417,10 +417,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global keybindings
 		switch msg.String() {
 		case "ctrl+c":
+			// Clear cached token when quitting
+			if m.selectedSSO != nil {
+				if err := m.configMgr.SaveToken(m.selectedSSO.StartURL, "", time.Now()); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to clear token cache: %v\n", err)
+				}
+			}
 			return m, tea.Quit
 
 		case "q":
 			if m.state != stateAddSSO && m.state != stateEditSSO {
+				// Clear cached token when quitting
+				if m.selectedSSO != nil {
+					if err := m.configMgr.SaveToken(m.selectedSSO.StartURL, "", time.Now()); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: Failed to clear token cache: %v\n", err)
+					}
+				}
 				return m, tea.Quit
 			}
 
@@ -438,12 +450,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 
 			case stateSessionSuccess:
-				// Clear cached token when exiting to allow fresh login next time
-				if m.selectedSSO != nil {
-					if err := m.configMgr.SaveToken(m.selectedSSO.StartURL, "", time.Now()); err != nil {
-						m.errorMessage = fmt.Sprintf("Failed to clear token cache: %v", err)
-					}
-				}
 				m.state = stateSelectAccount
 				return m, nil
 
