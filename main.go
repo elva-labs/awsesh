@@ -572,6 +572,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									accountItems := makeAccountItems(m.accounts)
 									m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
 									m.accountList.SetItems(accountItems)
+
+									// Try to select the previously selected account if it exists
+									m.selectLastUsedAccount(profile.Name)
 								} else {
 									// No cached accounts, ensure we show loading screen
 									m.accounts = nil
@@ -623,6 +626,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.currentRequestID = ""
 							// Debug logging
 							fmt.Fprintf(os.Stderr, "Selected account: %s, Roles: %v\n", m.selectedAcc.Name, m.selectedAcc.Roles)
+
+							// Save the selected account name for this SSO profile
+							if m.selectedSSO != nil {
+								go func() {
+									if err := m.configMgr.SaveLastSelectedAccount(m.selectedSSO.Name, m.selectedAcc.Name); err != nil {
+										fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected account: %v\n", err)
+									}
+								}()
+							}
 
 							// If there's only one role, select it automatically
 							if len(m.selectedAcc.Roles) == 1 {
@@ -792,6 +804,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update account list title with breadcrumb
 		m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 		m.accountList.SetItems(accountItems)
+
+		// Try to select the previously selected account if it exists
+		m.selectLastUsedAccount(m.selectedSSO.Name)
+
 		return m, nil
 
 	case fetchAccountsErrMsg:
@@ -867,6 +883,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func (m *model) selectLastUsedAccount(profileName string) {
+	if profileName == "" {
+		return
+	}
+
+	lastAccount, err := m.configMgr.GetLastSelectedAccount(profileName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get last selected account: %v\n", err)
+		return
+	}
+
+	if lastAccount == "" {
+		return
+	}
+
+	// Find the account in the list and select it
+	for i, acc := range m.accounts {
+		if acc.Name == lastAccount {
+			m.accountList.Select(i)
+			break
+		}
+	}
 }
 
 func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
@@ -1040,7 +1080,7 @@ func (m model) View() string {
 			),
 		)
 
-		helpText := styles.FinePrint.Render("Press ESC to go back or q to quit")
+		helpText := styles.FinePrint.Render("Press ESC to go back or q to quit.")
 
 		s = lipgloss.JoinVertical(lipgloss.Left,
 			header,
