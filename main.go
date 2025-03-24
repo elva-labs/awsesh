@@ -31,6 +31,7 @@ const (
 	stateSessionSuccess
 	stateAddSSO
 	stateEditSSO
+	stateDeleteConfirm
 )
 
 // Messages
@@ -97,6 +98,9 @@ type model struct {
 	usingCachedAccounts bool
 	accountsLastUpdated time.Time
 	currentRequestID    string
+
+	// Delete confirmation
+	deleteProfileName string
 }
 
 // Items to display in list
@@ -426,7 +430,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "q":
-			if m.state != stateAddSSO && m.state != stateEditSSO {
+			if m.state != stateAddSSO && m.state != stateEditSSO && m.state != stateDeleteConfirm {
 				// Clear cached token when quitting
 				if m.selectedSSO != nil {
 					if err := m.configMgr.SaveToken(m.selectedSSO.StartURL, "", time.Now()); err != nil {
@@ -461,6 +465,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formSuccess = ""
 				m.editingIndex = -1
 				m.state = stateSelectSSO
+				return m, nil
+
+			case stateDeleteConfirm:
+				m.state = stateSelectSSO
+				m.deleteProfileName = ""
 				return m, nil
 			}
 		}
@@ -517,22 +526,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Delete selected SSO only if profiles exist
 				if len(m.ssoProfiles) > 0 && m.ssoList.FilterState() == 0 {
 					if i, ok := m.ssoList.SelectedItem().(item); ok {
-						for idx, profile := range m.ssoProfiles {
-							if profile.Name == i.Title() {
-								// Remove the profile
-								m.ssoProfiles = slices.Delete(m.ssoProfiles, idx, idx+1)
-
-								// Update the list
-								m.updateSSOList()
-
-								// Save the updated profiles
-								if err := m.configMgr.SaveProfiles(m.ssoProfiles); err != nil {
-									m.errorMessage = fmt.Sprintf("Failed to save SSO profiles: %v", err)
-									return m, nil
-								}
-								return m, nil
-							}
-						}
+						m.deleteProfileName = i.Title()
+						m.state = stateDeleteConfirm
+						return m, nil
 					}
 				}
 
@@ -623,6 +619,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
+			}
+
+		case stateDeleteConfirm:
+			switch msg.String() {
+			case "y":
+				// Find and delete the profile
+				for idx, profile := range m.ssoProfiles {
+					if profile.Name == m.deleteProfileName {
+						// Remove the profile
+						m.ssoProfiles = slices.Delete(m.ssoProfiles, idx, idx+1)
+
+						// Update the list
+						m.updateSSOList()
+
+						// Save the updated profiles
+						if err := m.configMgr.SaveProfiles(m.ssoProfiles); err != nil {
+							m.errorMessage = fmt.Sprintf("Failed to save SSO profiles: %v", err)
+							return m, nil
+						}
+						break
+					}
+				}
+				m.state = stateSelectSSO
+				m.deleteProfileName = ""
+				return m, nil
+
+			case "n":
+				m.state = stateSelectSSO
+				m.deleteProfileName = ""
+				return m, nil
 			}
 
 		case stateSelectAccount:
@@ -1075,6 +1101,17 @@ func (m model) View() string {
 	switch m.state {
 	case stateSelectSSO:
 		s = m.ssoList.View()
+
+	case stateDeleteConfirm:
+		header := styles.TitleStyle.Render("Delete SSO Profile")
+		content := styles.VerificationBox.Render(
+			lipgloss.JoinVertical(lipgloss.Center,
+				fmt.Sprintf("Are you sure you want to delete the SSO profile '%s'?", styles.HighlightStyle.Render(m.deleteProfileName)),
+				"",
+				"Press 'y' to confirm or 'n' to cancel",
+			),
+		)
+		s = lipgloss.JoinVertical(lipgloss.Left, header, "", content)
 
 	case stateSelectAccount:
 		// Show loading spinner while fetching accounts
