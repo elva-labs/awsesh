@@ -27,6 +27,7 @@ import (
 const (
 	stateSelectSSO = iota
 	stateSelectAccount
+	stateSelectRole
 	stateSessionSuccess
 	stateAddSSO
 	stateEditSSO
@@ -68,6 +69,7 @@ type model struct {
 	selectedAcc *aws.Account
 	ssoList     list.Model
 	accountList list.Model
+	roleList    list.Model
 	spinner     spinner.Model
 	width       int
 	height      int
@@ -168,6 +170,10 @@ func initialModel() model {
 	accountList := list.New([]list.Item{}, delegate, 0, 0)
 	accountList.Title = "Select AWS Account"
 
+	// Empty role list (will be populated later)
+	roleList := list.New([]list.Item{}, delegate, 0, 0)
+	roleList.Title = "Select Role"
+
 	// Create spinner for loading states
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -193,6 +199,7 @@ func initialModel() model {
 		ssoProfiles:         profiles,
 		ssoList:             ssoList,
 		accountList:         accountList,
+		roleList:            roleList,
 		spinner:             s,
 		inputs:              initialInputs(),
 		focusIndex:          0,
@@ -371,6 +378,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.accountList.SetWidth(msg.Width)
 		m.accountList.SetHeight(msg.Height - 4)
 
+		m.roleList.SetWidth(msg.Width)
+		m.roleList.SetHeight(msg.Height - 4)
+
 	case tea.KeyMsg:
 		// Global keybindings
 		switch msg.String() {
@@ -386,6 +396,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.state {
 			case stateSelectAccount:
 				m.state = stateSelectSSO
+				m.errorMessage = ""
+				return m, nil
+
+			case stateSelectRole:
+				m.state = stateSelectAccount
 				m.errorMessage = ""
 				return m, nil
 
@@ -570,22 +585,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					for idx, acc := range m.accounts {
 						if acc.Name == i.Title() {
-							// For simplicity, we'll just select the first role
-							if len(m.accounts[idx].Roles) > 0 {
-								m.accounts[idx].SelectedRole = m.accounts[idx].Roles[0]
-								m.selectedAcc = &m.accounts[idx]
-
-								// Get credentials for the selected role
-								return m, getRoleCredentials(
-									m.awsClient,
-									m.accessToken,
-									m.selectedAcc.AccountID,
-									m.selectedAcc.SelectedRole,
-									m.currentRequestID, // Add this parameter
-								)
+							// Check if there are any roles available
+							if len(m.accounts[idx].Roles) == 0 {
+								// No roles available
+								m.errorMessage = "No roles available for this account"
+								return m, nil
 							}
+
+							// Store the selected account
+							m.selectedAcc = &m.accounts[idx]
+
+							// Create role items for selection
+							roleItems := make([]list.Item, len(m.selectedAcc.Roles))
+							for i, role := range m.selectedAcc.Roles {
+								roleItems[i] = item{
+									title:       role,
+									description: fmt.Sprintf("Role: %s", role),
+								}
+							}
+
+							// Update the role list
+							m.roleList.Title = fmt.Sprintf("Select Role for %s", m.selectedAcc.Name)
+							m.roleList.SetItems(roleItems)
+
+							// Move to role selection state
+							m.state = stateSelectRole
+							return m, nil
 						}
 					}
+				}
+			}
+
+		case stateSelectRole:
+			if msg.String() == "enter" {
+				i, ok := m.roleList.SelectedItem().(item)
+				if ok {
+					// Set the selected role
+					m.selectedAcc.SelectedRole = i.Title()
+
+					// Get credentials for the selected role
+					return m, getRoleCredentials(
+						m.awsClient,
+						m.accessToken,
+						m.selectedAcc.AccountID,
+						m.selectedAcc.SelectedRole,
+						m.currentRequestID,
+					)
 				}
 			}
 
@@ -740,7 +785,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle spinner ticks
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		cmds = append(cmds, cmd)
+
 	}
 
 	// Handle updates for the individual components based on state
@@ -755,15 +801,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.accountList, cmd = m.accountList.Update(msg)
 		cmds = append(cmds, cmd)
 
+	case stateSelectRole:
+		var cmd tea.Cmd
+		m.roleList, cmd = m.roleList.Update(msg)
+		cmds = append(cmds, cmd)
+
 	case stateSessionSuccess:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 
 	case stateAddSSO, stateEditSSO:
-		// Handle text input updates
+		// Handle input updates
 		for i := range m.inputs {
 			if i == m.focusIndex {
+				// Update only the focused input
 				var cmd tea.Cmd
 				m.inputs[i], cmd = m.inputs[i].Update(msg)
 				cmds = append(cmds, cmd)
@@ -918,6 +970,9 @@ func (m model) View() string {
 		} else {
 			s = m.accountList.View()
 		}
+
+	case stateSelectRole:
+		s = m.roleList.View()
 
 	case stateSessionSuccess:
 		// Create a more engaging success view with a checkmark icon
