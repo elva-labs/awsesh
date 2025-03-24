@@ -770,16 +770,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}()
 		}
 
+		// If we're using cached accounts, just update the accounts in memory
+		// but don't change the view or state
+		if m.usingCachedAccounts {
+			m.accounts = msg.accounts
+			// Update the account list title to remove "(cached)" since we now have fresh data
+			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
+			return m, nil
+		}
+
+		// For non-cached accounts, proceed with normal flow
 		m.accounts = msg.accounts
 		m.state = stateSelectAccount
 		m.errorMessage = ""
-
-		// If we're using cached accounts, we're doing a background refresh, so keep the flag
-		if !m.usingCachedAccounts {
-			m.usingCachedAccounts = false
-		}
-
-		// Clear loading text when fetch is complete
+		m.usingCachedAccounts = false
 		m.loadingText = ""
 
 		// Create account list items
