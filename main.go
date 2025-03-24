@@ -124,7 +124,8 @@ func initialInputs() []textinput.Model {
 	t.CharLimit = 50
 	t.Width = 40
 	t.Prompt = "› "
-	t.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	t.PromptStyle = styles.FocusedInputStyle
+	t.TextStyle = styles.FocusedInputStyle
 	inputs[0] = t
 
 	t = textinput.New()
@@ -132,7 +133,8 @@ func initialInputs() []textinput.Model {
 	t.CharLimit = 100
 	t.Width = 40
 	t.Prompt = "› "
-	t.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	t.PromptStyle = styles.InputStyle
+	t.TextStyle = styles.InputStyle
 	inputs[1] = t
 
 	t = textinput.New()
@@ -140,7 +142,8 @@ func initialInputs() []textinput.Model {
 	t.CharLimit = 20
 	t.Width = 40
 	t.Prompt = "› "
-	t.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	t.PromptStyle = styles.InputStyle
+	t.TextStyle = styles.InputStyle
 	inputs[2] = t
 
 	return inputs
@@ -149,10 +152,17 @@ func initialInputs() []textinput.Model {
 // Initialize the application
 func initialModel() model {
 	delegate := list.NewDefaultDelegate()
+	delegate.UpdateFunc = func(msg tea.Msg, m *list.Model) tea.Cmd {
+		return nil
+	}
 
 	// Create empty SSO list
 	ssoList := list.New([]list.Item{}, delegate, 0, 0)
 	ssoList.Title = "Select AWS SSO Profile"
+	ssoList.Styles.Title = styles.TitleStyle
+	ssoList.Styles.PaginationStyle = styles.MutedStyle
+	ssoList.Styles.HelpStyle = styles.HelpStyle
+	ssoList.SetShowHelp(true)
 	ssoList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(
@@ -169,14 +179,36 @@ func initialModel() model {
 			),
 		}
 	}
+	ssoList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(
+				key.WithKeys("a"),
+				key.WithHelp("a", "add new SSO profile"),
+			),
+			key.NewBinding(
+				key.WithKeys("e"),
+				key.WithHelp("e", "edit selected SSO profile"),
+			),
+			key.NewBinding(
+				key.WithKeys("d"),
+				key.WithHelp("d", "delete selected SSO profile"),
+			),
+		}
+	}
 
 	// Empty account list (will be populated later)
 	accountList := list.New([]list.Item{}, delegate, 0, 0)
 	accountList.Title = "Select AWS Account"
+	accountList.Styles.Title = styles.TitleStyle
+	accountList.Styles.PaginationStyle = styles.MutedStyle
+	accountList.Styles.HelpStyle = styles.HelpStyle
 
 	// Empty role list (will be populated later)
 	roleList := list.New([]list.Item{}, delegate, 0, 0)
 	roleList.Title = "Select AWS Role"
+	roleList.Styles.Title = styles.TitleStyle
+	roleList.Styles.PaginationStyle = styles.MutedStyle
+	roleList.Styles.HelpStyle = styles.HelpStyle
 	roleList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(
@@ -193,7 +225,7 @@ func initialModel() model {
 	// Create spinner for loading states
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Style = styles.SpinnerStyle
 
 	// Create config manager
 	configMgr, err := config.NewManager()
@@ -684,8 +716,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.selectedAcc = &m.accounts[idx]
 							// Cancel any ongoing fetch by clearing the request ID
 							m.currentRequestID = ""
-							// Debug logging
-							fmt.Fprintf(os.Stderr, "Selected account: %s, Roles: %v\n", m.selectedAcc.Name, m.selectedAcc.Roles)
 
 							// Save the selected account name for this SSO profile
 							if m.selectedSSO != nil {
@@ -1117,23 +1147,25 @@ func (m model) View() string {
 	// If there's an error message, show it at the bottom
 	errorBar := ""
 	if m.errorMessage != "" {
-		errorBar = "\n" + styles.ErrorStyle.Render(m.errorMessage)
+		errorBar = "\n" + styles.ErrorBox.Render(m.errorMessage)
 	}
 
+	// Add consistent margin to all views
+	content := ""
 	switch m.state {
 	case stateSelectSSO:
-		s = m.ssoList.View()
+		content = styles.ListStyle.Render(m.ssoList.View())
 
 	case stateDeleteConfirm:
 		header := styles.TitleStyle.Render("Delete SSO Profile")
-		content := styles.VerificationBox.Render(
+		content = styles.BoxStyle.Render(
 			lipgloss.JoinVertical(lipgloss.Center,
-				fmt.Sprintf("Are you sure you want to delete the SSO profile '%s'?", styles.HighlightStyle.Render(m.deleteProfileName)),
+				fmt.Sprintf("Are you sure you want to delete the SSO profile '%s'?", styles.TextStyle.Render(m.deleteProfileName)),
 				"",
-				"Press 'y' to confirm or 'n' to cancel",
+				styles.MutedStyle.Render("Press ")+styles.SuccessStyle.Render("'y'")+styles.MutedStyle.Render(" to confirm or ")+styles.ErrorStyle.Render("'n'")+styles.MutedStyle.Render(" to cancel"),
 			),
 		)
-		s = lipgloss.JoinVertical(lipgloss.Left, header, "", content)
+		content = lipgloss.JoinVertical(lipgloss.Left, header, "", content)
 
 	case stateSelectAccount:
 		// Show loading spinner while fetching accounts
@@ -1145,27 +1177,27 @@ func (m model) View() string {
 				// Create loading status with spinner
 				loadingStatus := lipgloss.JoinHorizontal(lipgloss.Center,
 					m.spinner.View(),
-					" "+m.loadingText,
+					" "+styles.TextStyle.Render(m.loadingText),
 				)
 
 				instructions := styles.VerificationBox.Render(
 					lipgloss.JoinVertical(lipgloss.Center,
-						"Your browser should open automatically for SSO login.",
-						"If it doesn't, you can authenticate manually:",
+						styles.TextStyle.Render("Your browser should open automatically for SSO login."),
+						styles.TextStyle.Render("If it doesn't, you can authenticate manually:"),
 						"",
-						fmt.Sprintf("1. Visit: %s", styles.HighlightStyle.Render(m.verificationUri)),
-						"2. Enter the following code:",
+						fmt.Sprintf("1. Visit: %s", styles.TextStyle.Render(m.verificationUri)),
+						styles.TextStyle.Render("2. Enter the following code:"),
 						"",
 						styles.CodeBox.Render(m.verificationCode),
 						"",
-						styles.FinePrint.Render("You can also click the link below to open directly:"),
-						styles.HighlightStyle.Render(m.verificationUriComplete),
+						styles.HelpStyle.Render("You can also click the link below to open directly:"),
+						styles.TextStyle.Render(m.verificationUriComplete),
 						"",
 						loadingStatus,
 					),
 				)
 
-				s = lipgloss.JoinVertical(lipgloss.Left,
+				content = lipgloss.JoinVertical(lipgloss.Left,
 					header,
 					"",
 					instructions,
@@ -1174,46 +1206,41 @@ func (m model) View() string {
 				// Center the loading spinner and text vertically and horizontally
 				loading := lipgloss.JoinHorizontal(lipgloss.Center,
 					m.spinner.View(),
-					" "+m.loadingText,
+					" "+styles.TextStyle.Render(m.loadingText),
 				)
-				s = lipgloss.Place(m.width, m.height,
+				content = lipgloss.Place(m.width, m.height,
 					lipgloss.Center, lipgloss.Center,
 					loading,
 				)
 			}
 		} else {
-			s = m.accountList.View()
+			content = styles.ListStyle.Render(m.accountList.View())
 		}
 
 	case stateSelectRole:
-		s = m.roleList.View()
+		content = styles.ListStyle.Render(m.roleList.View())
 
 	case stateSessionSuccess:
 		// Create a more engaging success view with a checkmark icon
-		header := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(styles.BaseGreen).
-			Padding(0, 1).
-			MarginLeft(1).
-			Render("AWS Session Activated Successfully")
+		header := styles.TitleStyle.Render("AWS Session Activated Successfully")
 
-		checkmark := styles.SuccessIcon.Render("✓")
+		checkmark := styles.SuccessStyle.Render("✓")
 
 		details := styles.SuccessBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
 				fmt.Sprintf("%s AWS Session Active", checkmark),
 				"",
-				fmt.Sprintf("Account: %s", styles.HighlightStyle.Render(m.selectedAcc.Name)),
-				fmt.Sprintf("Account ID: %s", m.selectedAcc.AccountID),
-				fmt.Sprintf("Role: %s", styles.HighlightStyle.Render(m.selectedAcc.SelectedRole)),
+				fmt.Sprintf("Account: %s", styles.TextStyle.Render(m.selectedAcc.Name)),
+				fmt.Sprintf("Account ID: %s", styles.MutedStyle.Render(m.selectedAcc.AccountID)),
+				fmt.Sprintf("Role: %s", styles.TextStyle.Render(m.selectedAcc.SelectedRole)),
 				"",
 				styles.SuccessStyle.Render("AWS credentials have been configured successfully."),
 			),
 		)
 
-		helpText := styles.FinePrint.Render("Press ESC to go back or q to quit.")
+		helpText := styles.HelpStyle.Render("Press ESC to go back or q to quit.")
 
-		s = lipgloss.JoinVertical(lipgloss.Left,
+		content = lipgloss.JoinVertical(lipgloss.Left,
 			header,
 			"",
 			details,
@@ -1221,7 +1248,6 @@ func (m model) View() string {
 		)
 
 	case stateAddSSO, stateEditSSO:
-		// ...existing code for add/edit SSO forms...
 		var formTitle string
 		if m.state == stateAddSSO {
 			formTitle = styles.TitleStyle.Render("Add New AWS SSO Profile")
@@ -1236,35 +1262,37 @@ func (m model) View() string {
 		}
 
 		var formContent strings.Builder
-		formContent.WriteString("\n\n")
 
 		for i, field := range fields {
 			input := m.inputs[i].View()
 			if i == m.focusIndex {
-				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.HighlightStyle.Render(field), input))
+				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.TextStyle.Render(field), input))
 			} else {
-				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(field), input))
+				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.MutedStyle.Render(field), input))
 			}
 		}
 
-		button := "[ Submit ]"
+		button := styles.ButtonStyle.Render("[ Submit ]")
 		if m.focusIndex == len(m.inputs) {
-			button = styles.HighlightStyle.Render("[ Submit ]")
+			button = styles.FocusedButtonStyle.Render("[ Submit ]")
 		}
-		formContent.WriteString("\n" + button + "\n\n")
+		formContent.WriteString(button + "\n\n")
 
 		if m.formError != "" {
-			formContent.WriteString("\n" + styles.ErrorStyle.Render(m.formError) + "\n")
+			formContent.WriteString(styles.ErrorStyle.Render(m.formError) + "\n\n")
 		}
 
 		if m.formSuccess != "" {
-			formContent.WriteString("\n" + styles.SuccessStyle.Render(m.formSuccess) + "\n")
+			formContent.WriteString(styles.SuccessStyle.Render(m.formSuccess) + "\n\n")
 		}
 
-		formContent.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("Press ESC to cancel") + "\n")
+		formContent.WriteString(styles.HelpStyle.Render("Press ESC to cancel"))
 
-		s = lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String())
+		content = styles.FormStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String()))
 	}
+
+	// Add consistent margin to all views
+	s = lipgloss.NewStyle().Margin(1, 0).Render(content)
 
 	return s + errorBar
 }
@@ -1284,10 +1312,10 @@ func main() {
 		if model.selectedAcc != nil {
 			details := styles.SuccessBox.Render(
 				lipgloss.JoinVertical(lipgloss.Left,
-					fmt.Sprintf("SSO Profile: %s", styles.HighlightStyle.Render(model.selectedSSO.Name)),
-					fmt.Sprintf("Account: %s (%s)", styles.HighlightStyle.Render(model.selectedAcc.Name), model.selectedAcc.AccountID),
-					fmt.Sprintf("Role: %s", styles.HighlightStyle.Render(model.selectedAcc.SelectedRole)),
-					fmt.Sprintf("Region: %s", styles.HighlightStyle.Render(model.selectedSSO.Region)),
+					fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(model.selectedSSO.Name)),
+					fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
+					fmt.Sprintf("Role: %s", styles.TextStyle.Render(model.selectedAcc.SelectedRole)),
+					fmt.Sprintf("Region: %s", styles.TextStyle.Render(model.selectedSSO.Region)),
 				),
 			)
 			fmt.Printf("\n%s\n\n", details)

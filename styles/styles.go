@@ -3,51 +3,115 @@ package styles
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	BaseBlue   = lipgloss.Color("#00f5ff")
-	BaseYellow = lipgloss.Color("#fcf75f")
-	BaseGreen  = lipgloss.Color("#a0f077")
-	BaseRed    = lipgloss.Color("#ff4d4d")
+	// Colors
+	Primary    = lipgloss.Color("#7D56F4") // Purple
+	Secondary  = lipgloss.Color("#00F5FF") // Cyan
+	Success    = lipgloss.Color("#00E680") // Green
+	Warning    = lipgloss.Color("#FFB800") // Yellow
+	Error      = lipgloss.Color("#FF4D4D") // Red
+	Muted      = lipgloss.Color("#6B7280") // Gray
+	Text       = lipgloss.Color("#E5E7EB") // Light Gray
+	Background = lipgloss.Color("#1F2937") // Dark Gray
+
+	// Base styles
+	BaseStyle = lipgloss.NewStyle().
+			Foreground(Text).
+			Background(Background)
+
+	// Title styles
+	TitleStyle = lipgloss.NewStyle().
+			Foreground(Text).
+			Background(Primary).
+			Padding(0, 1).
+			Bold(true)
+
+	// Text styles
+	TextStyle = lipgloss.NewStyle().
+			Foreground(Text)
+
+	MutedStyle = lipgloss.NewStyle().
+			Foreground(Muted)
+
+	// Status styles
+	SuccessStyle = lipgloss.NewStyle().
+			Foreground(Success)
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(BaseRed)
+			Foreground(Error)
 
-	SuccessStyle = lipgloss.NewStyle().
-			Foreground(BaseGreen)
+	WarningStyle = lipgloss.NewStyle().
+			Foreground(Warning)
 
-	HighlightStyle = lipgloss.NewStyle().
-			Foreground(BaseBlue)
+	// Box styles
+	BoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(Primary).
+			Padding(1, 2).
+			Margin(1, 0)
 
 	SuccessBox = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(BaseYellow).
-			Padding(1, 3).
+			BorderForeground(Success).
+			Padding(1, 2).
 			Margin(1, 0)
 
-	TitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#25A065")).
-			Padding(0, 1)
-
-	VerificationBox = lipgloss.NewStyle().
+	ErrorBox = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(BaseBlue).
-			Padding(2, 4).
-			Margin(1, 0).
-			Align(lipgloss.Center)
+			BorderForeground(Error).
+			Padding(1, 2).
+			Margin(1, 0)
 
+	// Code box style
 	CodeBox = lipgloss.NewStyle().
 		Border(lipgloss.ThickBorder()).
-		BorderForeground(BaseYellow).
+		BorderForeground(Secondary).
 		Padding(0, 1).
 		Margin(1, 0).
 		Bold(true)
 
-	FinePrint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+	// Help text style
+	HelpStyle = lipgloss.NewStyle().
+			Foreground(Muted).
 			Italic(true).
 			MarginTop(1)
 
-	SuccessIcon = lipgloss.NewStyle().
-			Foreground(BaseGreen).
-			Bold(true)
+	// List styles
+	ListStyle = lipgloss.NewStyle().
+			Padding(1, 2)
+
+	// Form styles
+	FormStyle = lipgloss.NewStyle().
+			Padding(1, 2).
+			Margin(1, 0)
+
+	InputStyle = lipgloss.NewStyle().
+			Foreground(Text).
+			Padding(0, 1)
+
+	FocusedInputStyle = lipgloss.NewStyle().
+				Foreground(Primary).
+				Padding(0, 1)
+
+	// Button styles
+	ButtonStyle = lipgloss.NewStyle().
+			Foreground(Text).
+			Padding(0, 1).
+			Margin(1, 0)
+
+	FocusedButtonStyle = lipgloss.NewStyle().
+				Foreground(Primary).
+				Padding(0, 1).
+				Margin(1, 0)
+
+	// Spinner style
+	SpinnerStyle = lipgloss.NewStyle().
+			Foreground(Primary)
+
+	// Verification box style
+	VerificationBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(Secondary).
+			Padding(2, 4).
+			Margin(1, 0).
+			Align(lipgloss.Center)
 )
