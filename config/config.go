@@ -17,6 +17,12 @@ import (
 const (
 	awseshConfigFileName = "awsesh"
 	awseshTokensFileName = "awsesh-tokens"
+
+	// Error message constants
+	errGetHomeDir       = "failed to get home directory: %w"
+	errCreateAwsDir     = "failed to create .aws directory: %w"
+	errLoadAwseshConfig = "failed to load awsesh config file: %w"
+	errSaveAwseshConfig = "failed to save awsesh config file: %w"
 )
 
 // SSOProfile represents an AWS SSO configuration
@@ -129,12 +135,12 @@ func (m *Manager) LoadCachedAccounts(startURL string) ([]awsclient.Account, time
 func getAwseshAccountsCachePath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", fmt.Errorf(errGetHomeDir, err)
 	}
 
 	awsDir := filepath.Join(homeDir, ".aws")
 	if err := os.MkdirAll(awsDir, 0700); err != nil {
-		return "", fmt.Errorf("failed to create .aws directory: %w", err)
+		return "", fmt.Errorf(errCreateAwsDir, err)
 	}
 
 	return filepath.Join(awsDir, "awsesh-accounts"), nil
@@ -173,7 +179,7 @@ func (m *Manager) SaveProfiles(profiles []SSOProfile) error {
 	}
 
 	if err := cfg.SaveTo(m.configPath); err != nil {
-		return fmt.Errorf("failed to save awsesh config file: %w", err)
+		return fmt.Errorf(errSaveAwseshConfig, err)
 	}
 
 	return nil
@@ -186,7 +192,7 @@ func (m *Manager) LoadProfiles() ([]SSOProfile, error) {
 		if os.IsNotExist(err) {
 			return []SSOProfile{}, nil
 		}
-		return nil, fmt.Errorf("failed to load awsesh config file: %w", err)
+		return nil, fmt.Errorf(errLoadAwseshConfig, err)
 	}
 
 	var profiles []SSOProfile
@@ -274,12 +280,12 @@ func (m *Manager) LoadToken(startURL string) (*awsclient.TokenCache, error) {
 func getAwseshConfigPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", fmt.Errorf(errGetHomeDir, err)
 	}
 
 	awsDir := filepath.Join(homeDir, ".aws")
 	if err := os.MkdirAll(awsDir, 0700); err != nil {
-		return "", fmt.Errorf("failed to create .aws directory: %w", err)
+		return "", fmt.Errorf(errCreateAwsDir, err)
 	}
 
 	return filepath.Join(awsDir, awseshConfigFileName), nil
@@ -288,12 +294,12 @@ func getAwseshConfigPath() (string, error) {
 func getAwseshTokensPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", fmt.Errorf(errGetHomeDir, err)
 	}
 
 	awsDir := filepath.Join(homeDir, ".aws")
 	if err := os.MkdirAll(awsDir, 0700); err != nil {
-		return "", fmt.Errorf("failed to create .aws directory: %w", err)
+		return "", fmt.Errorf(errCreateAwsDir, err)
 	}
 
 	return filepath.Join(awsDir, awseshTokensFileName), nil
@@ -303,12 +309,12 @@ func getAwseshTokensPath() (string, error) {
 func WriteCredentials(accessKeyID, secretAccessKey, sessionToken, region string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return fmt.Errorf(errGetHomeDir, err)
 	}
 
 	awsDir := filepath.Join(homeDir, ".aws")
 	if err := os.MkdirAll(awsDir, 0700); err != nil {
-		return fmt.Errorf("failed to create .aws directory: %w", err)
+		return fmt.Errorf(errCreateAwsDir, err)
 	}
 
 	credentialsPath := filepath.Join(awsDir, "credentials")
@@ -335,4 +341,99 @@ func WriteCredentials(accessKeyID, secretAccessKey, sessionToken, region string)
 	}
 
 	return nil
+}
+
+// SaveLastSelectedAccount saves the last selected account name for a specific SSO profile
+func (m *Manager) SaveLastSelectedAccount(profileName, accountName string) error {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg = ini.Empty()
+		} else {
+			return fmt.Errorf(errLoadAwseshConfig, err)
+		}
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		// If section doesn't exist, create it
+		section, err = cfg.NewSection(profileName)
+		if err != nil {
+			return fmt.Errorf("failed to create section for profile %s: %w", profileName, err)
+		}
+	}
+
+	section.Key("last_account").SetValue(accountName)
+
+	if err := cfg.SaveTo(m.configPath); err != nil {
+		return fmt.Errorf(errSaveAwseshConfig, err)
+	}
+
+	return nil
+}
+
+// GetLastSelectedAccount retrieves the last selected account name for a specific SSO profile
+func (m *Manager) GetLastSelectedAccount(profileName string) (string, error) {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf(errLoadAwseshConfig, err)
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		return "", nil
+	}
+
+	return section.Key("last_account").String(), nil
+}
+
+// SaveLastSelectedRole saves the last selected role for a specific SSO profile and account
+func (m *Manager) SaveLastSelectedRole(profileName, accountName, roleName string) error {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg = ini.Empty()
+		} else {
+			return fmt.Errorf(errLoadAwseshConfig, err)
+		}
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		// If section doesn't exist, create it
+		section, err = cfg.NewSection(profileName)
+		if err != nil {
+			return fmt.Errorf("failed to create section for profile %s: %w", profileName, err)
+		}
+	}
+
+	// Store the role under a key that includes the account name
+	section.Key(fmt.Sprintf("last_role_%s", accountName)).SetValue(roleName)
+
+	if err := cfg.SaveTo(m.configPath); err != nil {
+		return fmt.Errorf(errSaveAwseshConfig, err)
+	}
+
+	return nil
+}
+
+// GetLastSelectedRole retrieves the last selected role for a specific SSO profile and account
+func (m *Manager) GetLastSelectedRole(profileName, accountName string) (string, error) {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf(errLoadAwseshConfig, err)
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		return "", nil
+	}
+
+	return section.Key(fmt.Sprintf("last_role_%s", accountName)).String(), nil
 }
