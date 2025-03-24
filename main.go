@@ -462,6 +462,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// State-specific logic
 		switch m.state {
 		case stateSelectSSO:
+			var cmd tea.Cmd
+			m.ssoList, cmd = m.ssoList.Update(msg)
+			cmds = append(cmds, cmd)
+
 			switch msg.String() {
 			case "a":
 				// Switch to add SSO form - works even with no profiles
@@ -613,6 +617,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case stateSelectAccount:
+			var cmd tea.Cmd
+			m.accountList, cmd = m.accountList.Update(msg)
+			cmds = append(cmds, cmd)
+
 			if msg.String() == "enter" {
 				i, ok := m.accountList.SelectedItem().(item)
 				if ok {
@@ -653,6 +661,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.roleList, cmd = m.roleList.Update(msg)
 			cmds = append(cmds, cmd)
+
 			if msg.String() == "enter" {
 				i, ok := m.roleList.SelectedItem().(item)
 				if ok {
@@ -836,20 +845,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle updates for the individual components based on state
 	switch m.state {
 	case stateSelectSSO:
-		var cmd tea.Cmd
-		m.ssoList, cmd = m.ssoList.Update(msg)
-		cmds = append(cmds, cmd)
-
+		// List updates already handled in state-specific section
 	case stateSelectAccount:
-		var cmd tea.Cmd
-		m.accountList, cmd = m.accountList.Update(msg)
-		cmds = append(cmds, cmd)
-
+		// List updates already handled in state-specific section
 	case stateSelectRole:
-		var cmd tea.Cmd
-		m.roleList, cmd = m.roleList.Update(msg)
-		cmds = append(cmds, cmd)
-
+		// List updates already handled in state-specific section
 	case stateSessionSuccess:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -996,9 +996,38 @@ func (m model) View() string {
 	case stateSelectAccount:
 		// Show loading spinner while fetching accounts
 		if len(m.accounts) == 0 || (m.accounts != nil && !m.usingCachedAccounts && m.loadingText != "") {
-			// No accounts loaded yet or actively fetching non-cached accounts
 			if m.verificationUri != "" && m.verificationCode != "" {
-				// Existing verification screen code...
+				// Create a more structured and visually appealing verification screen
+				header := styles.TitleStyle.Render("AWS SSO Authentication")
+
+				// Create loading status with spinner
+				loadingStatus := lipgloss.JoinHorizontal(lipgloss.Center,
+					m.spinner.View(),
+					" "+m.loadingText,
+				)
+
+				instructions := styles.VerificationBox.Render(
+					lipgloss.JoinVertical(lipgloss.Center,
+						"Your browser should open automatically for SSO login.",
+						"If it doesn't, you can authenticate manually:",
+						"",
+						fmt.Sprintf("1. Visit: %s", styles.HighlightStyle.Render(m.verificationUri)),
+						"2. Enter the following code:",
+						"",
+						styles.CodeBox.Render(m.verificationCode),
+						"",
+						styles.FinePrint.Render("You can also click the link below to open directly:"),
+						styles.HighlightStyle.Render(m.verificationUriComplete),
+						"",
+						loadingStatus,
+					),
+				)
+
+				s = lipgloss.JoinVertical(lipgloss.Left,
+					header,
+					"",
+					instructions,
+				)
 			} else {
 				// Center the loading spinner and text vertically and horizontally
 				loading := lipgloss.JoinHorizontal(lipgloss.Center,
