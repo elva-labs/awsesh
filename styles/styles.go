@@ -4,19 +4,22 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	// Colors
-	Primary    = lipgloss.Color("#7D56F4") // Purple
-	Secondary  = lipgloss.Color("#00F5FF") // Cyan
-	Success    = lipgloss.Color("#00E680") // Green
-	Warning    = lipgloss.Color("#FFB800") // Yellow
-	Error      = lipgloss.Color("#FF4D4D") // Red
-	Muted      = lipgloss.Color("#6B7280") // Gray
-	Text       = lipgloss.Color("#E5E7EB") // Light Gray
-	Background = lipgloss.Color("#1F2937") // Dark Gray
+	Primary   = lipgloss.Color("#7D56F4") // Purple
+	Secondary = lipgloss.Color("#00F5FF") // Cyan
+	Success   = lipgloss.Color("#00E680") // Green
+	Warning   = lipgloss.Color("#FFB800") // Yellow
+	Error     = lipgloss.Color("#FF4D4D") // Red
+	Muted     = lipgloss.Color("#6B7280") // Gray
+	Text      = lipgloss.Color("#E5E7EB") // Light Gray
+
+	// Layout constants
+	MinWidth  = 80
+	MinHeight = 24
+	Padding   = 1
 
 	// Base styles
 	BaseStyle = lipgloss.NewStyle().
-			Foreground(Text).
-			Background(Background)
+			Foreground(Text)
 
 	// Title styles
 	TitleStyle = lipgloss.NewStyle().
@@ -114,4 +117,8 @@ var (
 			Padding(2, 4).
 			Margin(1, 0).
 			Align(lipgloss.Center)
+
+	// Full page content style
+	FullPageStyle = lipgloss.NewStyle().
+			Padding(2, 4)
 )

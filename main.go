@@ -265,7 +265,7 @@ func initialModel() model {
 	regionInput := textinput.New()
 	regionInput.Placeholder = "us-east-1"
 	regionInput.CharLimit = 20
-	regionInput.Width = 40
+	regionInput.Width = 30
 	regionInput.Prompt = "› "
 	regionInput.PromptStyle = styles.InputStyle
 	regionInput.TextStyle = styles.InputStyle
@@ -486,17 +486,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		// Ensure minimum dimensions
+		if msg.Width < styles.MinWidth {
+			msg.Width = styles.MinWidth
+		}
+		if msg.Height < styles.MinHeight {
+			msg.Height = styles.MinHeight
+		}
+
 		m.width = msg.Width
 		m.height = msg.Height
 
-		m.ssoList.SetWidth(msg.Width)
-		m.ssoList.SetHeight(msg.Height - 4)
+		// Calculate content area dimensions
+		contentWidth := msg.Width - 2*styles.Padding
+		contentHeight := msg.Height - 2*styles.Padding
 
-		m.accountList.SetWidth(msg.Width)
-		m.accountList.SetHeight(msg.Height - 4)
+		// Update list dimensions to use full width and height
+		m.ssoList.SetWidth(contentWidth)
+		m.ssoList.SetHeight(contentHeight - 4) // Account for title and margins
 
-		m.roleList.SetWidth(msg.Width)
-		m.roleList.SetHeight(msg.Height - 4)
+		m.accountList.SetWidth(contentWidth)
+		m.accountList.SetHeight(contentHeight - 4)
+
+		m.roleList.SetWidth(contentWidth)
+		m.roleList.SetHeight(contentHeight - 4)
+
+		// Update input dimensions to use full width
+		for i := range m.inputs {
+			m.inputs[i].Width = contentWidth - 4 // Account for padding
+		}
 
 	case tea.KeyMsg:
 		// Global keybindings
@@ -1298,7 +1316,7 @@ func (m model) View() string {
 				styles.MutedStyle.Render("Press ")+styles.SuccessStyle.Render("'y'")+styles.MutedStyle.Render(" to confirm or ")+styles.ErrorStyle.Render("'n'")+styles.MutedStyle.Render(" to cancel"),
 			),
 		)
-		content = lipgloss.JoinVertical(lipgloss.Left, header, "", content)
+		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, "", content))
 
 	case stateSelectAccount:
 		// Show loading spinner while fetching accounts
@@ -1347,8 +1365,6 @@ func (m model) View() string {
 				)
 			}
 		} else {
-			// Update account list title without region information
-			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 			content = styles.ListStyle.Render(m.accountList.View())
 		}
 
@@ -1356,9 +1372,7 @@ func (m model) View() string {
 		content = styles.ListStyle.Render(m.roleList.View())
 
 	case stateSessionSuccess:
-		// Create a more engaging success view with a checkmark icon
 		header := styles.TitleStyle.Render("AWS Session Activated Successfully")
-
 		checkmark := styles.SuccessStyle.Render("✓")
 
 		details := styles.SuccessBox.Render(
@@ -1423,12 +1437,12 @@ func (m model) View() string {
 
 		formContent.WriteString(styles.HelpStyle.Render("Press ESC to cancel"))
 
-		content = styles.FormStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String()))
+		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String()))
 
 	case stateSetAccountRegion:
 		header := styles.TitleStyle.Render("Set Account Region")
 		content = styles.BoxStyle.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.JoinVertical(lipgloss.Center,
 				fmt.Sprintf("Set region for account %s:", styles.TextStyle.Render(m.selectedAcc.Name)),
 				"",
 				m.accountRegionInput.View(),
@@ -1436,11 +1450,11 @@ func (m model) View() string {
 				styles.HelpStyle.Render("Press Enter to save or ESC to cancel"),
 			),
 		)
-		content = lipgloss.JoinVertical(lipgloss.Left, header, "", content)
+		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, "", content))
 	}
 
-	// Add consistent margin to all views
-	s = lipgloss.NewStyle().Margin(1, 0).Render(content)
+	// Apply base style and ensure content fills the terminal
+	s = styles.BaseStyle.Render(content)
 
 	return s + errorBar
 }
