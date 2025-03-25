@@ -62,11 +62,6 @@ type ssoTokenPollingTickMsg struct {
 	info *aws.SSOLoginInfo
 }
 
-// Add new message type for browser open
-type browserOpenMsg struct {
-	url string
-}
-
 // Add new message type for browser open error
 type browserOpenErrMsg struct {
 	err error
@@ -542,18 +537,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update list dimensions to use full width and height
 		m.ssoList.SetWidth(contentWidth)
-		m.ssoList.SetHeight(contentHeight - 4) // Account for title and margins
+		m.ssoList.SetHeight(contentHeight)
 
 		m.accountList.SetWidth(contentWidth)
-		m.accountList.SetHeight(contentHeight - 4)
+		m.accountList.SetHeight(contentHeight)
 
 		m.roleList.SetWidth(contentWidth)
-		m.roleList.SetHeight(contentHeight - 4)
-
-		// Update input dimensions to use full width
-		for i := range m.inputs {
-			m.inputs[i].Width = contentWidth - 4 // Account for padding
-		}
+		m.roleList.SetHeight(contentHeight)
 
 	case tea.KeyMsg:
 		// Global keybindings
