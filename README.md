@@ -1,20 +1,31 @@
-# (AW)Sesh
+# (AW)Sesh 🔐
 
-Sesh is a simple to use AWS session manager with charm!
+Sesh is a simple to use AWS session manager with charm! ✨💕
 Sesh is made to easily manage your AWS SSO sessions and accounts.
 Filter your accounts by name, and quickly switch between them.
 
-## Created with
+## ✨ Features
+- 🚀 Quick AWS SSO session management
+- 🔄 Fast account switching
+- 🔍 Fuzzy search filtering for accounts
+- 🌐 Open the AWS console in your browser
+- 💅 Charming interactive terminal user interface
+- 🪶 Lightweight and easy to install
 
-- [Go](https://golang.org/)
-- A few [charm\_](https://charm.sh/) tools
+## 📋 Prerequisites
+- Go 1.x (if building from source)
+
+## 🛠️ Created with
+
+- [Go](https://golang.org/) 🐹
+- A few [charm\_](https://charm.sh/) tools ✨
   - [Bubble Tea](https://github.com/charmbracelet/bubbletea)
   - [Bubbles](https://github.com/charmbracelet/bubbles)
   - [Lib Gloss](https://github.com/charmbracelet/lipgloss)
   - [VHS](https://github.com/charmbracelet/vhs)
-- [AWS SDK for Go](https://github.com/aws/aws-sdk-go-v2)
+- [AWS SDK for Go](https://github.com/aws/aws-sdk-go-v2) ☁️
 
-## Installation
+## 📦 Installation
 
 ### Option 1: Installation Script
 
@@ -52,10 +63,14 @@ cp build/awsesh ~/.local/bin/
 chmod +x /usr/local/bin/awsesh  # or ~/.local/bin/awsesh for user-local installation
 ```
 
-## Usage
+## 🚀 Usage
 
 After installation, you can run awsesh from the command line:
 
 ```sh
 awsesh
 ```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
