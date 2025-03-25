@@ -1,4 +1,4 @@
-Output tapes/editing-removing.webm
+Output tapes/editing-removing.gif
 
 Set Shell "zsh"
 Set Theme "Catppuccin Mocha"
@@ -11,7 +11,6 @@ Set BorderRadius 20
 Set Framerate 60
 Set WindowBar Colorful
 
-// TODO: use sesh when public
 Type "go run main.go" Sleep 1s
 Enter Sleep 1s
 Type "j" Sleep 1s

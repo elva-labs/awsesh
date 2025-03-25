@@ -22,11 +22,11 @@ sesh
 ```
 Basic demo
 
-![sesh demo](tapes/demo.webm)
+![sesh demo](tapes/demo.gif)
 
 You can edit, remove and manage SSO. As well as set region per account and open in browser.
 
-![sesh editing and removing](tapes/editing-removing.webm)
+![sesh editing and removing](tapes/editing-removing.gif)
 
 ## 📋 Prerequisites
 - Go 1.x (if building from source)

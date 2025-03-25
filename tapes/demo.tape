@@ -55,7 +55,7 @@
 #   Hide                            Hide the subsequent commands from the output
 #   Show                            Show the subsequent commands in the output
 
-Output tapes/demo.webm
+Output tapes/demo.gif
 
 Set Shell "zsh"
 Set Theme "Catppuccin Mocha"
@@ -68,7 +68,6 @@ Set BorderRadius 20
 Set Framerate 60
 Set WindowBar Colorful
 
-// TODO: use sesh when public
 Type "go run main.go" Sleep 1s Enter
 Sleep 2s
 Type "a"
