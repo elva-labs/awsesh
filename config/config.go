@@ -437,3 +437,51 @@ func (m *Manager) GetLastSelectedRole(profileName, accountName string) (string, 
 
 	return section.Key(fmt.Sprintf("last_role_%s", accountName)).String(), nil
 }
+
+// SaveAccountRegion saves the region for a specific account in an SSO profile
+func (m *Manager) SaveAccountRegion(profileName, accountName, region string) error {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg = ini.Empty()
+		} else {
+			return fmt.Errorf(errLoadAwseshConfig, err)
+		}
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		// If section doesn't exist, create it
+		section, err = cfg.NewSection(profileName)
+		if err != nil {
+			return fmt.Errorf("failed to create section for profile %s: %w", profileName, err)
+		}
+	}
+
+	// Store the region under a key that includes the account name
+	section.Key(fmt.Sprintf("region_%s", accountName)).SetValue(region)
+
+	if err := cfg.SaveTo(m.configPath); err != nil {
+		return fmt.Errorf(errSaveAwseshConfig, err)
+	}
+
+	return nil
+}
+
+// GetAccountRegion retrieves the region for a specific account in an SSO profile
+func (m *Manager) GetAccountRegion(profileName, accountName string) (string, error) {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf(errLoadAwseshConfig, err)
+	}
+
+	section, err := cfg.GetSection(profileName)
+	if err != nil {
+		return "", nil
+	}
+
+	return section.Key(fmt.Sprintf("region_%s", accountName)).String(), nil
+}

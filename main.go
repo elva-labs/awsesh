@@ -32,6 +32,7 @@ const (
 	stateAddSSO
 	stateEditSSO
 	stateDeleteConfirm
+	stateSetAccountRegion
 )
 
 // Messages
@@ -101,6 +102,9 @@ type model struct {
 
 	// Delete confirmation
 	deleteProfileName string
+
+	// Account region setting
+	accountRegionInput textinput.Model
 }
 
 // Items to display in list
@@ -202,6 +206,22 @@ func initialModel() model {
 	accountList.Styles.Title = styles.TitleStyle
 	accountList.Styles.PaginationStyle = styles.MutedStyle
 	accountList.Styles.HelpStyle = styles.HelpStyle
+	accountList.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(
+				key.WithKeys("r"),
+				key.WithHelp("r", "set region"),
+			),
+		}
+	}
+	accountList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(
+				key.WithKeys("r"),
+				key.WithHelp("r", "set region for selected account"),
+			),
+		}
+	}
 
 	// Empty role list (will be populated later)
 	roleList := list.New([]list.Item{}, delegate, 0, 0)
@@ -241,6 +261,15 @@ func initialModel() model {
 		profiles = []config.SSOProfile{}
 	}
 
+	// Initialize account region input
+	regionInput := textinput.New()
+	regionInput.Placeholder = "us-east-1"
+	regionInput.CharLimit = 20
+	regionInput.Width = 40
+	regionInput.Prompt = "› "
+	regionInput.PromptStyle = styles.InputStyle
+	regionInput.TextStyle = styles.InputStyle
+
 	// Create initial model
 	m := model{
 		state:               stateSelectSSO,
@@ -257,6 +286,7 @@ func initialModel() model {
 		usingCachedAccounts: false,
 		accountsLastUpdated: time.Time{},
 		currentRequestID:    "",
+		accountRegionInput:  regionInput,
 	}
 
 	// Update the list items
@@ -300,12 +330,25 @@ func startSSOLogin(startUrl string, region string, configMgr *config.Manager, cl
 }
 
 // Helper function to create account list items
-func makeAccountItems(accounts []aws.Account) []list.Item {
+func makeAccountItems(accounts []aws.Account, defaultRegion string, configMgr *config.Manager, ssoProfileName string) []list.Item {
 	accountItems := make([]list.Item, len(accounts))
 	for i, acc := range accounts {
+		region := acc.Region
+		if region == "" {
+			// Try to load account-specific region from config
+			if configMgr != nil {
+				if customRegion, err := configMgr.GetAccountRegion(ssoProfileName, acc.Name); err == nil && customRegion != "" {
+					region = customRegion
+				} else {
+					region = defaultRegion
+				}
+			} else {
+				region = defaultRegion
+			}
+		}
 		accountItems[i] = item{
 			title:       acc.Name,
-			description: fmt.Sprintf("Account ID: %s, Roles: %s", acc.AccountID, strings.Join(acc.Roles, ", ")),
+			description: fmt.Sprintf("Account ID: %s, Region: %s, Roles: %s", acc.AccountID, region, strings.Join(acc.Roles, ", ")),
 		}
 	}
 
@@ -405,7 +448,7 @@ func fetchAccounts(client *aws.Client, accessToken string, requestID string) tea
 }
 
 // Get credentials for a role
-func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName string, requestID string) tea.Cmd {
+func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName string, selectedAcc *aws.Account, requestID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -414,11 +457,17 @@ func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName str
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to get role credentials: %w", err), requestID: requestID}
 		}
 
+		// Use account-specific region if available, otherwise use SSO default
+		region := client.Region()
+		if selectedAcc != nil && selectedAcc.Region != "" {
+			region = selectedAcc.Region
+		}
+
 		err = config.WriteCredentials(
 			*resp.RoleCredentials.AccessKeyId,
 			*resp.RoleCredentials.SecretAccessKey,
 			*resp.RoleCredentials.SessionToken,
-			client.Region(),
+			region,
 		)
 		if err != nil {
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to write credentials: %w", err), requestID: requestID}
@@ -462,11 +511,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Print session information if we have an active session
 			if m.selectedAcc != nil {
+				// Use account-specific region if available, otherwise use SSO default
+				region := m.selectedAcc.Region
+				if region == "" {
+					region = m.selectedSSO.Region
+				}
 				fmt.Printf("\nActive AWS Session:\n")
 				fmt.Printf("SSO Profile: %s\n", m.selectedSSO.Name)
 				fmt.Printf("Account: %s (%s)\n", m.selectedAcc.Name, m.selectedAcc.AccountID)
 				fmt.Printf("Role: %s\n", m.selectedAcc.SelectedRole)
-				fmt.Printf("Region: %s\n\n", m.selectedSSO.Region)
+				fmt.Printf("Region: %s\n\n", region)
 			}
 
 			return m, tea.Quit
@@ -482,11 +536,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Print session information if we have an active session
 				if m.selectedAcc != nil {
+					// Use account-specific region if available, otherwise use SSO default
+					region := m.selectedAcc.Region
+					if region == "" {
+						region = m.selectedSSO.Region
+					}
 					fmt.Printf("\nActive AWS Session:\n")
 					fmt.Printf("SSO Profile: %s\n", m.selectedSSO.Name)
 					fmt.Printf("Account: %s (%s)\n", m.selectedAcc.Name, m.selectedAcc.AccountID)
 					fmt.Printf("Role: %s\n", m.selectedAcc.SelectedRole)
-					fmt.Printf("Region: %s\n\n", m.selectedSSO.Region)
+					fmt.Printf("Region: %s\n\n", region)
 				}
 
 				return m, tea.Quit
@@ -537,6 +596,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clear the filter when returning to SSO list
 				m.ssoList.ResetFilter()
 				return m, nil
+
+			case stateSetAccountRegion:
+				m.state = stateSelectAccount
+				return m, nil
+			}
+
+		case "r":
+			if m.state == stateSelectAccount && m.accountList.FilterState() != list.Filtering {
+				if i, ok := m.accountList.SelectedItem().(item); ok {
+					for idx, acc := range m.accounts {
+						if acc.Name == i.Title() {
+							m.selectedAcc = &m.accounts[idx]
+							// Load existing region if any
+							if region, err := m.configMgr.GetAccountRegion(m.selectedSSO.Name, m.selectedAcc.Name); err == nil {
+								m.accountRegionInput.SetValue(region)
+							}
+							m.state = stateSetAccountRegion
+							return m, m.accountRegionInput.Focus()
+						}
+					}
+				}
 			}
 		}
 
@@ -643,7 +723,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										m.usingCachedAccounts = true
 
 										// Update the account list items
-										accountItems := makeAccountItems(m.accounts)
+										accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
 										m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
 										m.accountList.SetItems(accountItems)
 
@@ -751,6 +831,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.accessToken,
 									m.selectedAcc.AccountID,
 									m.selectedAcc.SelectedRole,
+									m.selectedAcc,
 									m.currentRequestID,
 								)
 							}
@@ -794,6 +875,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.accessToken,
 						m.selectedAcc.AccountID,
 						m.selectedAcc.SelectedRole,
+						m.selectedAcc,
 						m.currentRequestID,
 					)
 				}
@@ -842,6 +924,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				return m, tea.Batch(cmds...)
+			}
+
+		case stateSetAccountRegion:
+			if msg.String() == "enter" {
+				region := strings.TrimSpace(m.accountRegionInput.Value())
+				if region != "" {
+					// Save the region for this account
+					if err := m.configMgr.SaveAccountRegion(m.selectedSSO.Name, m.selectedAcc.Name, region); err != nil {
+						m.errorMessage = fmt.Sprintf("Failed to save account region: %v", err)
+						return m, nil
+					}
+					// Update the account's region in memory
+					for idx, acc := range m.accounts {
+						if acc.Name == m.selectedAcc.Name {
+							m.accounts[idx].Region = region
+							break
+						}
+					}
+					// Refresh the account list items to show the updated region
+					accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+					m.accountList.SetItems(accountItems)
+				}
+				m.state = stateSelectAccount
+				return m, nil
 			}
 		}
 
@@ -916,7 +1022,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingText = ""
 
 		// Create account list items
-		accountItems := makeAccountItems(m.accounts)
+		accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
 
 		// Update account list title with breadcrumb
 		m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
@@ -997,6 +1103,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+
+	case stateSetAccountRegion:
+		var cmd tea.Cmd
+		m.accountRegionInput, cmd = m.accountRegionInput.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -1236,6 +1347,8 @@ func (m model) View() string {
 				)
 			}
 		} else {
+			// Update account list title without region information
+			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 			content = styles.ListStyle.Render(m.accountList.View())
 		}
 
@@ -1311,6 +1424,19 @@ func (m model) View() string {
 		formContent.WriteString(styles.HelpStyle.Render("Press ESC to cancel"))
 
 		content = styles.FormStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String()))
+
+	case stateSetAccountRegion:
+		header := styles.TitleStyle.Render("Set Account Region")
+		content = styles.BoxStyle.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				fmt.Sprintf("Set region for account %s:", styles.TextStyle.Render(m.selectedAcc.Name)),
+				"",
+				m.accountRegionInput.View(),
+				"",
+				styles.HelpStyle.Render("Press Enter to save or ESC to cancel"),
+			),
+		)
+		content = lipgloss.JoinVertical(lipgloss.Left, header, "", content)
 	}
 
 	// Add consistent margin to all views
@@ -1332,12 +1458,17 @@ func main() {
 	// Print session information after program has quit
 	if model, ok := m.(model); ok {
 		if model.selectedAcc != nil {
+			// Use account-specific region if available, otherwise use SSO default
+			region := model.selectedAcc.Region
+			if region == "" {
+				region = model.selectedSSO.Region
+			}
 			details := styles.SuccessBox.Render(
 				lipgloss.JoinVertical(lipgloss.Left,
 					fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(model.selectedSSO.Name)),
 					fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
 					fmt.Sprintf("Role: %s", styles.TextStyle.Render(model.selectedAcc.SelectedRole)),
-					fmt.Sprintf("Region: %s", styles.TextStyle.Render(model.selectedSSO.Region)),
+					fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
 				),
 			)
 			fmt.Printf("\n%s\n\n", details)

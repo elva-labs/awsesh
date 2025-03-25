@@ -8,6 +8,7 @@ type Account struct {
 	AccountID    string
 	Roles        []string
 	SelectedRole string
+	Region       string // Account-specific region, empty means use SSO default
 }
 
 // SSOLoginInfo contains information about an active SSO login session
