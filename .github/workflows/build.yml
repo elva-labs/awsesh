@@ -21,4 +21,4 @@ jobs:
         run: go mod download
 
       - name: Build
-        run: go build -o build/awsesh 
+        run: go build -o build/sesh 

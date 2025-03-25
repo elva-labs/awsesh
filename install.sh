@@ -3,7 +3,7 @@
 # Exit on error
 set -e
 
-echo "Installing awsesh..."
+echo "Installing sesh..."
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -50,25 +50,25 @@ TMP_DIR=$(mktemp -d)
 cd "$TMP_DIR"
 
 # Download the binary
-echo "Downloading awsesh ${LATEST_VERSION}..."
-if ! curl -L "$DOWNLOAD_URL" -o awsesh; then
+echo "Downloading sesh ${LATEST_VERSION}..."
+if ! curl -L "$DOWNLOAD_URL" -o sesh; then
     echo "Failed to download binary"
     exit 1
 fi
 
 # Make the binary executable
-chmod +x awsesh
+chmod +x sesh
 
 # Install to /usr/local/bin (or ~/.local/bin if no sudo access)
 if [ -w /usr/local/bin ]; then
     echo "Installing to /usr/local/bin..."
-    sudo cp awsesh /usr/local/bin/
-    sudo chmod +x /usr/local/bin/awsesh
+    sudo cp sesh /usr/local/bin/
+    sudo chmod +x /usr/local/bin/sesh
 else
     echo "Installing to ~/.local/bin..."
     mkdir -p ~/.local/bin
-    cp awsesh ~/.local/bin/
-    chmod +x ~/.local/bin/awsesh
+    cp sesh ~/.local/bin/
+    chmod +x ~/.local/bin/sesh
     echo "Please add ~/.local/bin to your PATH if not already done"
     echo "Add this line to your ~/.bashrc, ~/.zshrc, or ~/.profile:"
     echo 'export PATH="$HOME/.local/bin:$PATH"'
@@ -78,4 +78,4 @@ fi
 cd - > /dev/null
 rm -rf "$TMP_DIR"
 
-echo "Installation complete! You can now use 'awsesh' from the command line." 
+echo "Installation complete! You can now use 'sesh' from the command line." 
