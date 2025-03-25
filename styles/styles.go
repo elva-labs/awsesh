@@ -69,7 +69,7 @@ var (
 		Border(lipgloss.ThickBorder()).
 		BorderForeground(Secondary).
 		Padding(0, 1).
-		Margin(1, 0).
+		Margin(0, 0).
 		Bold(true)
 
 	// Help text style
@@ -114,7 +114,7 @@ var (
 	VerificationBox = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(Secondary).
-			Padding(2, 4).
+			Padding(1, 2).
 			Margin(1, 0).
 			Align(lipgloss.Center)
 

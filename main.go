@@ -1323,14 +1323,6 @@ func (m model) View() string {
 		if len(m.accounts) == 0 || (m.accounts != nil && !m.usingCachedAccounts && m.loadingText != "") {
 			if m.verificationUri != "" && m.verificationCode != "" {
 				// Create a more structured and visually appealing verification screen
-				header := styles.TitleStyle.Render("AWS SSO Authentication")
-
-				// Create loading status with spinner
-				loadingStatus := lipgloss.JoinHorizontal(lipgloss.Center,
-					m.spinner.View(),
-					" "+styles.TextStyle.Render(m.loadingText),
-				)
-
 				instructions := styles.VerificationBox.Render(
 					lipgloss.JoinVertical(lipgloss.Center,
 						styles.TextStyle.Render("Your browser should open automatically for SSO login."),
@@ -1344,13 +1336,14 @@ func (m model) View() string {
 						styles.HelpStyle.Render("You can also click the link below to open directly:"),
 						styles.TextStyle.Render(m.verificationUriComplete),
 						"",
-						loadingStatus,
+						lipgloss.JoinHorizontal(lipgloss.Center,
+							m.spinner.View(),
+							" "+styles.TextStyle.Render(m.loadingText),
+						),
 					),
 				)
 
 				content = lipgloss.JoinVertical(lipgloss.Left,
-					header,
-					"",
 					instructions,
 				)
 			} else {
