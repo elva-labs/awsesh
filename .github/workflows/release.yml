@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o awsesh-darwin-amd64
+          GOOS=darwin GOARCH=arm64 go build -o awsesh-darwin-arm64
+          GOOS=linux GOARCH=amd64 go build -o awsesh-linux-amd64
+          GOOS=linux GOARCH=arm64 go build -o awsesh-linux-arm64
+          GOOS=windows GOARCH=amd64 go build -o awsesh-windows-amd64.exe
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            awsesh-darwin-amd64
+            awsesh-darwin-arm64
+            awsesh-linux-amd64
+            awsesh-linux-arm64
+            awsesh-windows-amd64.exe
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
