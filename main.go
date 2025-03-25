@@ -62,6 +62,19 @@ type ssoTokenPollingTickMsg struct {
 	info *aws.SSOLoginInfo
 }
 
+// Add new message type for browser open
+type browserOpenMsg struct {
+	url string
+}
+
+// Add new message type for browser open error
+type browserOpenErrMsg struct {
+	err error
+}
+
+// Add new message type for browser open success
+type browserOpenSuccessMsg struct{}
+
 // Main app model
 type model struct {
 	state       int
@@ -181,6 +194,10 @@ func initialModel() model {
 				key.WithKeys("d"),
 				key.WithHelp("d", "delete"),
 			),
+			key.NewBinding(
+				key.WithKeys("o"),
+				key.WithHelp("o", "open dashboard"),
+			),
 		}
 	}
 	ssoList.AdditionalFullHelpKeys = func() []key.Binding {
@@ -197,6 +214,10 @@ func initialModel() model {
 				key.WithKeys("d"),
 				key.WithHelp("d", "delete selected SSO profile"),
 			),
+			key.NewBinding(
+				key.WithKeys("o"),
+				key.WithHelp("o", "open SSO dashboard"),
+			),
 		}
 	}
 
@@ -212,6 +233,10 @@ func initialModel() model {
 				key.WithKeys("r"),
 				key.WithHelp("r", "set region"),
 			),
+			key.NewBinding(
+				key.WithKeys("o"),
+				key.WithHelp("o", "open in browser"),
+			),
 		}
 	}
 	accountList.AdditionalFullHelpKeys = func() []key.Binding {
@@ -219,6 +244,10 @@ func initialModel() model {
 			key.NewBinding(
 				key.WithKeys("r"),
 				key.WithHelp("r", "set region for selected account"),
+			),
+			key.NewBinding(
+				key.WithKeys("o"),
+				key.WithHelp("o", "open account in AWS Console"),
 			),
 		}
 	}
@@ -477,6 +506,16 @@ func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName str
 	}
 }
 
+// Add new function to open browser
+func openBrowser(url string) tea.Cmd {
+	return func() tea.Msg {
+		if err := utils.OpenBrowser(url); err != nil {
+			return browserOpenErrMsg{err: err}
+		}
+		return browserOpenSuccessMsg{}
+	}
+}
+
 func (m model) Init() tea.Cmd {
 	return m.spinner.Tick
 }
@@ -632,6 +671,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							m.state = stateSetAccountRegion
 							return m, m.accountRegionInput.Focus()
+						}
+					}
+				}
+			}
+
+		case "o":
+			if m.state == stateSelectSSO && m.ssoList.FilterState() != list.Filtering {
+				if i, ok := m.ssoList.SelectedItem().(item); ok {
+					for _, profile := range m.ssoProfiles {
+						if profile.Name == i.Title() {
+							url := m.awsClient.GetDashboardURL(profile.StartURL)
+							return m, openBrowser(url)
+						}
+					}
+				}
+			} else if m.state == stateSelectAccount && m.accountList.FilterState() != list.Filtering {
+				if i, ok := m.accountList.SelectedItem().(item); ok {
+					for _, acc := range m.accounts {
+						if acc.Name == i.Title() {
+							// Use the first available role, or AdministratorAccess as fallback
+							roleName := "AdministratorAccess"
+							if len(acc.Roles) > 0 {
+								roleName = acc.Roles[0]
+							}
+							url := m.awsClient.GetAccountURL(acc.AccountID, m.accessToken, m.selectedSSO.StartURL, roleName)
+							return m, openBrowser(url)
 						}
 					}
 				}
@@ -1088,6 +1153,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+
+	case browserOpenErrMsg:
+		m.errorMessage = fmt.Sprintf("Failed to open browser: %v", msg.err)
+		return m, nil
+
+	case browserOpenSuccessMsg:
+		// Browser opened successfully, no need to show any message
+		return m, nil
 	}
 
 	// Handle updates for the individual components based on state

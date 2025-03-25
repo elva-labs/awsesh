@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -171,4 +172,22 @@ func (c *Client) CreateToken(ctx context.Context, info *SSOLoginInfo) (string, e
 // Region returns the configured AWS region
 func (c *Client) Region() string {
 	return c.cfg.Region
+}
+
+// GetAccountURL generates the AWS Console URL for a specific account using SSO
+func (c *Client) GetAccountURL(accountID string, accessToken string, startURL string, roleName string) string {
+	// Extract the portal URL from the start URL
+	portalURL := strings.TrimSuffix(startURL, "/start")
+
+	// Generate the console URL with the account ID and role name
+	return fmt.Sprintf("%s/start/#/console?account_id=%s&role_name=%s", portalURL, accountID, roleName)
+}
+
+// GetDashboardURL generates the AWS SSO dashboard URL
+func (c *Client) GetDashboardURL(startURL string) string {
+	// Extract the portal URL from the start URL
+	portalURL := strings.TrimSuffix(startURL, "/start")
+
+	// Generate the dashboard URL
+	return fmt.Sprintf("%s/start/#/?tab=accounts", portalURL)
 }
