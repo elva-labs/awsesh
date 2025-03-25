@@ -55,38 +55,38 @@
 #   Hide                            Hide the subsequent commands from the output
 #   Show                            Show the subsequent commands in the output
 
-Output demo.webm
+Output tapes/demo.webm
 
 Set Shell "zsh"
 Set Theme "Catppuccin Mocha"
 Set FontSize 24
 Set Width 1400
-Set Height 1200
+Set Height 1000
 Set Margin 60
 Set MarginFill "#6B50FF"
 Set BorderRadius 20
 Set Framerate 60
 Set WindowBar Colorful
 
+// TODO: use sesh when public
 Type "go run main.go" Sleep 1s Enter
-Sleep 3s
-Type@200ms "jj"
-Type@200ms "kk" Sleep 1s
+Sleep 2s
 Type "a"
-Sleep 2s
-Type "Elva SSO" Enter Sleep 1s
-Type "sagewei" Enter Sleep 1s
-Type "eu-north-1" Enter 1 Sleep 1s
-Enter Sleep 2s
-Escape 1
-Sleep 2s
+Sleep 1s
+Type "Donedev SSO" Enter Sleep 700ms
+Type "donedev" Enter Sleep 700ms
+Type "eu-north-1" Enter 1 Sleep 700ms
+Enter Sleep 1s
 
-Type@200ms "/Elv" Sleep 2s Enter
+Type@200ms "/don" Sleep 1s
+Enter Sleep 700ms
+Enter
 Sleep 8s
 Type@200ms "jjjjj"
-Type@200ms "k" Sleep 2s
-Type@200ms "/orebro-sa" Sleep 1s Enter
-Enter Sleep 4s
+Type@200ms "k" Sleep 1s
+Type@200ms "/noo" Sleep 700ms
+Enter Sleep 1s
+Enter Sleep 2s
 Type "q"
 
 Type "aws s3 ls" Enter

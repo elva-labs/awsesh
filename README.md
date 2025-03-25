@@ -1,6 +1,7 @@
 # (AW)Sesh 🔐
 
 Sesh is a simple to use AWS session manager with charm! ✨💕
+
 Sesh is made to easily manage your AWS SSO sessions and accounts.
 Filter your accounts by name, and quickly switch between them.
 
@@ -11,6 +12,21 @@ Filter your accounts by name, and quickly switch between them.
 - 🌐 Open the AWS console in your browser
 - 💅 Charming interactive terminal user interface
 - 🪶 Lightweight and easy to install
+
+## Usage
+
+Just type sesh!
+
+```sh
+sesh
+```
+Basic demo
+
+![sesh demo](tapes/demo.webm)
+
+You can edit, remove and manage SSO. As well as set region per account and open in browser.
+
+![sesh editing and removing](tapes/editing-removing.webm)
 
 ## 📋 Prerequisites
 - Go 1.x (if building from source)
@@ -24,6 +40,8 @@ Filter your accounts by name, and quickly switch between them.
   - [Lib Gloss](https://github.com/charmbracelet/lipgloss)
   - [VHS](https://github.com/charmbracelet/vhs)
 - [AWS SDK for Go](https://github.com/aws/aws-sdk-go-v2) ☁️
+
+
 
 ## 📦 Installation
 
