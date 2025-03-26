@@ -6,6 +6,7 @@ Sesh is made to easily manage your AWS SSO sessions and accounts.
 Filter your accounts by name, and quickly switch between them.
 
 ## ✨ Features
+
 - 🚀 Quick AWS SSO session management
 - 🔄 Fast account switching
 - 🔍 Fuzzy search filtering for accounts
@@ -15,11 +16,17 @@ Filter your accounts by name, and quickly switch between them.
 
 ## Usage
 
+> ## ❗ Important Notice ❗
+>
+> This application will edit your .aws/credentials file to set the keys.
+> If you have a complex setup there already I would recommend backing it up ahead of trying this!
+
 Just type sesh!
 
 ```sh
 sesh
 ```
+
 Basic demo
 
 ![sesh demo](tapes/demo.gif)
@@ -29,6 +36,7 @@ You can edit, remove and manage SSO. As well as set region per account and open 
 ![sesh editing and removing](tapes/editing-removing.gif)
 
 ## 📋 Prerequisites
+
 - Go 1.x (if building from source)
 
 ## 🛠️ Created with
@@ -40,8 +48,6 @@ You can edit, remove and manage SSO. As well as set region per account and open 
   - [Lib Gloss](https://github.com/charmbracelet/lipgloss)
   - [VHS](https://github.com/charmbracelet/vhs)
 - [AWS SDK for Go](https://github.com/aws/aws-sdk-go-v2) ☁️
-
-
 
 ## 📦 Installation
 
@@ -56,17 +62,20 @@ curl -sSL https://raw.githubusercontent.com/elva-labs/awsesh/main/install.sh | b
 ### Option 2: Manual Installation
 
 1. Clone the repository:
+
 ```sh
 git clone https://github.com/elva-labs/awsesh.git
 cd awsesh
 ```
 
 2. Build the application:
+
 ```sh
 go build -o build/sesh
 ```
 
 3. Move the binary to your PATH:
+
 ```sh
 # For system-wide installation (requires sudo)
 sudo cp build/sesh /usr/local/bin/
@@ -77,6 +86,7 @@ cp build/sesh ~/.local/bin/
 ```
 
 4. Make the binary executable:
+
 ```sh
 chmod +x /usr/local/bin/sesh  # or ~/.local/bin/sesh for user-local installation
 ```
