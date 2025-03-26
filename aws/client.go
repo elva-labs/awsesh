@@ -110,9 +110,6 @@ func (c *Client) ListAccounts(ctx context.Context, accessToken string) ([]Accoun
 
 // LoadAccountRoles loads roles for a specific account
 func (c *Client) LoadAccountRoles(ctx context.Context, accessToken string, accountID string) ([]string, error) {
-	// Add delay to avoid rate limiting
-	time.Sleep(333 * time.Millisecond)
-
 	roles, err := c.ListAccountRoles(ctx, accessToken, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list roles for account %s: %w", accountID, err)

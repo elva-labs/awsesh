@@ -81,6 +81,24 @@ type loadRolesErrMsg struct {
 	err       error
 }
 
+// Add new message type for sequential role loading
+type loadNextRoleMsg struct {
+	accounts    []aws.Account
+	currentIdx  int
+	accessToken string
+}
+
+// Initialize the sequential loading
+func startLoadingRoles(client *aws.Client, accessToken string, accounts []aws.Account) tea.Cmd {
+	return func() tea.Msg {
+		return loadNextRoleMsg{
+			accounts:    accounts,
+			currentIdx:  0,
+			accessToken: accessToken,
+		}
+	}
+}
+
 // Main app model
 type model struct {
 	state       int
@@ -933,7 +951,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 							// Otherwise show loading and fetch roles
 							m.loadingText = fmt.Sprintf("Loading roles for %s...", m.selectedAcc.Name)
-							return m, loadAccountRoles(m.awsClient, m.accessToken, m.selectedAcc.AccountID)
+							return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
 						}
 					}
 				}
@@ -1096,17 +1114,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// but don't change the view or state
 		if m.usingCachedAccounts {
 			m.accounts = msg.accounts
-			// Update the account list title to remove "(cached)" since we now have fresh data
-			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
+			// Update the account list title to show we're using cached data
+			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
 
-			// Start background role loading for all accounts
-			var cmds []tea.Cmd
-			for _, acc := range m.accounts {
-				if !acc.RolesLoaded {
-					cmds = append(cmds, loadAccountRoles(m.awsClient, m.accessToken, acc.AccountID))
-				}
-			}
-			return m, tea.Batch(cmds...)
+			// Start sequential role loading
+			return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
 		}
 
 		// For non-cached accounts, proceed with normal flow
@@ -1126,14 +1138,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Try to select the previously selected account if it exists
 		m.selectLastUsedAccount(m.selectedSSO.Name)
 
-		// Start background role loading for all accounts
-		var cmds []tea.Cmd
-		for _, acc := range m.accounts {
-			if !acc.RolesLoaded {
-				cmds = append(cmds, loadAccountRoles(m.awsClient, m.accessToken, acc.AccountID))
-			}
-		}
-		return m, tea.Batch(cmds...)
+		// Start sequential role loading
+		return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
 
 	case fetchAccountsErrMsg:
 		// Ignore messages for outdated requests
@@ -1249,6 +1255,89 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loadingText = ""
 		return m, nil
+
+	case loadNextRoleMsg:
+		if msg.currentIdx >= len(msg.accounts) {
+			return m, nil
+		}
+
+		acc := msg.accounts[msg.currentIdx]
+		if !acc.RolesLoaded {
+			// Load roles for current account
+			roles, err := m.awsClient.LoadAccountRoles(context.Background(), msg.accessToken, acc.AccountID)
+			if err != nil {
+				return m, func() tea.Msg {
+					return loadRolesErrMsg{accountID: acc.AccountID, err: err}
+				}
+			}
+
+			// Update the roles for the account
+			for idx, a := range m.accounts {
+				if a.AccountID == acc.AccountID {
+					m.accounts[idx].Roles = roles
+					m.accounts[idx].RolesLoaded = true
+
+					// Update the cached accounts
+					if m.selectedSSO != nil {
+						go func() {
+							if err := m.configMgr.SaveCachedAccounts(m.selectedSSO.Name, m.selectedSSO.StartURL, m.accounts); err != nil {
+								fmt.Fprintf(os.Stderr, "Warning: Failed to save accounts to cache: %v\n", err)
+							}
+						}()
+					}
+
+					// If this is the selected account, update its roles too
+					if m.selectedAcc != nil && m.selectedAcc.AccountID == acc.AccountID {
+						m.selectedAcc = &m.accounts[idx]
+
+						// Create role list items
+						roleItems := makeRoleItems(roles)
+						m.roleList.SetItems(roleItems)
+
+						// Try to select the previously selected role if it exists
+						m.selectLastUsedRole(m.selectedSSO.Name, m.selectedAcc.Name)
+
+						// If there's only one role, select it automatically
+						if len(roles) == 1 {
+							m.selectedAcc.SelectedRole = roles[0]
+							// Get credentials for the selected role
+							m.loadingText = ""
+							return m, getRoleCredentials(
+								m.awsClient,
+								m.accessToken,
+								m.selectedAcc.AccountID,
+								m.selectedAcc.SelectedRole,
+								m.selectedAcc,
+								m.currentRequestID,
+							)
+						}
+					}
+
+					// Update the account list display
+					accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+					m.accountList.SetItems(accountItems)
+					break
+				}
+			}
+
+			// Schedule loading of next account after delay
+			return m, func() tea.Msg {
+				return loadNextRoleMsg{
+					accounts:    msg.accounts,
+					currentIdx:  msg.currentIdx + 1,
+					accessToken: msg.accessToken,
+				}
+			}
+		}
+
+		// If current account is already loaded, move to next one
+		return m, func() tea.Msg {
+			return loadNextRoleMsg{
+				accounts:    msg.accounts,
+				currentIdx:  msg.currentIdx + 1,
+				accessToken: msg.accessToken,
+			}
+		}
 	}
 
 	// Handle updates for the individual components based on state
