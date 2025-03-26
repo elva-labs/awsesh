@@ -11,7 +11,7 @@ Set BorderRadius 20
 Set Framerate 60
 Set WindowBar Colorful
 
-Type "go run main.go" Sleep 1s
+Type "sesh" Sleep 1s
 Enter Sleep 1s
 Type "j" Sleep 1s
 Type "?" Sleep 2s
