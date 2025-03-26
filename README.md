@@ -63,30 +63,30 @@ cd awsesh
 
 2. Build the application:
 ```sh
-go build -o build/awsesh
+go build -o build/sesh
 ```
 
 3. Move the binary to your PATH:
 ```sh
 # For system-wide installation (requires sudo)
-sudo cp build/awsesh /usr/local/bin/
+sudo cp build/sesh /usr/local/bin/
 
 # For user-local installation
 mkdir -p ~/.local/bin
-cp build/awsesh ~/.local/bin/
+cp build/sesh ~/.local/bin/
 ```
 
 4. Make the binary executable:
 ```sh
-chmod +x /usr/local/bin/awsesh  # or ~/.local/bin/awsesh for user-local installation
+chmod +x /usr/local/bin/sesh  # or ~/.local/bin/sesh for user-local installation
 ```
 
 ## 🚀 Usage
 
-After installation, you can run awsesh from the command line:
+After installation, you can run sesh from the command line:
 
 ```sh
-awsesh
+sesh
 ```
 
 ## 📄 License
