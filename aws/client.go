@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -89,17 +90,59 @@ func (c *Client) ListAccounts(ctx context.Context, accessToken string) ([]Accoun
 			return nil, fmt.Errorf("failed to list accounts: %w", err)
 		}
 
-		for _, acc := range resp.AccountList {
-			roles, err := c.ListAccountRoles(ctx, accessToken, *acc.AccountId)
-			if err != nil {
-				return nil, fmt.Errorf("failed to list roles for account %s: %w", *acc.AccountId, err)
-			}
+		// Create a channel to receive role listing results
+		roleChan := make(chan struct {
+			accountID string
+			roles     []string
+			err       error
+		}, len(resp.AccountList))
 
+		// Create a rate limiter - limit to 3 requests per second
+		rateLimiter := make(chan struct{}, 3)
+
+		// Launch goroutines for each account to list roles
+		for _, acc := range resp.AccountList {
+			rateLimiter <- struct{}{} // Acquire rate limit token
+			go func(accountID string, accountName string) {
+				defer func() {
+					<-rateLimiter                      // Release rate limit token
+					time.Sleep(333 * time.Millisecond) // Ensure even distribution
+				}()
+
+				roles, err := c.ListAccountRoles(ctx, accessToken, accountID)
+				roleChan <- struct {
+					accountID string
+					roles     []string
+					err       error
+				}{accountID, roles, err}
+			}(*acc.AccountId, *acc.AccountName)
+		}
+
+		// Collect results from all goroutines
+		roleResults := make(map[string][]string)
+		var errors []string
+		for range resp.AccountList {
+			result := <-roleChan
+			if result.err != nil {
+				// Log the error but continue with other accounts
+				errors = append(errors, fmt.Sprintf("account %s: %v", result.accountID, result.err))
+				continue
+			}
+			roleResults[result.accountID] = result.roles
+		}
+
+		// Create account objects with their roles
+		for _, acc := range resp.AccountList {
 			accounts = append(accounts, Account{
 				Name:      *acc.AccountName,
 				AccountID: *acc.AccountId,
-				Roles:     roles,
+				Roles:     roleResults[*acc.AccountId],
 			})
+		}
+
+		// Log any errors that occurred
+		if len(errors) > 0 {
+			fmt.Fprintf(os.Stderr, "Warnings while listing roles:\n%s\n", strings.Join(errors, "\n"))
 		}
 
 		nextToken = resp.NextToken
