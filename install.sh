@@ -32,11 +32,11 @@ if [ -z "$LATEST_VERSION" ]; then
 fi
 
 # Construct the binary name
-BINARY_NAME="awsesh-${OS}-${ARCH}"
+BINARY_NAME="sesh-${OS}-${ARCH}"
 if [ "$OS" = "darwin" ]; then
-    BINARY_NAME="awsesh-darwin-${ARCH}"
+    BINARY_NAME="sesh-darwin-${ARCH}"
 elif [ "$OS" = "linux" ]; then
-    BINARY_NAME="awsesh-linux-${ARCH}"
+    BINARY_NAME="sesh-linux-${ARCH}"
 else
     echo "Unsupported operating system: $OS"
     exit 1
