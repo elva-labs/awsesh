@@ -1071,10 +1071,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							break
 						}
 					}
-					// Refresh the account list items to show the updated region
-					accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
-					m.accountList.SetItems(accountItems)
+				} else {
+					// Clear the region for this account
+					if err := m.configMgr.SaveAccountRegion(m.selectedSSO.Name, m.selectedAcc.Name, ""); err != nil {
+						m.errorMessage = fmt.Sprintf("Failed to clear account region: %v", err)
+						return m, nil
+					}
+					// Update the account's region in memory to empty string
+					for idx, acc := range m.accounts {
+						if acc.Name == m.selectedAcc.Name {
+							m.accounts[idx].Region = ""
+							break
+						}
+					}
 				}
+				// Refresh the account list items to show the updated region
+				accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+				m.accountList.SetItems(accountItems)
 				m.state = stateSelectAccount
 				return m, nil
 			}
