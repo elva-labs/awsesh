@@ -88,6 +88,13 @@ type loadNextRoleMsg struct {
 	accessToken string
 }
 
+// Add new message type for role updates
+type updateRolesMsg struct {
+	accountID  string
+	roles      []string
+	currentIdx int
+}
+
 // Initialize the sequential loading
 func startLoadingRoles(client *aws.Client, accessToken string, accounts []aws.Account) tea.Cmd {
 	return func() tea.Msg {
@@ -541,14 +548,14 @@ func openBrowser(url string) tea.Cmd {
 }
 
 // Add new function to load roles
-func loadAccountRoles(client *aws.Client, accessToken string, accountID string) tea.Cmd {
+func loadAccountRoles(client *aws.Client, accessToken string, accountID string, currentIdx int) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		roles, err := client.LoadAccountRoles(ctx, accessToken, accountID)
 		if err != nil {
 			return loadRolesErrMsg{accountID: accountID, err: err}
 		}
-		return loadRolesSuccessMsg{accountID: accountID, roles: roles}
+		return updateRolesMsg{accountID: accountID, roles: roles, currentIdx: currentIdx}
 	}
 }
 
@@ -1187,58 +1194,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Browser opened successfully, no need to show any message
 		return m, nil
 
-	case loadRolesSuccessMsg:
-		// Update the roles for the account
-		for idx, acc := range m.accounts {
-			if acc.AccountID == msg.accountID {
-				m.accounts[idx].Roles = msg.roles
-				m.accounts[idx].RolesLoaded = true
-
-				// Update the cached accounts
-				if m.selectedSSO != nil {
-					go func() {
-						if err := m.configMgr.SaveCachedAccounts(m.selectedSSO.Name, m.selectedSSO.StartURL, m.accounts); err != nil {
-							fmt.Fprintf(os.Stderr, "Warning: Failed to save accounts to cache: %v\n", err)
-						}
-					}()
-				}
-
-				// If this is the selected account, update its roles too
-				if m.selectedAcc != nil && m.selectedAcc.AccountID == msg.accountID {
-					m.selectedAcc = &m.accounts[idx]
-
-					// Create role list items
-					roleItems := makeRoleItems(msg.roles)
-					m.roleList.SetItems(roleItems)
-
-					// Try to select the previously selected role if it exists
-					m.selectLastUsedRole(m.selectedSSO.Name, m.selectedAcc.Name)
-
-					// If there's only one role, select it automatically
-					if len(msg.roles) == 1 {
-						m.selectedAcc.SelectedRole = msg.roles[0]
-						// Get credentials for the selected role
-						m.loadingText = ""
-						return m, getRoleCredentials(
-							m.awsClient,
-							m.accessToken,
-							m.selectedAcc.AccountID,
-							m.selectedAcc.SelectedRole,
-							m.selectedAcc,
-							m.currentRequestID,
-						)
-					}
-				}
-
-				// Update the account list display
-				accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
-				m.accountList.SetItems(accountItems)
-				break
-			}
-		}
-		m.loadingText = ""
-		return m, nil
-
 	case loadRolesErrMsg:
 		// Log the error but allow the user to continue
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load roles for account %s: %v\n", msg.accountID, msg.err)
@@ -1264,70 +1219,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		acc := msg.accounts[msg.currentIdx]
 		if !acc.RolesLoaded {
 			// Load roles for current account
-			roles, err := m.awsClient.LoadAccountRoles(context.Background(), msg.accessToken, acc.AccountID)
-			if err != nil {
-				return m, func() tea.Msg {
-					return loadRolesErrMsg{accountID: acc.AccountID, err: err}
-				}
-			}
-
-			// Update the roles for the account
-			for idx, a := range m.accounts {
-				if a.AccountID == acc.AccountID {
-					m.accounts[idx].Roles = roles
-					m.accounts[idx].RolesLoaded = true
-
-					// Update the cached accounts
-					if m.selectedSSO != nil {
-						go func() {
-							if err := m.configMgr.SaveCachedAccounts(m.selectedSSO.Name, m.selectedSSO.StartURL, m.accounts); err != nil {
-								fmt.Fprintf(os.Stderr, "Warning: Failed to save accounts to cache: %v\n", err)
-							}
-						}()
-					}
-
-					// If this is the selected account, update its roles too
-					if m.selectedAcc != nil && m.selectedAcc.AccountID == acc.AccountID {
-						m.selectedAcc = &m.accounts[idx]
-
-						// Create role list items
-						roleItems := makeRoleItems(roles)
-						m.roleList.SetItems(roleItems)
-
-						// Try to select the previously selected role if it exists
-						m.selectLastUsedRole(m.selectedSSO.Name, m.selectedAcc.Name)
-
-						// If there's only one role, select it automatically
-						if len(roles) == 1 {
-							m.selectedAcc.SelectedRole = roles[0]
-							// Get credentials for the selected role
-							m.loadingText = ""
-							return m, getRoleCredentials(
-								m.awsClient,
-								m.accessToken,
-								m.selectedAcc.AccountID,
-								m.selectedAcc.SelectedRole,
-								m.selectedAcc,
-								m.currentRequestID,
-							)
-						}
-					}
-
-					// Update the account list display
-					accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
-					m.accountList.SetItems(accountItems)
-					break
-				}
-			}
-
-			// Schedule loading of next account after delay
-			return m, func() tea.Msg {
-				return loadNextRoleMsg{
-					accounts:    msg.accounts,
-					currentIdx:  msg.currentIdx + 1,
-					accessToken: msg.accessToken,
-				}
-			}
+			return m, loadAccountRoles(m.awsClient, msg.accessToken, acc.AccountID, msg.currentIdx)
 		}
 
 		// If current account is already loaded, move to next one
@@ -1336,6 +1228,60 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				accounts:    msg.accounts,
 				currentIdx:  msg.currentIdx + 1,
 				accessToken: msg.accessToken,
+			}
+		}
+
+	case updateRolesMsg:
+		// Update the roles for the account
+		for idx, acc := range m.accounts {
+			if acc.AccountID == msg.accountID {
+				m.accounts[idx].Roles = msg.roles
+				m.accounts[idx].RolesLoaded = true
+
+				// Update the cached accounts in background
+				if m.selectedSSO != nil {
+					go func() {
+						if err := m.configMgr.SaveCachedAccounts(m.selectedSSO.Name, m.selectedSSO.StartURL, m.accounts); err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: Failed to save accounts to cache: %v\n", err)
+						}
+					}()
+				}
+
+				// If this is the selected account, update its roles too
+				if m.selectedAcc != nil && m.selectedAcc.AccountID == msg.accountID {
+					m.selectedAcc = &m.accounts[idx]
+					roleItems := makeRoleItems(msg.roles)
+					m.roleList.SetItems(roleItems)
+					m.selectLastUsedRole(m.selectedSSO.Name, m.selectedAcc.Name)
+
+					// If there's only one role, select it automatically
+					if len(msg.roles) == 1 {
+						m.selectedAcc.SelectedRole = msg.roles[0]
+						m.loadingText = ""
+						return m, getRoleCredentials(
+							m.awsClient,
+							m.accessToken,
+							m.selectedAcc.AccountID,
+							m.selectedAcc.SelectedRole,
+							m.selectedAcc,
+							m.currentRequestID,
+						)
+					}
+				}
+
+				// Update the account list display
+				accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+				m.accountList.SetItems(accountItems)
+				break
+			}
+		}
+
+		// Move to next account
+		return m, func() tea.Msg {
+			return loadNextRoleMsg{
+				accounts:    m.accounts,
+				currentIdx:  msg.currentIdx + 1,
+				accessToken: m.accessToken,
 			}
 		}
 	}
