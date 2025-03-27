@@ -1669,10 +1669,224 @@ func (m model) View() string {
 	return s + errorBar
 }
 
+// DirectSessionSetup handles setting up a session directly from command line arguments
+func directSessionSetup(ssoName, accountName string) error {
+	// Create config manager
+	configMgr, err := config.NewManager()
+	if err != nil {
+		return fmt.Errorf("failed to initialize config manager: %w", err)
+	}
+
+	// Load profiles
+	profiles, err := configMgr.LoadProfiles()
+	if err != nil {
+		return fmt.Errorf("failed to load SSO profiles: %w", err)
+	}
+
+	// Find the specified SSO profile
+	var selectedProfile *config.SSOProfile
+	for _, profile := range profiles {
+		if profile.Name == ssoName {
+			selectedProfile = &profile
+			break
+		}
+	}
+	if selectedProfile == nil {
+		return fmt.Errorf("SSO profile '%s' not found", ssoName)
+	}
+
+	// Initialize AWS client
+	awsClient, err := aws.NewClient(selectedProfile.Region)
+	if err != nil {
+		return fmt.Errorf("failed to initialize AWS client: %w", err)
+	}
+
+	// Check for cached token first
+	var accessToken string
+	cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
+	if err != nil {
+		return fmt.Errorf("failed to check token cache: %w", err)
+	}
+
+	if cachedToken != nil {
+		accessToken = cachedToken.AccessToken
+	} else {
+		// Start SSO login process if no valid cached token
+		ctx := context.Background()
+		loginInfo, err := awsClient.StartSSOLogin(ctx, selectedProfile.StartURL)
+		if err != nil {
+			return fmt.Errorf("failed to start SSO login: %w", err)
+		}
+
+		// Open browser for login
+		if err := utils.OpenBrowser(loginInfo.VerificationUriComplete); err != nil {
+			fmt.Printf("Warning: Failed to open browser: %v\n", err)
+			fmt.Printf("Please visit: %s\n", loginInfo.VerificationUri)
+			fmt.Printf("Enter code: %s\n", loginInfo.UserCode)
+		}
+
+		// Poll for token
+		for {
+			token, err := awsClient.CreateToken(ctx, loginInfo)
+			if err != nil {
+				var apiErr smithy.APIError
+				if errors.As(err, &apiErr) {
+					switch apiErr.ErrorCode() {
+					case "AuthorizationPendingException":
+						if time.Now().After(loginInfo.ExpiresAt) {
+							return fmt.Errorf("authentication timed out")
+						}
+						time.Sleep(2 * time.Second)
+						continue
+					case "SlowDownException":
+						time.Sleep(2 * time.Second)
+						continue
+					case "ExpiredTokenException":
+						return fmt.Errorf("device code expired")
+					default:
+						return fmt.Errorf("API error: %s - %s", apiErr.ErrorCode(), apiErr.ErrorMessage())
+					}
+				}
+				return fmt.Errorf("failed to create token: %w", err)
+			}
+			if token != "" {
+				accessToken = token
+				// Save the token to cache
+				if err := configMgr.SaveToken(selectedProfile.StartURL, token, time.Now().Add(8*time.Hour)); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to save token to cache: %v\n", err)
+				}
+				break
+			}
+		}
+	}
+
+	// List accounts
+	ctx := context.Background()
+	accounts, err := awsClient.ListAccounts(ctx, accessToken, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list accounts: %w", err)
+	}
+
+	// Find the specified account
+	var selectedAccount *aws.Account
+	for _, acc := range accounts {
+		if acc.Name == accountName {
+			selectedAccount = &acc
+			break
+		}
+	}
+	if selectedAccount == nil {
+		return fmt.Errorf("account '%s' not found", accountName)
+	}
+
+	// Load roles for the account
+	roles, err := awsClient.LoadAccountRoles(ctx, accessToken, selectedAccount.AccountID)
+	if err != nil {
+		return fmt.Errorf("failed to load roles: %w", err)
+	}
+
+	// Use the first available role, or AdministratorAccess as fallback
+	roleName := "AdministratorAccess"
+	if len(roles) > 0 {
+		roleName = roles[0]
+	}
+
+	// Get credentials for the role
+	resp, err := awsClient.GetRoleCredentials(ctx, accessToken, selectedAccount.AccountID, roleName)
+	if err != nil {
+		return fmt.Errorf("failed to get role credentials: %w", err)
+	}
+
+	// Use account-specific region if available, otherwise use SSO default
+	region := selectedAccount.Region
+	if region == "" {
+		region = selectedProfile.Region
+	}
+
+	// Write credentials
+	err = config.WriteCredentials(
+		*resp.RoleCredentials.AccessKeyId,
+		*resp.RoleCredentials.SecretAccessKey,
+		*resp.RoleCredentials.SessionToken,
+		region,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to write credentials: %w", err)
+	}
+
+	// Print success message with styling
+	details := styles.SuccessBox.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(selectedProfile.Name)),
+			fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(selectedAccount.Name), styles.MutedStyle.Render(selectedAccount.AccountID)),
+			fmt.Sprintf("Role: %s", styles.TextStyle.Render(roleName)),
+			fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+		),
+	)
+	fmt.Printf("\n%s\n\n", details)
+
+	return nil
+}
+
 func main() {
 	// Check for version flags
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
 		fmt.Printf("v%s\n", Version)
+		os.Exit(0)
+	}
+
+	// Check for unknown flags
+	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "-") {
+		errorMsg := styles.ErrorBox.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				fmt.Sprintf("Unknown flag '%s'", styles.TextStyle.Render(os.Args[1])),
+				"",
+				styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
+			),
+		)
+		fmt.Print("\n", errorMsg, "\n\n")
+		os.Exit(0)
+	}
+
+	// Check for direct session setup
+	if len(os.Args) == 3 {
+		if err := directSessionSetup(os.Args[1], os.Args[2]); err != nil {
+			errorMsg := styles.ErrorBox.Render(
+				lipgloss.JoinVertical(lipgloss.Left,
+					styles.TextStyle.Render(err.Error()),
+					"",
+					styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
+				),
+			)
+			fmt.Print("\n", errorMsg, "\n\n")
+			os.Exit(0)
+		}
+		os.Exit(0)
+	}
+
+	// Check for too many arguments
+	if len(os.Args) > 3 {
+		errorMsg := styles.ErrorBox.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				styles.TextStyle.Render("Too many arguments"),
+				"",
+				styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
+			),
+		)
+		fmt.Print("\n", errorMsg, "\n\n")
+		os.Exit(0)
+	}
+
+	// Check for too few arguments
+	if len(os.Args) < 3 && len(os.Args) > 1 {
+		errorMsg := styles.ErrorBox.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				styles.TextStyle.Render("Too few arguments"),
+				"",
+				styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
+			),
+		)
+		fmt.Print("\n", errorMsg, "\n\n")
 		os.Exit(0)
 	}
 
@@ -1681,8 +1895,13 @@ func main() {
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	m, err := p.Run()
 	if err != nil {
-		fmt.Printf("Error running program: %v", err)
-		os.Exit(1)
+		errorMsg := styles.ErrorBox.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				styles.TextStyle.Render(fmt.Sprintf("Error running program: %v", err)),
+			),
+		)
+		fmt.Print("\n", errorMsg, "\n\n")
+		os.Exit(0)
 	}
 
 	// Print session information after program has quit
