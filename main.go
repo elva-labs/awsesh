@@ -415,9 +415,18 @@ func makeAccountItems(accounts []aws.Account, defaultRegion string, configMgr *c
 				region = defaultRegion
 			}
 		}
+
+		// Only include roles information if we're under the limit
+		var description string
+		if len(accounts) <= maxAccountsForRoleLoading {
+			description = fmt.Sprintf("Account ID: %s, Region: %s, Roles: %s", acc.AccountID, region, strings.Join(acc.Roles, ", "))
+		} else {
+			description = fmt.Sprintf("Account ID: %s, Region: %s", acc.AccountID, region)
+		}
+
 		accountItems[i] = item{
 			title:       acc.Name,
-			description: fmt.Sprintf("Account ID: %s, Region: %s, Roles: %s", acc.AccountID, region, strings.Join(acc.Roles, ", ")),
+			description: description,
 		}
 	}
 
