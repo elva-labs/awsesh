@@ -38,6 +38,7 @@ const (
 // Constants for limits
 const (
 	maxAccountsForRoleLoading = 30
+	Version                   = "0.0.4"
 )
 
 // Messages
@@ -1669,6 +1670,12 @@ func (m model) View() string {
 }
 
 func main() {
+	// Check for version flags
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("v%s\n", Version)
+		os.Exit(0)
+	}
+
 	os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
 
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
