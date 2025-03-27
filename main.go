@@ -1505,6 +1505,14 @@ func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Reset form and return to SSO selection screen
+	m.inputs = initialInputs()
+	m.focusIndex = 0
+	m.formError = ""
+	m.formSuccess = ""
+	m.editingIndex = -1
+	m.state = stateSelectSSO
+
 	return m, nil
 }
 
