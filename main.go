@@ -75,12 +75,6 @@ type browserOpenErrMsg struct {
 // Add new message type for browser open success
 type browserOpenSuccessMsg struct{}
 
-// Add new message types for role loading
-type loadRolesSuccessMsg struct {
-	accountID string
-	roles     []string
-}
-
 type loadRolesErrMsg struct {
 	accountID string
 	err       error
@@ -639,8 +633,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				// Print session information if we have an active session
-				if m.selectedAcc != nil {
+				// Print session information if we have an active session with a role selected
+				if m.selectedAcc != nil && m.selectedAcc.SelectedRole != "" {
 					// Use account-specific region if available, otherwise use SSO default
 					region := m.selectedAcc.Region
 					if region == "" {
@@ -1710,7 +1704,7 @@ func main() {
 
 	// Print session information after program has quit
 	if model, ok := m.(model); ok {
-		if model.selectedAcc != nil {
+		if model.selectedAcc != nil && model.selectedAcc.SelectedRole != "" {
 			// Use account-specific region if available, otherwise use SSO default
 			region := model.selectedAcc.Region
 			if region == "" {
