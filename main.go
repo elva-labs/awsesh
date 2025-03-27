@@ -399,6 +399,15 @@ func startSSOLogin(startUrl string, region string, configMgr *config.Manager, cl
 	}
 }
 
+// Helper function to sort list items by title
+func sortItems(items []list.Item) {
+	slices.SortFunc(items, func(a, b list.Item) int {
+		itemA, _ := a.(item)
+		itemB, _ := b.(item)
+		return strings.Compare(itemA.title, itemB.title)
+	})
+}
+
 // Helper function to create account list items
 func makeAccountItems(accounts []aws.Account, defaultRegion string, configMgr *config.Manager, ssoProfileName string) []list.Item {
 	accountItems := make([]list.Item, len(accounts))
@@ -431,13 +440,7 @@ func makeAccountItems(accounts []aws.Account, defaultRegion string, configMgr *c
 		}
 	}
 
-	// Sort items by title (account name) for consistent ordering
-	slices.SortFunc(accountItems, func(a, b list.Item) int {
-		itemA, _ := a.(item)
-		itemB, _ := b.(item)
-		return strings.Compare(itemA.title, itemB.title)
-	})
-
+	sortItems(accountItems)
 	return accountItems
 }
 
@@ -451,13 +454,7 @@ func makeRoleItems(roles []string) []list.Item {
 		}
 	}
 
-	// Sort items by title (role name) for consistent ordering
-	slices.SortFunc(roleItems, func(a, b list.Item) int {
-		itemA, _ := a.(item)
-		itemB, _ := b.(item)
-		return strings.Compare(itemA.title, itemB.title)
-	})
-
+	sortItems(roleItems)
 	return roleItems
 }
 
@@ -1498,6 +1495,17 @@ func (m *model) updateSSOList() {
 	m.ssoList.SetItems(ssoItems)
 }
 
+func (m model) renderLoadingView() string {
+	loading := lipgloss.JoinHorizontal(lipgloss.Center,
+		m.spinner.View(),
+		" "+styles.TextStyle.Render(m.loadingText),
+	)
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		loading,
+	)
+}
+
 func (m model) View() string {
 	var s string
 
@@ -1553,14 +1561,7 @@ func (m model) View() string {
 				)
 			} else {
 				// Show loading spinner
-				loading := lipgloss.JoinHorizontal(lipgloss.Center,
-					m.spinner.View(),
-					" "+styles.TextStyle.Render(m.loadingText),
-				)
-				content = lipgloss.Place(m.width, m.height,
-					lipgloss.Center, lipgloss.Center,
-					loading,
-				)
+				content = m.renderLoadingView()
 			}
 		} else {
 			content = styles.ListStyle.Render(m.accountList.View())
@@ -1569,14 +1570,7 @@ func (m model) View() string {
 	case stateSelectRole:
 		if m.loadingText != "" {
 			// Show loading spinner while fetching roles
-			loading := lipgloss.JoinHorizontal(lipgloss.Center,
-				m.spinner.View(),
-				" "+styles.TextStyle.Render(m.loadingText),
-			)
-			content = lipgloss.Place(m.width, m.height,
-				lipgloss.Center, lipgloss.Center,
-				loading,
-			)
+			content = m.renderLoadingView()
 		} else {
 			content = styles.ListStyle.Render(m.roleList.View())
 		}

@@ -45,24 +45,21 @@ var (
 	WarningStyle = lipgloss.NewStyle().
 			Foreground(Warning)
 
+	// Base box style with common properties
+	baseBox = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(1, 2).
+		Margin(1, 0)
+
 	// Box styles
-	BoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Primary).
-			Padding(1, 2).
-			Margin(1, 0)
+	BoxStyle = baseBox.
+			BorderForeground(Primary)
 
-	SuccessBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Success).
-			Padding(1, 2).
-			Margin(1, 0)
+	SuccessBox = baseBox.
+			BorderForeground(Success)
 
-	ErrorBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Error).
-			Padding(1, 2).
-			Margin(1, 0)
+	ErrorBox = baseBox.
+			BorderForeground(Error)
 
 	// Code box style
 	CodeBox = lipgloss.NewStyle().
@@ -111,11 +108,8 @@ var (
 			Foreground(Primary)
 
 	// Verification box style
-	VerificationBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+	VerificationBox = baseBox.
 			BorderForeground(Secondary).
-			Padding(1, 2).
-			Margin(1, 0).
 			Align(lipgloss.Center)
 
 	// Full page content style
