@@ -512,11 +512,11 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 }
 
 // Fetch AWS accounts
-func fetchAccounts(client *aws.Client, accessToken string, requestID string) tea.Cmd {
+func fetchAccounts(client *aws.Client, accessToken string, requestID string, existingAccounts []aws.Account) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
-		accounts, err := client.ListAccounts(ctx, accessToken)
+		accounts, err := client.ListAccounts(ctx, accessToken, existingAccounts)
 		if err != nil {
 			return fetchAccountsErrMsg{err: err, requestID: requestID}
 		}
@@ -1099,7 +1099,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingText = "SSO login successful! Fetching accounts..."
 		m.errorMessage = ""
 		m.isAuthenticating = false // Reset authentication flag
-		return m, fetchAccounts(m.awsClient, m.accessToken, m.currentRequestID)
+		return m, fetchAccounts(m.awsClient, m.accessToken, m.currentRequestID, m.accounts)
 
 	case ssoLoginErrMsg:
 		// Ignore messages for outdated requests

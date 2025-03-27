@@ -76,9 +76,15 @@ func (c *Client) GetRoleCredentials(ctx context.Context, accessToken, accountID,
 }
 
 // ListAccounts lists available AWS accounts without fetching roles
-func (c *Client) ListAccounts(ctx context.Context, accessToken string) ([]Account, error) {
+func (c *Client) ListAccounts(ctx context.Context, accessToken string, existingAccounts []Account) ([]Account, error) {
 	var accounts []Account
 	var nextToken *string
+
+	// Create a map of existing accounts by ID for quick lookup
+	existingMap := make(map[string]Account)
+	for _, acc := range existingAccounts {
+		existingMap[acc.AccountID] = acc
+	}
 
 	for {
 		resp, err := c.ssoClient.ListAccounts(ctx, &sso.ListAccountsInput{
@@ -89,14 +95,21 @@ func (c *Client) ListAccounts(ctx context.Context, accessToken string) ([]Accoun
 			return nil, fmt.Errorf("failed to list accounts: %w", err)
 		}
 
-		// Create account objects with placeholder role data
+		// Create account objects, preserving existing roles if available
 		for _, acc := range resp.AccountList {
-			accounts = append(accounts, Account{
-				Name:        *acc.AccountName,
-				AccountID:   *acc.AccountId,
-				Roles:       []string{"Loading roles..."},
-				RolesLoaded: false,
-			})
+			accountID := *acc.AccountId
+			if existingAcc, exists := existingMap[accountID]; exists {
+				// Preserve existing account data
+				accounts = append(accounts, existingAcc)
+			} else {
+				// Create new account with empty roles
+				accounts = append(accounts, Account{
+					Name:        *acc.AccountName,
+					AccountID:   accountID,
+					Roles:       []string{},
+					RolesLoaded: false,
+				})
+			}
 		}
 
 		nextToken = resp.NextToken
