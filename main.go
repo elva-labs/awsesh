@@ -35,6 +35,11 @@ const (
 	stateSetAccountRegion
 )
 
+// Constants for limits
+const (
+	maxAccountsForRoleLoading = 30
+)
+
 // Messages
 type fetchAccountsSuccessMsg struct {
 	accounts  []aws.Account
@@ -97,6 +102,11 @@ type updateRolesMsg struct {
 
 // Initialize the sequential loading
 func startLoadingRoles(client *aws.Client, accessToken string, accounts []aws.Account) tea.Cmd {
+	// If we have more accounts than the limit, don't start loading roles
+	if len(accounts) > maxAccountsForRoleLoading {
+		return nil
+	}
+
 	return func() tea.Msg {
 		return loadNextRoleMsg{
 			accounts:    accounts,
@@ -942,7 +952,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								}()
 							}
 
-							// Move to role selection view immediately
+							// If roles are already loaded and there's only one role, select it immediately
+							if m.selectedAcc.RolesLoaded && len(m.selectedAcc.Roles) == 1 {
+								m.selectedAcc.SelectedRole = m.selectedAcc.Roles[0]
+								return m, getRoleCredentials(
+									m.awsClient,
+									m.accessToken,
+									m.selectedAcc.AccountID,
+									m.selectedAcc.SelectedRole,
+									m.selectedAcc,
+									m.currentRequestID,
+								)
+							}
+
+							// Move to role selection view
 							m.state = stateSelectRole
 							m.roleList.Title = fmt.Sprintf("Select Role for %s", m.selectedAcc.Name)
 
@@ -956,9 +979,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								return m, nil
 							}
 
-							// Otherwise show loading and fetch roles
+							// Load roles for this account only
 							m.loadingText = fmt.Sprintf("Loading roles for %s...", m.selectedAcc.Name)
-							return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
+							return m, loadAccountRoles(m.awsClient, m.accessToken, m.selectedAcc.AccountID, idx)
 						}
 					}
 				}
@@ -1124,8 +1147,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update the account list title to show we're using cached data
 			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
 
-			// Start sequential role loading
-			return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
+			// Start sequential role loading only if we're under the limit
+			if len(m.accounts) <= maxAccountsForRoleLoading {
+				return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
+			}
+			return m, nil
 		}
 
 		// For non-cached accounts, proceed with normal flow
@@ -1138,15 +1164,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Create account list items
 		accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
 
-		// Update account list title with breadcrumb
-		m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
+		// Update account list title with breadcrumb and role loading status
+		title := fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
+		if len(m.accounts) > maxAccountsForRoleLoading {
+			title += " (roles loaded on selection)"
+		}
+		m.accountList.Title = title
 		m.accountList.SetItems(accountItems)
 
 		// Try to select the previously selected account if it exists
 		m.selectLastUsedAccount(m.selectedSSO.Name)
 
-		// Start sequential role loading
-		return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
+		// Start sequential role loading only if we're under the limit
+		if len(m.accounts) <= maxAccountsForRoleLoading {
+			return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
+		}
+		return m, nil
 
 	case fetchAccountsErrMsg:
 		// Ignore messages for outdated requests
@@ -1235,6 +1268,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update the roles for the account
 		for idx, acc := range m.accounts {
 			if acc.AccountID == msg.accountID {
+				// Check if we've already loaded roles for this account before this current load
+				alreadyLoaded := acc.RolesLoaded
 				m.accounts[idx].Roles = msg.roles
 				m.accounts[idx].RolesLoaded = true
 
@@ -1253,11 +1288,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					roleItems := makeRoleItems(msg.roles)
 					m.roleList.SetItems(roleItems)
 					m.selectLastUsedRole(m.selectedSSO.Name, m.selectedAcc.Name)
+					m.loadingText = "" // Clear loading text
 
-					// If there's only one role, select it automatically
-					if len(msg.roles) == 1 {
+					// Auto-select the role if we've already loaded roles for this account before this current load
+					if len(msg.roles) == 1 && alreadyLoaded {
 						m.selectedAcc.SelectedRole = msg.roles[0]
-						m.loadingText = ""
 						return m, getRoleCredentials(
 							m.awsClient,
 							m.accessToken,
@@ -1276,14 +1311,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Move to next account
-		return m, func() tea.Msg {
-			return loadNextRoleMsg{
-				accounts:    m.accounts,
-				currentIdx:  msg.currentIdx + 1,
-				accessToken: m.accessToken,
+		// Only continue loading next account if we're under the limit
+		if len(m.accounts) <= maxAccountsForRoleLoading {
+			return m, func() tea.Msg {
+				return loadNextRoleMsg{
+					accounts:    m.accounts,
+					currentIdx:  msg.currentIdx + 1,
+					accessToken: m.accessToken,
+				}
 			}
 		}
+		return m, nil
 	}
 
 	// Handle updates for the individual components based on state

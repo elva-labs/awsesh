@@ -35,6 +35,13 @@ You can edit, remove and manage SSO. As well as set region per account and open 
 
 ![sesh editing and removing](tapes/editing-removing.gif)
 
+## SSO's with a large number of accounts
+
+There is an issue of running into 429s (too many requests) when trying to fetch roles on a large number of accounts.
+To sidestep that issue we only automatically fetch the roles if there are less than 30 accounts.
+If there are more they will be lazy loaded when trying to access the role selection.
+Hopefully I'll find a better solution in the future.
+
 ## 📋 Prerequisites
 
 - Go 1.x (if building from source)
