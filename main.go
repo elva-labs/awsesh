@@ -1147,9 +1147,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update account list title with breadcrumb and role loading status
 		title := fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
-		if len(m.accounts) > maxAccountsForRoleLoading {
-			title += " (roles loaded on selection)"
-		}
 		m.accountList.Title = title
 		m.accountList.SetItems(accountItems)
 
