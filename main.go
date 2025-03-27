@@ -1088,6 +1088,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Refresh the account list items to show the updated region
 				accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
 				m.accountList.SetItems(accountItems)
+				m.accountList.ResetFilter()
 				m.state = stateSelectAccount
 				return m, nil
 			}
