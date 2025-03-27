@@ -153,6 +153,9 @@ type model struct {
 
 	// Account region setting
 	accountRegionInput textinput.Model
+
+	// Add new field to track if we're authenticating
+	isAuthenticating bool
 }
 
 // Items to display in list
@@ -351,6 +354,7 @@ func initialModel() model {
 		accountsLastUpdated: time.Time{},
 		currentRequestID:    "",
 		accountRegionInput:  regionInput,
+		isAuthenticating:    false,
 	}
 
 	// Update the list items
@@ -387,6 +391,7 @@ func startSSOLogin(startUrl string, region string, configMgr *config.Manager, cl
 
 		// Open browser for login
 		if err := utils.OpenBrowser(loginInfo.VerificationUriComplete); err != nil {
+			// Just log the error but continue with the flow
 		}
 
 		return loginInfo
@@ -822,11 +827,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										m.accounts = nil
 										m.accountList.SetItems([]list.Item{})
 										m.usingCachedAccounts = false
-										// Reset the account list title to avoid showing the previous SSO name
+										// Reset the account list title
 										m.accountList.Title = "Select AWS Account"
 									}
 
 									m.selectedSSO = &profile
+									m.isAuthenticating = true // Set authentication flag
 
 									// Initialize AWS client for the selected region
 									var err error
@@ -843,13 +849,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										fmt.Fprintf(os.Stderr, "Warning: Failed to load cached accounts: %v\n", err)
 									}
 
-									// Check for cached token first
-									cachedToken, err := m.configMgr.LoadToken(profile.StartURL)
-									if err != nil {
-										m.errorMessage = fmt.Sprintf("Failed to check token cache: %v", err)
-										return m, nil
-									}
-
 									// If we have cached accounts, use them
 									if len(cachedAccounts) > 0 {
 										m.accounts = cachedAccounts
@@ -863,32 +862,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 										// Try to select the previously selected account if it exists
 										m.selectLastUsedAccount(profile.Name)
-
-										// Start SSO login flow but don't fetch accounts
-										m.state = stateSelectAccount
-										// Clear the filter when leaving the view
-										m.ssoList.ResetFilter()
-
-										if cachedToken != nil {
-											m.accessToken = cachedToken.AccessToken
-											return m, nil
-										} else {
-											m.loadingText = "Starting SSO login process..."
-											return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
-										}
 									}
 
-									// No cached accounts, need to fetch them
+									// Move to account selection state immediately
 									m.state = stateSelectAccount
+									m.loadingText = "Starting SSO login process..."
 									// Clear the filter when leaving the view
 									m.ssoList.ResetFilter()
-									if cachedToken != nil {
-										m.loadingText = "Using cached session... Fetching accounts..."
-										return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
-									} else {
-										m.loadingText = "Starting SSO login process..."
-										return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
-									}
+									return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
 								}
 							}
 						}
@@ -944,19 +925,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected account: %v\n", err)
 									}
 								}()
-							}
-
-							// If roles are already loaded and there's only one role, select it immediately
-							if m.selectedAcc.RolesLoaded && len(m.selectedAcc.Roles) == 1 {
-								m.selectedAcc.SelectedRole = m.selectedAcc.Roles[0]
-								return m, getRoleCredentials(
-									m.awsClient,
-									m.accessToken,
-									m.selectedAcc.AccountID,
-									m.selectedAcc.SelectedRole,
-									m.selectedAcc,
-									m.currentRequestID,
-								)
 							}
 
 							// Move to role selection view
@@ -1121,6 +1089,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.accessToken = msg.accessToken
 		m.loadingText = "SSO login successful! Fetching accounts..."
 		m.errorMessage = ""
+		m.isAuthenticating = false // Reset authentication flag
 		return m, fetchAccounts(m.awsClient, m.accessToken, m.currentRequestID)
 
 	case ssoLoginErrMsg:
@@ -1153,12 +1122,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.usingCachedAccounts {
 			m.accounts = msg.accounts
 			// Update the account list title to show we're using cached data
-			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s (cached)", m.selectedSSO.Name)
-
-			// Start sequential role loading only if we're under the limit
-			if len(m.accounts) <= maxAccountsForRoleLoading {
-				return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
-			}
+			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 			return m, nil
 		}
 
@@ -1276,8 +1240,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update the roles for the account
 		for idx, acc := range m.accounts {
 			if acc.AccountID == msg.accountID {
-				// Check if we've already loaded roles for this account before this current load
-				alreadyLoaded := acc.RolesLoaded
 				m.accounts[idx].Roles = msg.roles
 				m.accounts[idx].RolesLoaded = true
 
@@ -1297,19 +1259,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.roleList.SetItems(roleItems)
 					m.selectLastUsedRole(m.selectedSSO.Name, m.selectedAcc.Name)
 					m.loadingText = "" // Clear loading text
-
-					// Auto-select the role if we've already loaded roles for this account before this current load
-					if len(msg.roles) == 1 && alreadyLoaded {
-						m.selectedAcc.SelectedRole = msg.roles[0]
-						return m, getRoleCredentials(
-							m.awsClient,
-							m.accessToken,
-							m.selectedAcc.AccountID,
-							m.selectedAcc.SelectedRole,
-							m.selectedAcc,
-							m.currentRequestID,
-						)
-					}
 				}
 
 				// Update the account list display
@@ -1569,10 +1518,10 @@ func (m model) View() string {
 		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, "", content))
 
 	case stateSelectAccount:
-		// Show loading spinner while fetching accounts
-		if len(m.accounts) == 0 || (m.accounts != nil && !m.usingCachedAccounts && m.loadingText != "") {
+		// Show auth screen when authenticating or fetching initial accounts
+		if m.isAuthenticating || (len(m.accounts) == 0 && m.loadingText != "") {
 			if m.verificationUri != "" && m.verificationCode != "" {
-				// Create a more structured and visually appealing verification screen
+				// Show verification screen
 				instructions := styles.VerificationBox.Render(
 					lipgloss.JoinVertical(lipgloss.Center,
 						styles.TextStyle.Render("Your browser should open automatically for SSO login."),
@@ -1592,12 +1541,11 @@ func (m model) View() string {
 						),
 					),
 				)
-
 				content = lipgloss.JoinVertical(lipgloss.Left,
 					instructions,
 				)
 			} else {
-				// Center the loading spinner and text vertically and horizontally
+				// Show loading spinner
 				loading := lipgloss.JoinHorizontal(lipgloss.Center,
 					m.spinner.View(),
 					" "+styles.TextStyle.Render(m.loadingText),
