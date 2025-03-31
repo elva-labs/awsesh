@@ -1374,23 +1374,26 @@ func (m *model) selectLastUsedRole(profileName, accountName string) {
 	}
 }
 
+func validateSSOForm(alias, companyName, region string) string {
+	if alias == "" {
+		return "Alias cannot be empty"
+	}
+	if companyName == "" {
+		return "Company name cannot be empty"
+	}
+	if region == "" {
+		return "Region cannot be empty"
+	}
+	return ""
+}
+
 func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 	alias := strings.TrimSpace(m.inputs[0].Value())
 	companyName := strings.TrimSpace(m.inputs[1].Value())
 	region := strings.TrimSpace(m.inputs[2].Value())
 
-	if alias == "" {
-		m.formError = "Alias cannot be empty"
-		return m, nil
-	}
-
-	if companyName == "" {
-		m.formError = "Company name cannot be empty"
-		return m, nil
-	}
-
-	if region == "" {
-		m.formError = "Region cannot be empty"
+	if err := validateSSOForm(alias, companyName, region); err != "" {
+		m.formError = err
 		return m, nil
 	}
 
@@ -1432,18 +1435,8 @@ func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
 	companyName := strings.TrimSpace(m.inputs[1].Value())
 	region := strings.TrimSpace(m.inputs[2].Value())
 
-	if alias == "" {
-		m.formError = "Alias cannot be empty"
-		return m, nil
-	}
-
-	if companyName == "" {
-		m.formError = "Company name cannot be empty"
-		return m, nil
-	}
-
-	if region == "" {
-		m.formError = "Region cannot be empty"
+	if err := validateSSOForm(alias, companyName, region); err != "" {
+		m.formError = err
 		return m, nil
 	}
 
