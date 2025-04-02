@@ -88,7 +88,7 @@ For Windows:
 ```powershell
 # Set Windows build environment
 set GOOS=windows
-set GOARCH=amd64
+set GOARCH=amd64 # or arm if you have an arm architecture
 go build -o build/sesh.exe
 ```
 
