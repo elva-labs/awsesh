@@ -651,17 +651,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Print session information if we have an active session
-			if m.selectedAcc != nil {
+			if m.selectedAcc != nil && m.selectedAcc.SelectedRole != "" {
 				// Use account-specific region if available, otherwise use SSO default
 				region := m.selectedAcc.Region
 				if region == "" {
 					region = m.selectedSSO.Region
 				}
-				fmt.Printf("\nActive AWS Session:\n")
-				fmt.Printf("SSO Profile: %s\n", m.selectedSSO.Name)
-				fmt.Printf("Account: %s (%s)\n", m.selectedAcc.Name, m.selectedAcc.AccountID)
-				fmt.Printf("Role: %s\n", m.selectedAcc.SelectedRole)
-				fmt.Printf("Region: %s\n\n", region)
+				details := styles.SuccessBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(m.selectedSSO.Name)),
+						fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
+						fmt.Sprintf("Role: %s", styles.TextStyle.Render(m.selectedAcc.SelectedRole)),
+						fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+					),
+				)
+				fmt.Printf("\n%s\n\n", details)
 			}
 
 			return m, tea.Quit
@@ -682,11 +686,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if region == "" {
 						region = m.selectedSSO.Region
 					}
-					fmt.Printf("\nActive AWS Session:\n")
-					fmt.Printf("SSO Profile: %s\n", m.selectedSSO.Name)
-					fmt.Printf("Account: %s (%s)\n", m.selectedAcc.Name, m.selectedAcc.AccountID)
-					fmt.Printf("Role: %s\n", m.selectedAcc.SelectedRole)
-					fmt.Printf("Region: %s\n\n", region)
+					details := styles.SuccessBox.Render(
+						lipgloss.JoinVertical(lipgloss.Left,
+							fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(m.selectedSSO.Name)),
+							fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
+							fmt.Sprintf("Role: %s", styles.TextStyle.Render(m.selectedAcc.SelectedRole)),
+							fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+						),
+					)
+					fmt.Printf("\n%s\n\n", details)
 				}
 
 				return m, tea.Quit
@@ -1626,29 +1634,28 @@ func (m model) View() string {
 		}
 
 	case stateSessionSuccess:
-		header := styles.TitleStyle.Render("AWS Session Activated Successfully")
-		checkmark := styles.SuccessStyle.Render("✓")
+		// Add the header back
+		header := styles.TitleStyle.Render("AWS Session Activated")
 
+		// Determine region
+		region := m.selectedSSO.Region
+		if m.selectedAcc.Region != "" {
+			region = m.selectedAcc.Region
+		}
+
+		// Use the simplified details format
 		details := styles.SuccessBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				fmt.Sprintf("%s AWS Session Active", checkmark),
-				"",
-				fmt.Sprintf("Account: %s", styles.TextStyle.Render(m.selectedAcc.Name)),
-				fmt.Sprintf("Account ID: %s", styles.MutedStyle.Render(m.selectedAcc.AccountID)),
+				fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(m.selectedSSO.Name)),
+				fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
 				fmt.Sprintf("Role: %s", styles.TextStyle.Render(m.selectedAcc.SelectedRole)),
-				"",
-				styles.SuccessStyle.Render("AWS credentials have been configured successfully."),
+				fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
 			),
 		)
 
+		// Display header, details box, and help text
 		helpText := styles.HelpStyle.Render("Press ESC to go back or q to quit.")
-
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			header,
-			"",
-			details,
-			helpText,
-		)
+		content = lipgloss.JoinVertical(lipgloss.Left, header, "\n", details, "\n", helpText)
 
 	case stateAddSSO, stateEditSSO:
 		var formTitle string
@@ -1911,16 +1918,12 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		// fmt.Printf("Opening AWS console for account '%s' (%s) with role '%s' in region '%s'...", selectedAccount.Name, selectedAccount.AccountID, roleName, region) // Removed this line
 		url := awsClient.GetAccountURL(selectedAccount.AccountID, accessToken, selectedProfile.StartURL, roleName)
 		if err := utils.OpenBrowser(url); err != nil {
-			// Don't return error, just print warning (Removed - user wants no output)
-			// fmt.Fprintf(os.Stderr, "Warning: Failed to open browser: %v\\n", err)
-			// fmt.Printf("URL: %s\\n", url) // Print URL as fallback (Removed - user wants no output)
-			// Instead of printing, we might return the error if opening fails critically,
-			// but for now, let's respect the "no output" request.
-			// Consider if failure to open browser should be silent or an error.
+			fmt.Fprintf(os.Stderr, "Warning: Failed to open browser: %v\\n", err)
+			fmt.Printf("URL: %s\\n", url)
+
 		}
 	} else {
 		// Get credentials for the role
-		// fmt.Printf("Getting credentials for account '%s' (%s) with role '%s' in region '%s'...", selectedAccount.Name, selectedAccount.AccountID, roleName, region) // Removed this line
 		resp, err := awsClient.GetRoleCredentials(ctx, accessToken, selectedAccount.AccountID, roleName)
 		if err != nil {
 			return fmt.Errorf("failed to get role credentials: %w", err)
