@@ -87,7 +87,48 @@ Download and run the installation script:
 curl -sSL https://raw.githubusercontent.com/elva-labs/awsesh/main/install.sh | bash
 ```
 
-### Option 2: Manual Installation
+### Option 2: Download Pre-built Executables
+
+#### For Linux/macOS:
+
+1. Download the latest release executable directly:
+
+```bash
+# Download the latest release for your platform from:
+# https://github.com/elva-labs/awsesh/releases/latest
+# Choose either sesh-linux-amd64 (for x86_64) or sesh-linux-arm64 (for ARM64)
+# Example for x86_64/amd64 architecture:
+curl -L https://github.com/elva-labs/awsesh/releases/latest/download/sesh-linux-amd64 -o sesh
+
+# Make it executable
+chmod +x sesh
+
+# Move to a directory in your PATH
+# For system-wide installation (requires sudo):
+sudo mv sesh /usr/local/bin/
+
+# Or for user-local installation:
+mkdir -p ~/.local/bin
+mv sesh ~/.local/bin/
+
+# Add to PATH if needed (add this to your .bashrc or .zshrc)
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+#### For Windows:
+
+For Windows installation:
+
+1. Download the Windows executable directly from:
+   [https://github.com/elva-labs/awsesh/releases/latest/download/sesh-windows-amd64.exe](https://github.com/elva-labs/awsesh/releases/latest/download/sesh-windows-amd64.exe)
+2. Create a folder: `%LOCALAPPDATA%\Programs\sesh\`
+3. Move the downloaded file there and rename to `sesh.exe`
+4. Add to PATH by running this in PowerShell:
+   ```powershell
+   [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\sesh", 'User')
+   ```
+
+### Option 3: Build from Source
 
 1. Clone the repository:
 
