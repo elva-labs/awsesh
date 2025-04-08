@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	flag "github.com/spf13/pflag"
+
 	"github.com/aws/smithy-go"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -786,6 +788,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
+			} else if m.state == stateSelectRole && m.roleList.FilterState() != list.Filtering {
+				if i, ok := m.roleList.SelectedItem().(item); ok {
+					roleName := i.Title()
+					if m.selectedAcc != nil && m.selectedSSO != nil && m.accessToken != "" {
+						url := m.awsClient.GetAccountURL(m.selectedAcc.AccountID, m.accessToken, m.selectedSSO.StartURL, roleName)
+						return m, openBrowser(url)
+					}
+				}
 			}
 		}
 
@@ -1229,7 +1239,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only update the spinner every 500ms to avoid too rapid updates
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(spinner.TickMsg{})
-		
+
 		// Pass through the verification message with all fields including startUrl
 		return m, tea.Batch(
 			cmd,
@@ -1704,7 +1714,7 @@ func (m model) View() string {
 }
 
 // DirectSessionSetup handles setting up a session directly from command line arguments
-func directSessionSetup(ssoName, accountName string) error {
+func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bool) error {
 	// Create config manager
 	configMgr, err := config.NewManager()
 	if err != nil {
@@ -1739,59 +1749,96 @@ func directSessionSetup(ssoName, accountName string) error {
 	var accessToken string
 	cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
 	if err != nil {
-		return fmt.Errorf("failed to check token cache: %w", err)
+		// Log warning but continue, might still work if browser auth succeeds
+		fmt.Fprintf(os.Stderr, "Warning: Failed to check token cache: %v\n", err)
 	}
 
 	if cachedToken != nil {
 		accessToken = cachedToken.AccessToken
 	} else {
 		// Start SSO login process if no valid cached token
+		// fmt.Println("No valid cached token found, initiating browser authentication...") // Remove this line
 		ctx := context.Background()
 		loginInfo, err := awsClient.StartSSOLogin(ctx, selectedProfile.StartURL)
 		if err != nil {
 			return fmt.Errorf("failed to start SSO login: %w", err)
 		}
 
-		// Open browser for login
+		// Render the verification instructions using the TUI style
+		verificationInstructions := styles.VerificationBox.Render(
+			lipgloss.JoinVertical(lipgloss.Center,
+				styles.TextStyle.Render("Your browser should open automatically for SSO login."),
+				styles.TextStyle.Render("If it doesn't, you can authenticate manually:"),
+				"",
+				fmt.Sprintf("1. Visit: %s", styles.TextStyle.Render(loginInfo.VerificationUri)),
+				styles.TextStyle.Render("2. Enter the following code:"),
+				"",
+				styles.CodeBox.Render(loginInfo.UserCode),
+				"",
+				styles.HelpStyle.Render("You can also click the link below to open directly:"),
+				styles.TextStyle.Render(loginInfo.VerificationUriComplete),
+			),
+		)
+		fmt.Println(verificationInstructions)
+
+		// Open browser for login (attempt it silently)
 		if err := utils.OpenBrowser(loginInfo.VerificationUriComplete); err != nil {
-			fmt.Printf("Warning: Failed to open browser: %v\n", err)
-			fmt.Printf("Please visit: %s\n", loginInfo.VerificationUri)
-			fmt.Printf("Enter code: %s\n", loginInfo.UserCode)
+			// Log warning if browser fails to open, but don't block
+			fmt.Fprintf(os.Stderr, "Warning: Failed to open browser automatically: %v\n", err)
 		}
 
 		// Poll for token
+		pollingCtx, cancel := context.WithTimeout(ctx, loginInfo.ExpiresAt.Sub(time.Now()))
+		defer cancel()
+
+		ticker := time.NewTicker(time.Duration(loginInfo.Interval) * time.Second)
+		defer ticker.Stop()
+
 		for {
-			token, err := awsClient.CreateToken(ctx, loginInfo)
-			if err != nil {
-				var apiErr smithy.APIError
-				if errors.As(err, &apiErr) {
-					switch apiErr.ErrorCode() {
-					case "AuthorizationPendingException":
-						if time.Now().After(loginInfo.ExpiresAt) {
-							return fmt.Errorf("authentication timed out")
+			select {
+			case <-pollingCtx.Done():
+				fmt.Println("\nAuthentication timed out.")
+				return fmt.Errorf("authentication timed out")
+			case <-ticker.C:
+				token, err := awsClient.CreateToken(pollingCtx, loginInfo)
+				if err != nil {
+					var apiErr smithy.APIError
+					if errors.As(err, &apiErr) {
+						switch apiErr.ErrorCode() {
+						case "AuthorizationPendingException", "SlowDownException":
+							// Continue polling
+							continue
+						case "ExpiredTokenException":
+							fmt.Println("\nDevice code expired.")
+							return fmt.Errorf("device code expired")
+						default:
+							fmt.Printf("\nAPI error: %s - %s\n", apiErr.ErrorCode(), apiErr.ErrorMessage())
+							return fmt.Errorf("API error: %s - %s", apiErr.ErrorCode(), apiErr.ErrorMessage())
 						}
-						time.Sleep(2 * time.Second)
-						continue
-					case "SlowDownException":
-						time.Sleep(2 * time.Second)
-						continue
-					case "ExpiredTokenException":
-						return fmt.Errorf("device code expired")
-					default:
-						return fmt.Errorf("API error: %s - %s", apiErr.ErrorCode(), apiErr.ErrorMessage())
 					}
+					// Handle context deadline exceeded separately
+					if errors.Is(err, context.DeadlineExceeded) {
+						fmt.Println("\nAuthentication timed out.")
+						return fmt.Errorf("authentication timed out")
+					}
+					fmt.Printf("\nFailed to create token: %v\n", err)
+					return fmt.Errorf("failed to create token: %w", err)
 				}
-				return fmt.Errorf("failed to create token: %w", err)
-			}
-			if token != "" {
-				accessToken = token
-				// Save the token to cache
-				if err := configMgr.SaveToken(selectedProfile.StartURL, token, time.Now().Add(8*time.Hour)); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to save token to cache: %v\n", err)
+				if token != "" {
+					accessToken = token
+					// Save the token to cache
+					if err := configMgr.SaveToken(selectedProfile.StartURL, token, time.Now().Add(8*time.Hour)); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: Failed to save token to cache: %v\n", err)
+					}
+					goto AuthComplete
 				}
-				break
 			}
 		}
+	AuthComplete:
+	}
+
+	if accessToken == "" {
+		return fmt.Errorf("failed to obtain access token")
 	}
 
 	// List accounts
@@ -1803,9 +1850,9 @@ func directSessionSetup(ssoName, accountName string) error {
 
 	// Find the specified account
 	var selectedAccount *aws.Account
-	for _, acc := range accounts {
-		if acc.Name == accountName {
-			selectedAccount = &acc
+	for i := range accounts {
+		if accounts[i].Name == accountName {
+			selectedAccount = &accounts[i]
 			break
 		}
 	}
@@ -1813,152 +1860,220 @@ func directSessionSetup(ssoName, accountName string) error {
 		return fmt.Errorf("account '%s' not found", accountName)
 	}
 
-	// Load roles for the account
+	// Load roles for the account (needed for validation if roleNameArg is provided)
 	roles, err := awsClient.LoadAccountRoles(ctx, accessToken, selectedAccount.AccountID)
 	if err != nil {
-		return fmt.Errorf("failed to load roles: %w", err)
-	}
-
-	// Attempt to get the last used role for this account/profile
-	roleName, err := configMgr.GetLastSelectedRole(selectedProfile.Name, selectedAccount.Name)
-	if err != nil || roleName == "" {
-		// Fallback: Use the first available role, or AdministratorAccess
-		roleName = "AdministratorAccess"
-		if len(roles) > 0 {
-			roleName = roles[0]
+		// Log warning if loading roles fails, but proceed if roleNameArg is given
+		if roleNameArg == "" {
+			return fmt.Errorf("failed to load roles and no specific role provided: %w", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load roles list: %v. Proceeding with specified role '%s'.\n", err, roleNameArg)
 		}
 	}
 
-	// Get credentials for the role
-	resp, err := awsClient.GetRoleCredentials(ctx, accessToken, selectedAccount.AccountID, roleName)
-	if err != nil {
-		return fmt.Errorf("failed to get role credentials: %w", err)
+	// Determine roleName
+	var roleName string
+	if roleNameArg != "" {
+		// Validate provided role name if roles were loaded successfully
+		if len(roles) > 0 && !slices.Contains(roles, roleNameArg) {
+			return fmt.Errorf("specified role '%s' not found for account '%s'", roleNameArg, accountName)
+		}
+		roleName = roleNameArg
+	} else {
+		// Try to get last used role
+		lastUsedRole, err := configMgr.GetLastSelectedRole(selectedProfile.Name, selectedAccount.Name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get last used role: %v\n", err)
+		}
+		if lastUsedRole != "" && slices.Contains(roles, lastUsedRole) { // Also check if last used role is still valid
+			roleName = lastUsedRole
+		} else {
+			// Fallback: Use the first available role, or AdministratorAccess
+			roleName = "AdministratorAccess"
+			if len(roles) > 0 {
+				roleName = roles[0]
+			} else if lastUsedRole != "" {
+				// If roles failed to load but we had a last used one, try it anyway
+				fmt.Fprintf(os.Stderr, "Warning: Could not verify last used role '%s' as role list failed to load. Using it anyway.\n", lastUsedRole)
+				roleName = lastUsedRole
+			}
+		}
 	}
 
 	// Use account-specific region if available, otherwise use SSO default
-	region := selectedAccount.Region
-	if region == "" {
+	region, err := configMgr.GetAccountRegion(selectedProfile.Name, selectedAccount.Name)
+	if err != nil || region == "" {
 		region = selectedProfile.Region
 	}
 
-	// Write credentials
-	err = config.WriteCredentials(
-		*resp.RoleCredentials.AccessKeyId,
-		*resp.RoleCredentials.SecretAccessKey,
-		*resp.RoleCredentials.SessionToken,
-		region,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to write credentials: %w", err)
-	}
+	if browserFlag {
+		// Open AWS console in browser
+		// fmt.Printf("Opening AWS console for account '%s' (%s) with role '%s' in region '%s'...", selectedAccount.Name, selectedAccount.AccountID, roleName, region) // Removed this line
+		url := awsClient.GetAccountURL(selectedAccount.AccountID, accessToken, selectedProfile.StartURL, roleName)
+		if err := utils.OpenBrowser(url); err != nil {
+			// Don't return error, just print warning (Removed - user wants no output)
+			// fmt.Fprintf(os.Stderr, "Warning: Failed to open browser: %v\\n", err)
+			// fmt.Printf("URL: %s\\n", url) // Print URL as fallback (Removed - user wants no output)
+			// Instead of printing, we might return the error if opening fails critically,
+			// but for now, let's respect the "no output" request.
+			// Consider if failure to open browser should be silent or an error.
+		}
+	} else {
+		// Get credentials for the role
+		// fmt.Printf("Getting credentials for account '%s' (%s) with role '%s' in region '%s'...", selectedAccount.Name, selectedAccount.AccountID, roleName, region) // Removed this line
+		resp, err := awsClient.GetRoleCredentials(ctx, accessToken, selectedAccount.AccountID, roleName)
+		if err != nil {
+			return fmt.Errorf("failed to get role credentials: %w", err)
+		}
 
-	// Print success message with styling
-	details := styles.SuccessBox.Render(
-		lipgloss.JoinVertical(lipgloss.Left,
-			fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(selectedProfile.Name)),
-			fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(selectedAccount.Name), styles.MutedStyle.Render(selectedAccount.AccountID)),
-			fmt.Sprintf("Role: %s", styles.TextStyle.Render(roleName)),
-			fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
-		),
-	)
-	fmt.Printf("\n%s\n\n", details)
+		// Write credentials
+		err = config.WriteCredentials(
+			*resp.RoleCredentials.AccessKeyId,
+			*resp.RoleCredentials.SecretAccessKey,
+			*resp.RoleCredentials.SessionToken,
+			region, // Use determined region
+		)
+		if err != nil {
+			return fmt.Errorf("failed to write credentials: %w", err)
+		}
+
+		// Print success message with styling
+		details := styles.SuccessBox.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(selectedProfile.Name)),
+				fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(selectedAccount.Name), styles.MutedStyle.Render(selectedAccount.AccountID)),
+				fmt.Sprintf("Role: %s", styles.TextStyle.Render(roleName)),
+				fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+			),
+		)
+		fmt.Printf("\n%s\n\n", details)
+		// fmt.Println("AWS session credentials set successfully!") // Removed this line
+	}
 
 	return nil
 }
 
 func main() {
-	// Check for version flags
+	// Define browser flag using BoolP for both long and short names
+	browserFlag := flag.BoolP("browser", "b", false, "Open AWS console in browser instead of setting credentials")
+
+	// Check for version flags first, before parsing other flags
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
 		fmt.Printf("v%s\n", Version)
 		os.Exit(0)
 	}
 
-	// Check for unknown flags
-	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "-") {
-		errorMsg := styles.ErrorBox.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				fmt.Sprintf("Unknown flag '%s'", styles.TextStyle.Render(os.Args[1])),
-				"",
-				styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
-			),
-		)
-		fmt.Print("\n", errorMsg, "\n\n")
-		os.Exit(0)
-	}
+	flag.Parse()
 
-	// Check for direct session setup
-	if len(os.Args) == 3 {
-		if err := directSessionSetup(os.Args[1], os.Args[2]); err != nil {
+	args := flag.Args()
+
+	// Update usage string
+	usageString := "Usage: sesh [--version|-v] [-b|--browser] [SSONAME ACCOUNTNAME [ROLENAME]]"
+
+	// Check for direct session setup (2 or 3 args)
+	if len(args) == 2 || len(args) == 3 {
+		ssoName := args[0]
+		accountName := args[1]
+		roleNameArg := ""
+		if len(args) == 3 {
+			roleNameArg = args[2]
+		}
+
+		// Pass the role name arg and browser flag
+		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag); err != nil {
 			errorMsg := styles.ErrorBox.Render(
 				lipgloss.JoinVertical(lipgloss.Left,
 					styles.TextStyle.Render(err.Error()),
 					"",
-					styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
+					styles.HelpStyle.Render(usageString),
 				),
 			)
 			fmt.Print("\n", errorMsg, "\n\n")
-			os.Exit(0)
 		}
 		os.Exit(0)
 	}
 
-	// Check for too many arguments
-	if len(os.Args) > 3 {
+	// If browser flag is used without arguments, show error
+	if *browserFlag && len(args) == 0 {
 		errorMsg := styles.ErrorBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				styles.TextStyle.Render("Too many arguments"),
+				styles.TextStyle.Render("Error: --browser/-b flag requires SSONAME and ACCOUNTNAME arguments."),
 				"",
-				styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
+				styles.HelpStyle.Render(usageString),
 			),
 		)
 		fmt.Print("\n", errorMsg, "\n\n")
-		os.Exit(0)
+		os.Exit(1)
 	}
 
-	// Check for too few arguments
-	if len(os.Args) < 3 && len(os.Args) > 1 {
-		errorMsg := styles.ErrorBox.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				styles.TextStyle.Render("Too few arguments"),
-				"",
-				styles.HelpStyle.Render("Usage: awsesh [--version|-v] [SSONAME ACCOUNTNAME]"),
-			),
-		)
-		fmt.Print("\n", errorMsg, "\n\n")
-		os.Exit(0)
-	}
-
-	os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
-
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
-	m, err := p.Run()
-	if err != nil {
-		errorMsg := styles.ErrorBox.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				styles.TextStyle.Render(fmt.Sprintf("Error running program: %v", err)),
-			),
-		)
-		fmt.Print("\n", errorMsg, "\n\n")
-		os.Exit(0)
-	}
-
-	// Print session information after program has quit
-	if model, ok := m.(model); ok {
-		if model.selectedAcc != nil && model.selectedAcc.SelectedRole != "" {
-			// Use account-specific region if available, otherwise use SSO default
-			region := model.selectedAcc.Region
-			if region == "" {
-				region = model.selectedSSO.Region
-			}
-			details := styles.SuccessBox.Render(
+	// Handle interactive mode (no non-flag args)
+	if len(args) == 0 {
+		// Ensure interactive mode doesn't run if flags like --version were handled
+		// (This check might be redundant now due to earlier exit, but safe to keep)
+		if len(os.Args) > 1 && os.Args[1] != "--browser" && os.Args[1] != "-b" {
+			// Handle cases where flags might have been passed but not enough args for direct setup
+			errorMsg := styles.ErrorBox.Render(
 				lipgloss.JoinVertical(lipgloss.Left,
-					fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(model.selectedSSO.Name)),
-					fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
-					fmt.Sprintf("Role: %s", styles.TextStyle.Render(model.selectedAcc.SelectedRole)),
-					fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+					styles.TextStyle.Render("Invalid combination of arguments/flags."),
+					"",
+					styles.HelpStyle.Render(usageString), // Updated usage string
 				),
 			)
-			fmt.Printf("\n%s\n\n", details)
+			fmt.Print("\n", errorMsg, "\n\n")
+			os.Exit(1)
 		}
+
+		// Start interactive TUI
+		os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
+
+		p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+		m, err := p.Run()
+		if err != nil {
+			errorMsg := styles.ErrorBox.Render(
+				lipgloss.JoinVertical(lipgloss.Left,
+					styles.TextStyle.Render(fmt.Sprintf("Error running program: %v", err)),
+				),
+			)
+			fmt.Print("\n", errorMsg, "\n\n")
+			os.Exit(1) // Exit with error code 1
+		}
+
+		// Print session information after program has quit (successful interactive session)
+		if model, ok := m.(model); ok {
+			if model.selectedAcc != nil && model.selectedAcc.SelectedRole != "" {
+				// Use account-specific region if available, otherwise use SSO default
+				region := model.selectedAcc.Region
+				if region == "" {
+					region = model.selectedSSO.Region
+				}
+				details := styles.SuccessBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(model.selectedSSO.Name)),
+						fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
+						fmt.Sprintf("Role: %s", styles.TextStyle.Render(model.selectedAcc.SelectedRole)),
+						fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+					),
+				)
+				fmt.Printf("\n%s\n\n", details)
+			}
+		}
+		os.Exit(0) // Exit successfully after interactive mode
 	}
+
+	// Handle incorrect number of arguments (not 0, 2, or 3)
+	var errorText string
+	if len(args) < 2 {
+		errorText = "Too few arguments"
+	} else {
+		errorText = "Too many arguments"
+	}
+	errorMsg := styles.ErrorBox.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			styles.TextStyle.Render(errorText),
+			"",
+			styles.HelpStyle.Render(usageString), // Updated usage string
+		),
+	)
+	fmt.Print("\n", errorMsg, "\n\n")
+	os.Exit(1) // Exit with error code 1
 }

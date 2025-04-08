@@ -48,8 +48,8 @@ var (
 	// Base box style with common properties
 	baseBox = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		Padding(1, 2).
-		Margin(1, 0)
+		Padding(1).
+		Margin(0)
 
 	// Box styles
 	BoxStyle = baseBox.
@@ -66,7 +66,7 @@ var (
 		Border(lipgloss.ThickBorder()).
 		BorderForeground(Secondary).
 		Padding(0, 1).
-		Margin(0, 0).
+		Margin(0).
 		Bold(true)
 
 	// Help text style
@@ -110,7 +110,7 @@ var (
 	// Verification box style
 	VerificationBox = baseBox.
 			BorderForeground(Secondary).
-			Align(lipgloss.Center)
+			Align(lipgloss.Center).Margin(0)
 
 	// Full page content style
 	FullPageStyle = lipgloss.NewStyle().
