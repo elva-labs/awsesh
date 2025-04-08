@@ -1,0 +1,44 @@
+---
+description: Provides context on Bubble Tea and Bubbles libraries and usage patterns.
+globs: 
+alwaysApply: false
+---
+# Bubble Tea & Bubbles Usage
+
+This document provides context on the Bubble Tea and Bubbles libraries used in this project for building the terminal user interface (TUI).
+
+## Bubble Tea Core Concepts
+
+Bubble Tea is a Go framework based on The Elm Architecture for building stateful, interactive terminal applications.
+
+Key components:
+
+1.  **Model:** A Go type (often a `struct`) that holds the application's state.
+2.  **`Init()`:** A method that returns an initial command (e.g., for I/O) when the application starts.
+3.  **`Update(msg tea.Msg)`:** A method that processes incoming events (key presses, mouse movements, custom messages, I/O results) and updates the model accordingly. It returns the updated model and potentially a new command.
+4.  **`View()`:** A method that renders the UI as a string based on the current model state.
+
+An application is started using `tea.NewProgram(initialModel).Run()`.
+
+**Important:** Standard output (`stdout`) is used by the Bubble Tea renderer. For debugging, use `tea.LogToFile("debug.log", "debug")` to write logs to a file instead of printing directly to the console.
+
+## Bubbles Library
+
+Bubbles is a companion library for Bubble Tea providing common, ready-to-use UI components:
+
+*   Text inputs
+*   Spinners
+*   Viewports (scrollable areas)
+*   Tables
+*   Progress bars
+*   And more...
+
+These components generally follow the same Model-Update-View pattern as Bubble Tea itself.
+
+## Usage Instruction
+
+When working with UI components or TUI logic:
+
+1.  Refer to the principles of The Elm Architecture (Model-Update-View).
+2.  Utilize components from the Bubbles library where applicable.
+3.  For specific details on Bubble Tea or Bubbles API, functions, or advanced usage, **consult the official documentation** for `github.com/charmbracelet/bubbletea` and `github.com/charmbracelet/bubbles`.

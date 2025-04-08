@@ -1,0 +1,39 @@
+---
+description: Overview of the awsesh project structure for context.
+globs: 
+alwaysApply: true
+---
+# Awsesh Project Structure
+
+This document provides a high-level overview of the directory structure and key components of the `awsesh` project.
+
+## Core Application (Go)
+
+*   `main.go`: The main entry point of the application. Contains core logic and orchestration.
+*   `go.mod`, `go.sum`: Go module dependency management files.
+*   `utils/`: Contains shared utility functions used across the application.
+*   `config/`: Handles application configuration loading and management.
+
+## AWS Integration
+
+*   `aws/`: Contains code dedicated to interacting with AWS services (API calls, authentication, session management, etc.).
+
+## User Interface & Presentation
+
+*   `ui/`: Code related to the user interface (likely terminal-based).
+*   `styles/`: Styling information for the UI (e.g., themes, component definitions).
+*   `browser/`: Potentially handles interactions with a web browser (e.g., opening AWS console links).
+
+## Development & Project Management
+
+*   `.git/`: Standard Git directory for version control.
+*   `.github/`: GitHub-specific configuration (workflows, templates).
+*   `README.md`: Main project documentation (setup, usage).
+*   `LICENSE`: Software license file.
+*   `install.sh`: Installation script.
+*   `.gitignore`: Specifies files ignored by Git.
+*   `feature-requests.md`, `bugs.md`: Tracking files for features and bugs.
+*   `tapes/`: Contains recorded HTTP interactions for testing (e.g., using `go-vcr`).
+*   `docs/`: Additional project documentation.
+*   `.cursor/rules/`: Location for Cursor rules like this one.
+
