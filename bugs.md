@@ -1,0 +1,2 @@
+- rate limiting when loads of accounts
+- filtering accounts, choosing one without fetched roles, then backing to the account list shows 0 results
