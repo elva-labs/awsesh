@@ -472,9 +472,13 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 					if time.Now().After(info.ExpiresAt) {
 						return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out"), requestID: info.RequestID}
 					}
+					// Add a delay before the next polling attempt
+					time.Sleep(2 * time.Second)
 					return ssoTokenPollingTickMsg{info: info}
 
 				case "SlowDownException":
+					// Add a longer delay for rate limiting
+					time.Sleep(2 * time.Second)
 					return ssoTokenPollingTickMsg{info: info}
 
 				case "ExpiredTokenException":
@@ -490,6 +494,8 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 				return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out"), requestID: info.RequestID}
 			}
 
+			// Add a delay before the next polling attempt
+			time.Sleep(2 * time.Second)
 			return ssoTokenPollingTickMsg{info: info}
 		}
 
@@ -505,6 +511,8 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 			return ssoLoginSuccessMsg{accessToken: token, requestID: info.RequestID}
 		}
 
+		// Add a delay before the next polling attempt
+		time.Sleep(2 * time.Second)
 		return ssoTokenPollingTickMsg{info: info}
 	}
 }
@@ -1183,9 +1191,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingText = fmt.Sprintf("Waiting for authentication... (%.0fs remaining)",
 			time.Until(msg.info.ExpiresAt).Seconds())
 
+		// Only update the spinner every 500ms to avoid too rapid updates
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(spinner.TickMsg{})
+		
 		// Pass through the verification message with all fields including startUrl
 		return m, tea.Batch(
-			m.spinner.Tick,
+			cmd,
 			pollForSSOToken(msg.info, m.awsClient, m.configMgr),
 		)
 
