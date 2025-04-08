@@ -913,6 +913,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										m.usingCachedAccounts = true
 
 										// Update the account list items
+										for i := range m.accounts {
+											acc := &m.accounts[i]
+											if customRegion, err := m.configMgr.GetAccountRegion(m.selectedSSO.Name, acc.Name); err == nil && customRegion != "" {
+												acc.Region = customRegion
+											}
+										}
 										accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
 										m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 										m.accountList.SetItems(accountItems)
