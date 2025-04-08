@@ -35,6 +35,27 @@ You can edit, remove and manage SSO. As well as set region per account and open 
 
 ![sesh editing and removing](tapes/editing-removing.gif)
 
+## What can it do?
+
+Run the tui by typing: `sesh` or use the cli if you already know what you need.
+
+```sh
+sesh [--version|-v] [-b|--browser] [SSONAME ACCOUNTNAME [ROLENAME]]
+```
+
+Let's say you want to open a browser directly with the Admin role you would type:
+
+```sh
+sesh MyOrg MyAccount AdminRole -b
+```
+
+If you have used the `tui` (not the cli) to select a role for a specific account, sesh will remember which role you used last time and use that even if you use the cli.
+
+```sh
+// this will now open the AdminRole
+sesh MyOrg MyAccount -b
+```
+
 ## SSO's with a large number of accounts
 
 There is an issue of running into 429s (too many requests) when trying to fetch roles on a large number of accounts.
