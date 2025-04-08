@@ -304,8 +304,28 @@ func initialModel() model {
 				key.WithHelp("enter", "select role"),
 			),
 			key.NewBinding(
+				key.WithKeys("o"),
+				key.WithHelp("o", "open browser"),
+			),
+			key.NewBinding(
 				key.WithKeys("esc"),
 				key.WithHelp("esc", "back"),
+			),
+		}
+	}
+	roleList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(
+				key.WithKeys("enter"),
+				key.WithHelp("enter", "select role and set session"),
+			),
+			key.NewBinding(
+				key.WithKeys("o"),
+				key.WithHelp("o", "open role in AWS Console"),
+			),
+			key.NewBinding(
+				key.WithKeys("esc"),
+				key.WithHelp("esc", "go back to account selection"),
 			),
 		}
 	}
@@ -752,10 +772,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if i, ok := m.accountList.SelectedItem().(item); ok {
 					for _, acc := range m.accounts {
 						if acc.Name == i.Title() {
-							// Use the first available role, or AdministratorAccess as fallback
-							roleName := "AdministratorAccess"
-							if len(acc.Roles) > 0 {
-								roleName = acc.Roles[0]
+							// Attempt to get the last used role for this account/profile
+							roleName, err := m.configMgr.GetLastSelectedRole(m.selectedSSO.Name, acc.Name)
+							if err != nil || roleName == "" {
+								// Fallback: Use the first available role, or AdministratorAccess
+								roleName = "AdministratorAccess"
+								if len(acc.Roles) > 0 {
+									roleName = acc.Roles[0]
+								}
 							}
 							url := m.awsClient.GetAccountURL(acc.AccountID, m.accessToken, m.selectedSSO.StartURL, roleName)
 							return m, openBrowser(url)
@@ -965,31 +989,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case stateSelectRole:
-			// Only process enter key if we're not filtering and not loading
-			if m.roleList.FilterState() != list.Filtering && msg.String() == "enter" && m.loadingText == "" {
-				i, ok := m.roleList.SelectedItem().(item)
-				if ok {
-					// Set the selected role
-					m.selectedAcc.SelectedRole = i.Title()
+			// Only process special keybindings if we're not filtering and not loading
+			if m.roleList.FilterState() != list.Filtering && m.loadingText == "" {
+				switch msg.String() {
+				case "enter":
+					i, ok := m.roleList.SelectedItem().(item)
+					if ok {
+						// Set the selected role
+						m.selectedAcc.SelectedRole = i.Title()
 
-					// Save the selected role for this SSO profile and account
-					if m.selectedSSO != nil {
-						go func() {
-							if err := m.configMgr.SaveLastSelectedRole(m.selectedSSO.Name, m.selectedAcc.Name, m.selectedAcc.SelectedRole); err != nil {
-								fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected role: %v\n", err)
-							}
-						}()
+						// Save the selected role for this SSO profile and account
+						if m.selectedSSO != nil {
+							go func() {
+								if err := m.configMgr.SaveLastSelectedRole(m.selectedSSO.Name, m.selectedAcc.Name, m.selectedAcc.SelectedRole); err != nil {
+									fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected role: %v\n", err)
+								}
+							}()
+						}
+
+						// Get credentials for the selected role
+						return m, getRoleCredentials(
+							m.awsClient,
+							m.accessToken,
+							m.selectedAcc.AccountID,
+							m.selectedAcc.SelectedRole,
+							m.selectedAcc,
+							m.currentRequestID,
+						)
 					}
-
-					// Get credentials for the selected role
-					return m, getRoleCredentials(
-						m.awsClient,
-						m.accessToken,
-						m.selectedAcc.AccountID,
-						m.selectedAcc.SelectedRole,
-						m.selectedAcc,
-						m.currentRequestID,
-					)
+				case "o":
+					if i, ok := m.roleList.SelectedItem().(item); ok {
+						roleName := i.Title()
+						if m.selectedAcc != nil && m.selectedSSO != nil && m.accessToken != "" {
+							url := m.awsClient.GetAccountURL(m.selectedAcc.AccountID, m.accessToken, m.selectedSSO.StartURL, roleName)
+							return m, openBrowser(url)
+						}
+					}
 				}
 			}
 
@@ -1784,10 +1819,14 @@ func directSessionSetup(ssoName, accountName string) error {
 		return fmt.Errorf("failed to load roles: %w", err)
 	}
 
-	// Use the first available role, or AdministratorAccess as fallback
-	roleName := "AdministratorAccess"
-	if len(roles) > 0 {
-		roleName = roles[0]
+	// Attempt to get the last used role for this account/profile
+	roleName, err := configMgr.GetLastSelectedRole(selectedProfile.Name, selectedAccount.Name)
+	if err != nil || roleName == "" {
+		// Fallback: Use the first available role, or AdministratorAccess
+		roleName = "AdministratorAccess"
+		if len(roles) > 0 {
+			roleName = roles[0]
+		}
 	}
 
 	// Get credentials for the role
