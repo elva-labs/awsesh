@@ -5,6 +5,12 @@ Sesh is a simple to use AWS session manager with charm! ✨💕
 Sesh is made to easily manage your AWS SSO sessions and accounts.
 Filter your accounts by name, and quickly switch between them.
 
+![sesh demo](tapes/demo.gif)
+*Basic demo*
+
+![sesh editing and removing](tapes/editing-removing.gif)
+*Editing, removing, managing SSO, setting region per account, and opening in browser.*
+
 ## ✨ Features
 
 - 🚀 Quick AWS SSO session management
@@ -14,197 +20,163 @@ Filter your accounts by name, and quickly switch between them.
 - 💅 Charming interactive terminal user interface
 - 🪶 Lightweight and easy to install
 
-## Usage
-
-> ## ❗ Important Notice ❗
->
-> This application will edit your .aws/credentials file to set the keys.
-> If you have a complex setup there already I would recommend backing it up ahead of trying this!
-
-Just type sesh!
-
-```sh
-sesh
-```
-
-Basic demo
-
-![sesh demo](tapes/demo.gif)
-
-You can edit, remove and manage SSO. As well as set region per account and open in browser.
-
-![sesh editing and removing](tapes/editing-removing.gif)
-
-## What can it do?
-
-Run the tui by typing: `sesh` or use the cli if you already know what you need.
-
-```sh
-sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]
-```
-
-Let's say you want to open a browser directly with the Admin role you would type:
-
-```sh
-sesh MyOrg MyAccount AdminRole -b
-```
-
-If you want to set the region for that session directly, you can use the `-r` flag:
-
-```sh
-sesh MyOrg MyAccount AdminRole -r eu-west-1
-```
-
-If you have used the `tui` (not the cli) to select a role for a specific account, sesh will remember which role you used last time and use that even if you use the cli.
-
-```sh
-// this will now open the AdminRole
-sesh MyOrg MyAccount -b
-```
-
-## SSO's with a large number of accounts
-
-There is an issue of running into 429s (too many requests) when trying to fetch roles on a large number of accounts.
-To sidestep that issue we only automatically fetch the roles if there are less than 30 accounts.
-If there are more they will be lazy loaded when trying to access the role selection.
-Hopefully I'll find a better solution in the future.
-
 ## 📋 Prerequisites
 
-- Go 1.x (if building from source)
-
-## 🛠️ Created with
-
-- [Go](https://golang.org/) 🐹
-- A few [charm\_](https://charm.sh/) tools ✨
-  - [Bubble Tea](https://github.com/charmbracelet/bubbletea)
-  - [Bubbles](https://github.com/charmbracelet/bubbles)
-  - [Lib Gloss](https://github.com/charmbracelet/lipgloss)
-  - [VHS](https://github.com/charmbracelet/vhs)
-- [AWS SDK for Go](https://github.com/aws/aws-sdk-go-v2) ☁️
+- Go 1.x (Only required if building from source)
 
 ## 📦 Installation
 
-### Option 1: Installation Script
+There are several ways to install Sesh:
+
+### Installation Script (Recommended - Linux/macOS)
 
 Download and run the installation script:
 
 ```sh
 curl -sSL https://raw.githubusercontent.com/elva-labs/awsesh/main/install.sh | bash
 ```
+*This script will attempt to install `sesh` to `/usr/local/bin` or `~/.local/bin` and will prompt for `sudo` if necessary.*
 
-### Option 2: Download Pre-built Executables
+### Pre-built Binaries
 
-#### For Linux/macOS:
+Download the latest release executables directly from the [Releases page](https://github.com/elva-labs/awsesh/releases/latest).
 
-1. Download the latest release executable directly:
+**Linux/macOS:**
 
-```bash
-# Download the latest release for your platform from:
-# https://github.com/elva-labs/awsesh/releases/latest
-# Choose either sesh-linux-amd64 (for x86_64) or sesh-linux-arm64 (for ARM64)
-# Example for x86_64/amd64 architecture:
-curl -L https://github.com/elva-labs/awsesh/releases/latest/download/sesh-linux-amd64 -o sesh
+1.  Download the appropriate binary (`sesh-linux-amd64`, `sesh-linux-arm64`, `sesh-darwin-amd64`, `sesh-darwin-arm64`). Example for Linux x86_64:
+    ```bash
+    curl -L https://github.com/elva-labs/awsesh/releases/latest/download/sesh-linux-amd64 -o sesh
+    ```
+2.  Make it executable:
+    ```bash
+    chmod +x sesh
+    ```
+3.  Move it to a directory in your PATH:
+    ```bash
+    # For system-wide installation (may require sudo depending on permissions):
+    mv sesh /usr/local/bin/
 
-# Make it executable
-chmod +x sesh
+    # Or for user-local installation:
+    mkdir -p ~/.local/bin
+    mv sesh ~/.local/bin/
+    ```
+4.  If using `~/.local/bin`, ensure it's in your PATH:
+    ```bash
+    # Add this to your ~/.bashrc, ~/.zshrc, or equivalent if needed
+    export PATH="$HOME/.local/bin:$PATH"
+    ```
 
-# Move to a directory in your PATH
-# For system-wide installation (requires sudo):
-mv sesh /usr/local/bin/
+**Windows:**
 
-# Or for user-local installation:
-mkdir -p ~/.local/bin
-mv sesh ~/.local/bin/
+1.  Download the Windows executable (`sesh-windows-amd64.exe`).
+2.  Create a folder (e.g., `%LOCALAPPDATA%\Programs\sesh\`).
+3.  Move the downloaded file there and rename it to `sesh.exe`.
+4.  Add the folder to your PATH via System Properties or PowerShell:
+    ```powershell
+    # Ensure the target directory exists
+    New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\sesh"
+    # Add to user PATH (requires restart of terminal/session)
+    $CurrentUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $NewPath = $CurrentUserPath + ";$env:LOCALAPPDATA\Programs\sesh"
+    [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User')
+    ```
 
-# Add to PATH if needed (add this to your .bashrc or .zshrc)
-export PATH="$HOME/.local/bin:$PATH"
-```
+### Build from Source
 
-#### For Windows:
+1.  Clone the repository:
+    ```sh
+    git clone https://github.com/elva-labs/awsesh.git
+    cd awsesh
+    ```
+2.  Build the application:
 
-For Windows installation:
+    **Linux/macOS:**
+    ```sh
+    go build -o build/sesh
+    ```
 
-1. Download the Windows executable directly from:
-   [https://github.com/elva-labs/awsesh/releases/latest/download/sesh-windows-amd64.exe](https://github.com/elva-labs/awsesh/releases/latest/download/sesh-windows-amd64.exe)
-2. Create a folder: `%LOCALAPPDATA%\Programs\sesh\`
-3. Move the downloaded file there and rename to `sesh.exe`
-4. Add to PATH by running this in PowerShell:
-   ```powershell
-   [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\sesh", 'User')
-   ```
+    **Windows:**
+    ```powershell
+    # Set environment variables for cross-compilation if needed
+    # $env:GOOS = "windows"
+    # $env:GOARCH = "amd64"
+    go build -o build/sesh.exe
+    ```
+3.  Install the binary (move it to your PATH):
 
-### Option 3: Build from Source
+    **Linux/macOS:**
+    ```sh
+    # For system-wide installation (may require sudo depending on permissions):
+    cp build/sesh /usr/local/bin/
 
-1. Clone the repository:
+    # For user-local installation:
+    mkdir -p ~/.local/bin
+    cp build/sesh ~/.local/bin/
 
-```sh
-git clone https://github.com/elva-labs/awsesh.git
-cd awsesh
-```
+    # Ensure it's executable
+    chmod +x /usr/local/bin/sesh  # Or ~/.local/bin/sesh
+    ```
 
-2. Build the application:
-
-For Unix-like systems (Linux/MacOS):
-
-```sh
-go build -o build/sesh
-```
-
-For Windows:
-
-```powershell
-# Set Windows build environment
-set GOOS=windows
-set GOARCH=amd64 # or arm if you have an arm architecture
-go build -o build/sesh.exe
-```
-
-3. Move the binary to your PATH:
-
-For Unix-like systems:
-
-```sh
-# For system-wide installation (requires sudo)
-cp build/sesh /usr/local/bin/
-
-# For user-local installation
-mkdir -p ~/.local/bin
-cp build/sesh ~/.local/bin/
-```
-
-For Windows:
-
-```powershell
-# Create Programs directory if it doesn't exist
-mkdir -Force "$env:LOCALAPPDATA\Programs\sesh"
-
-# Copy the binary
-Copy-Item "build\sesh.exe" "$env:LOCALAPPDATA\Programs\sesh"
-
-# Add to PATH (PowerShell) - copy and run this single line
-[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\sesh", 'User')
-```
-
-4. Make the binary executable (Unix-like systems only):
-
-```sh
-chmod +x /usr/local/bin/sesh  # or ~/.local/bin/sesh for user-local installation
-```
+    **Windows:**
+    ```powershell
+    # Ensure the target directory exists
+    New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\sesh"
+    # Copy the binary
+    Copy-Item "build\sesh.exe" "$env:LOCALAPPDATA\Programs\sesh\sesh.exe"
+    # Add to user PATH (see Pre-built Binaries section for command)
+    ```
 
 ## 🚀 Usage
 
-After installation, you can run sesh from the command line:
+### Interactive TUI
+
+Simply run `sesh` to launch the interactive terminal interface:
 
 ```sh
 sesh
 ```
 
+### Command Line Interface (CLI)
+
+You can also use `sesh` directly from the command line:
+
+```sh
+sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]
+```
+
+**Examples:**
+
+*   Open the AWS console in a browser for a specific role:
+    ```sh
+    sesh MyOrg MyAccount AdminRole -b
+    ```
+*   Set the region for the session:
+    ```sh
+    sesh MyOrg MyAccount AdminRole -r eu-west-1
+    ```
+*   If you've previously selected a role for an account in the TUI, `sesh` remembers it for CLI usage:
+    ```sh
+    # Assumes AdminRole was previously selected for MyOrg/MyAccount in the TUI
+    sesh MyOrg MyAccount -b
+    ```
+
+### Important Notes
+
+#### Credentials File Modification
+
+> **❗ Important Notice ❗**
+>
+> This application **will edit** your `~/.aws/credentials` file to set the session keys. If you have a complex or custom setup in this file, please **back it up** before using `sesh`.
+
+#### Large Number of SSO Accounts
+
+There is a known issue where fetching roles for AWS SSO setups with a very large number of accounts (>30) can trigger AWS API rate limiting (429 errors). To mitigate this, `sesh` only automatically fetches roles on startup if there are fewer than 30 accounts. For larger setups, roles are lazy-loaded when you select an account in the TUI.
+
 ## 🧹 Uninstall
 
-### Uninstall Script (Linux/macOS)
+### Using the Uninstall Script (Linux/macOS)
 
-To uninstall `sesh`, you can run the uninstall script directly:
+If you installed `sesh` using the installation script, you can run the corresponding uninstall script:
 
 ```sh
 curl -sSL https://raw.githubusercontent.com/elva-labs/awsesh/main/uninstall.sh | bash
@@ -218,24 +190,26 @@ curl -sSL https://raw.githubusercontent.com/elva-labs/awsesh/main/uninstall.sh |
 
 **Linux/macOS:**
 
-1.  **Locate the binary:** Check the common installation locations:
-  *   `/usr/local/bin/sesh`
-  *   `~/.local/bin/sesh`
+1.  **Locate the binary:** Check common locations: `/usr/local/bin/sesh`, `~/.local/bin/sesh`.
 2.  **Remove the binary:**
-  *   If it's in `/usr/local/bin/`: `rm /usr/local/bin/sesh`
-  *   If it's in `~/.local/bin/`: `rm ~/.local/bin/sesh`
-3.  **Remove from PATH (if applicable):** If you added `~/.local/bin` to your `PATH` manually, remove that line from your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`).
+    *   `rm /usr/local/bin/sesh` (may require `sudo` depending on how it was installed)
+    *   `rm ~/.local/bin/sesh`
+3.  **Remove from PATH (if applicable):** If you manually added `~/.local/bin` to your `PATH`, remove that line from your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`).
 
 **Windows:**
 
-1.  **Remove the executable:** Delete the `sesh.exe` file, typically located at `%LOCALAPPDATA%\Programs\sesh\sesh.exe`.
-2.  **Remove from PATH:**
-  *   Open System Properties (search for "Environment Variables").
-  *   Click "Environment Variables...".
-  *   Under "User variables", select "Path" and click "Edit".
-  *   Find the entry pointing to `%LOCALAPPDATA%\Programs\sesh` and click "Delete".
-  *   Click "OK" on all open windows.
-  *   You may need to restart your terminal or log out and back in for the PATH change to take effect.
+1.  **Remove the executable:** Delete `sesh.exe` (typically in `%LOCALAPPDATA%\Programs\sesh\`).
+2.  **Remove from PATH:** Edit your User Environment Variables (search for "Environment Variables"), select "Path", find the entry for the `sesh` directory, and delete it. Click OK. You may need to restart your terminal or session.
+
+## 🛠️ Built With
+
+- [Go](https://golang.org/) 🐹
+- [Charm](https://charm.sh/) Tools ✨
+  - [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+  - [Bubbles](https://github.com/charmbracelet/bubbles)
+  - [Lip Gloss](https://github.com/charmbracelet/lipgloss)
+  - [VHS](https://github.com/charmbracelet/vhs) (for demo recording)
+- [AWS SDK for Go V2](https://github.com/aws/aws-sdk-go-v2) ☁️
 
 ## 📄 License
 
