@@ -2029,7 +2029,7 @@ func main() {
 				),
 			)
 			fmt.Print("\n", errorMsg, "\n\n")
-			os.Exit(1) // Exit with error code 1
+			os.Exit(0)
 		}
 
 		// Print session information after program has quit (successful interactive session)
@@ -2051,7 +2051,7 @@ func main() {
 				fmt.Printf("\n%s\n\n", details)
 			}
 		}
-		os.Exit(0) // Exit successfully after interactive mode
+		os.Exit(0)
 	}
 
 	// Handle incorrect number of arguments (not 0, 2, or 3)
@@ -2065,9 +2065,9 @@ func main() {
 		lipgloss.JoinVertical(lipgloss.Left,
 			styles.TextStyle.Render(errorText),
 			"",
-			styles.HelpStyle.Render(usageString), // Updated usage string
+			styles.HelpStyle.Render(usageString),
 		),
 	)
 	fmt.Print("\n", errorMsg, "\n\n")
-	os.Exit(1) // Exit with error code 1
+	os.Exit(0)
 }
