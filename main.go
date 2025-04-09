@@ -396,6 +396,9 @@ func initialModel() model {
 	// Update the list items
 	if len(profiles) > 0 {
 		m.updateSSOList()
+	} else {
+		// If no profiles exist, start in the add state
+		m.state = stateAddSSO
 	}
 
 	return m
