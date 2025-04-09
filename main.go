@@ -415,6 +415,7 @@ func startSSOLogin(startUrl string, region string, configMgr *config.Manager, cl
 		// Open browser for login
 		if err := utils.OpenBrowser(loginInfo.VerificationUriComplete); err != nil {
 			// Just log the error but continue with the flow
+			fmt.Fprintf(os.Stderr, "Warning: Failed to open browser: %v\n", err)
 		}
 
 		return loginInfo
@@ -437,12 +438,9 @@ func makeAccountItems(accounts []aws.Account, defaultRegion string, configMgr *c
 		region := acc.Region
 		if region == "" {
 			// Try to load account-specific region from config
-			if configMgr != nil {
-				if customRegion, err := configMgr.GetAccountRegion(ssoProfileName, acc.Name); err == nil && customRegion != "" {
-					region = customRegion
-				} else {
-					region = defaultRegion
-				}
+			customRegion, err := configMgr.GetAccountRegion(ssoProfileName, acc.Name)
+			if err == nil && customRegion != "" {
+				region = customRegion
 			} else {
 				region = defaultRegion
 			}
@@ -494,12 +492,10 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 					if time.Now().After(info.ExpiresAt) {
 						return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out"), requestID: info.RequestID}
 					}
-					// Add a delay before the next polling attempt
 					time.Sleep(2 * time.Second)
 					return ssoTokenPollingTickMsg{info: info}
 
 				case "SlowDownException":
-					// Add a longer delay for rate limiting
 					time.Sleep(2 * time.Second)
 					return ssoTokenPollingTickMsg{info: info}
 
@@ -516,16 +512,13 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 				return ssoLoginErrMsg{err: fmt.Errorf("authentication timed out"), requestID: info.RequestID}
 			}
 
-			// Add a delay before the next polling attempt
 			time.Sleep(2 * time.Second)
 			return ssoTokenPollingTickMsg{info: info}
 		}
 
 		if token != "" {
-			// Calculate token expiration (standard 8 hour session)
 			expiresAt := time.Now().Add(8 * time.Hour)
 
-			// Save the token to cache
 			if err := configMgr.SaveToken(info.StartUrl, token, expiresAt); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to save token to cache: %v\n", err)
 			}
@@ -533,7 +526,6 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 			return ssoLoginSuccessMsg{accessToken: token, requestID: info.RequestID}
 		}
 
-		// Add a delay before the next polling attempt
 		time.Sleep(2 * time.Second)
 		return ssoTokenPollingTickMsg{info: info}
 	}
@@ -814,7 +806,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.ssoList.FilterState() != list.Filtering {
 				switch msg.String() {
 				case "a":
-					// Switch to add SSO form - works even with no profiles
+					// Switch to add SSO form
 					m.state = stateAddSSO
 					m.formError = ""
 					m.formSuccess = ""
@@ -889,7 +881,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									}
 
 									m.selectedSSO = &profile
-									m.isAuthenticating = true // Set authentication flag
+									m.isAuthenticating = true
 
 									// Initialize AWS client for the selected region
 									var err error
@@ -902,7 +894,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									// Load cached accounts if they exist
 									cachedAccounts, lastUpdated, err := m.configMgr.LoadCachedAccounts(profile.StartURL)
 									if err != nil {
-										// Just log the error but continue with normal flow
 										fmt.Fprintf(os.Stderr, "Warning: Failed to load cached accounts: %v\n", err)
 									}
 
@@ -943,13 +934,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateDeleteConfirm:
 			switch msg.String() {
 			case "y":
-				// Find and delete the profile
+				// Delete the profile
 				for idx, profile := range m.ssoProfiles {
 					if profile.Name == m.deleteProfileName {
-						// Remove the profile
 						m.ssoProfiles = slices.Delete(m.ssoProfiles, idx, idx+1)
 
-						// Update the list
 						m.updateSSOList()
 
 						// Save the updated profiles
@@ -1041,6 +1030,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.currentRequestID,
 						)
 					}
+
 				case "o":
 					if i, ok := m.roleList.SelectedItem().(item); ok {
 						roleName := i.Title()
@@ -1086,10 +1076,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Update focus states
 				for i := range m.inputs {
 					if i == m.focusIndex {
-						// Set focused state
 						cmds = append(cmds, m.inputs[i].Focus())
 					} else {
-						// Remove focused state
 						m.inputs[i].Blur()
 					}
 				}
@@ -1762,7 +1750,6 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 	var accessToken string
 	cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
 	if err != nil {
-		// Log warning but continue, might still work if browser auth succeeds
 		fmt.Fprintf(os.Stderr, "Warning: Failed to check token cache: %v\n", err)
 	}
 
@@ -1770,7 +1757,6 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		accessToken = cachedToken.AccessToken
 	} else {
 		// Start SSO login process if no valid cached token
-		// fmt.Println("No valid cached token found, initiating browser authentication...") // Remove this line
 		ctx := context.Background()
 		loginInfo, err := awsClient.StartSSOLogin(ctx, selectedProfile.StartURL)
 		if err != nil {
@@ -1796,7 +1782,6 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 
 		// Open browser for login (attempt it silently)
 		if err := utils.OpenBrowser(loginInfo.VerificationUriComplete); err != nil {
-			// Log warning if browser fails to open, but don't block
 			fmt.Fprintf(os.Stderr, "Warning: Failed to open browser automatically: %v\n", err)
 		}
 
@@ -1812,6 +1797,7 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 			case <-pollingCtx.Done():
 				fmt.Println("\nAuthentication timed out.")
 				return fmt.Errorf("authentication timed out")
+
 			case <-ticker.C:
 				token, err := awsClient.CreateToken(pollingCtx, loginInfo)
 				if err != nil {
@@ -1821,9 +1807,11 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 						case "AuthorizationPendingException", "SlowDownException":
 							// Continue polling
 							continue
+
 						case "ExpiredTokenException":
 							fmt.Println("\nDevice code expired.")
 							return fmt.Errorf("device code expired")
+
 						default:
 							fmt.Printf("\nAPI error: %s - %s\n", apiErr.ErrorCode(), apiErr.ErrorMessage())
 							return fmt.Errorf("API error: %s - %s", apiErr.ErrorCode(), apiErr.ErrorMessage())
@@ -1898,7 +1886,7 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to get last used role: %v\n", err)
 		}
-		if lastUsedRole != "" && slices.Contains(roles, lastUsedRole) { // Also check if last used role is still valid
+		if lastUsedRole != "" && slices.Contains(roles, lastUsedRole) {
 			roleName = lastUsedRole
 		} else {
 			// Fallback: Use the first available role, or AdministratorAccess
@@ -1915,21 +1903,18 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 
 	// Use account-specific region if available, otherwise use SSO default
 	var region string
-	if regionFlag != "" { // Prioritize flag
+	if regionFlag != "" {
 		region = regionFlag
 	} else {
-		// Existing logic: Check account-specific config first
 		var err error
 		region, err = configMgr.GetAccountRegion(selectedProfile.Name, selectedAccount.Name)
 		if err != nil || region == "" {
-			// Fallback to SSO profile default
 			region = selectedProfile.Region
 		}
 	}
 
 	if browserFlag {
 		// Open AWS console in browser
-		// fmt.Printf("Opening AWS console for account '%s' (%s) with role '%s' in region '%s'...", selectedAccount.Name, selectedAccount.AccountID, roleName, region) // Removed this line
 		url := awsClient.GetAccountURL(selectedAccount.AccountID, accessToken, selectedProfile.StartURL, roleName)
 		if err := utils.OpenBrowser(url); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to open browser: %v\\n", err)
@@ -1964,7 +1949,6 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 			),
 		)
 		fmt.Printf("\n%s\n\n", details)
-		// fmt.Println("AWS session credentials set successfully!") // Removed this line
 	}
 
 	return nil
@@ -2033,30 +2017,6 @@ func main() {
 
 	// Handle interactive mode (no non-flag args)
 	if len(args) == 0 {
-		// Ensure interactive mode doesn't run if flags like --version were handled
-		// (This check might be redundant now due to earlier exit, but safe to keep)
-		if len(os.Args) > 1 {
-			isFlagArg := false
-			for _, arg := range os.Args[1:] {
-				if strings.HasPrefix(arg, "-") {
-					isFlagArg = true
-					break
-				}
-			}
-			// If any flag is passed in interactive mode (except potentially known safe ones in the future)
-			if isFlagArg {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.TextStyle.Render("Invalid combination of arguments/flags for interactive mode."),
-						"",
-						styles.HelpStyle.Render(usageString), // Updated usage string
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(1)
-			}
-		}
-
 		// Start interactive TUI
 		os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
 
