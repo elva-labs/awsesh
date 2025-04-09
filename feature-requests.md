@@ -1,4 +1,2 @@
 - support china sso urls (https://start.${SSO_REGION}.home.awsapps.cn/directory/${COMPANY_NAME}#/)
 - add profile support
-- uninstall script
-- guide a new user through adding an sso

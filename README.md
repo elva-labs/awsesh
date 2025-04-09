@@ -111,7 +111,7 @@ chmod +x sesh
 
 # Move to a directory in your PATH
 # For system-wide installation (requires sudo):
-sudo mv sesh /usr/local/bin/
+mv sesh /usr/local/bin/
 
 # Or for user-local installation:
 mkdir -p ~/.local/bin
@@ -166,7 +166,7 @@ For Unix-like systems:
 
 ```sh
 # For system-wide installation (requires sudo)
-sudo cp build/sesh /usr/local/bin/
+cp build/sesh /usr/local/bin/
 
 # For user-local installation
 mkdir -p ~/.local/bin
@@ -199,6 +199,43 @@ After installation, you can run sesh from the command line:
 ```sh
 sesh
 ```
+
+## 🧹 Uninstall
+
+### Uninstall Script (Linux/macOS)
+
+To uninstall `sesh`, you can run the uninstall script directly:
+
+```sh
+curl -sSL https://raw.githubusercontent.com/elva-labs/awsesh/main/uninstall.sh | bash
+```
+
+*   You might be prompted for your password if `sesh` was installed in `/usr/local/bin`.
+*   The script will attempt to remove `sesh` from `/usr/local/bin` and `~/.local/bin`.
+*   If `sesh` was installed to `~/.local/bin` and removed, the script will remind you to remove the directory from your `PATH` in your shell configuration file (`.bashrc`, `.zshrc`, etc.) if you added it manually.
+
+### Manual Uninstall
+
+**Linux/macOS:**
+
+1.  **Locate the binary:** Check the common installation locations:
+  *   `/usr/local/bin/sesh`
+  *   `~/.local/bin/sesh`
+2.  **Remove the binary:**
+  *   If it's in `/usr/local/bin/`: `rm /usr/local/bin/sesh`
+  *   If it's in `~/.local/bin/`: `rm ~/.local/bin/sesh`
+3.  **Remove from PATH (if applicable):** If you added `~/.local/bin` to your `PATH` manually, remove that line from your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`).
+
+**Windows:**
+
+1.  **Remove the executable:** Delete the `sesh.exe` file, typically located at `%LOCALAPPDATA%\Programs\sesh\sesh.exe`.
+2.  **Remove from PATH:**
+  *   Open System Properties (search for "Environment Variables").
+  *   Click "Environment Variables...".
+  *   Under "User variables", select "Path" and click "Edit".
+  *   Find the entry pointing to `%LOCALAPPDATA%\Programs\sesh` and click "Delete".
+  *   Click "OK" on all open windows.
+  *   You may need to restart your terminal or log out and back in for the PATH change to take effect.
 
 ## 📄 License
 
