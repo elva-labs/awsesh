@@ -1727,7 +1727,7 @@ func (m model) View() string {
 }
 
 // DirectSessionSetup handles setting up a session directly from command line arguments
-func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bool) error {
+func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bool, regionFlag string) error {
 	// Create config manager
 	configMgr, err := config.NewManager()
 	if err != nil {
@@ -1914,9 +1914,17 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 	}
 
 	// Use account-specific region if available, otherwise use SSO default
-	region, err := configMgr.GetAccountRegion(selectedProfile.Name, selectedAccount.Name)
-	if err != nil || region == "" {
-		region = selectedProfile.Region
+	var region string
+	if regionFlag != "" { // Prioritize flag
+		region = regionFlag
+	} else {
+		// Existing logic: Check account-specific config first
+		var err error
+		region, err = configMgr.GetAccountRegion(selectedProfile.Name, selectedAccount.Name)
+		if err != nil || region == "" {
+			// Fallback to SSO profile default
+			region = selectedProfile.Region
+		}
 	}
 
 	if browserFlag {
@@ -1965,6 +1973,8 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 func main() {
 	// Define browser flag using BoolP for both long and short names
 	browserFlag := flag.BoolP("browser", "b", false, "Open AWS console in browser instead of setting credentials")
+	// Define region flag
+	regionFlag := flag.StringP("region", "r", "", "Specify the AWS region to use")
 
 	// Check for version flags first, before parsing other flags
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
@@ -1977,7 +1987,7 @@ func main() {
 	args := flag.Args()
 
 	// Update usage string
-	usageString := "Usage: sesh [--version|-v] [-b|--browser] [SSONAME ACCOUNTNAME [ROLENAME]]"
+	usageString := "Usage: sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]"
 
 	// Check for direct session setup (2 or 3 args)
 	if len(args) == 2 || len(args) == 3 {
@@ -1989,7 +1999,7 @@ func main() {
 		}
 
 		// Pass the role name arg and browser flag
-		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag); err != nil {
+		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag, *regionFlag); err != nil {
 			errorMsg := styles.ErrorBox.Render(
 				lipgloss.JoinVertical(lipgloss.Left,
 					styles.TextStyle.Render(err.Error()),
@@ -2002,11 +2012,17 @@ func main() {
 		os.Exit(0)
 	}
 
-	// If browser flag is used without arguments, show error
-	if *browserFlag && len(args) == 0 {
+	// If browser flag or region flag is used without arguments, show error
+	if (*browserFlag || *regionFlag != "") && len(args) == 0 {
+		var flagName string
+		if *browserFlag {
+			flagName = "--browser/-b"
+		} else {
+			flagName = "--region/-r"
+		}
 		errorMsg := styles.ErrorBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				styles.TextStyle.Render("Error: --browser/-b flag requires SSONAME and ACCOUNTNAME arguments."),
+				styles.TextStyle.Render(fmt.Sprintf("Error: %s flag requires SSONAME and ACCOUNTNAME arguments.", flagName)),
 				"",
 				styles.HelpStyle.Render(usageString),
 			),
@@ -2019,17 +2035,26 @@ func main() {
 	if len(args) == 0 {
 		// Ensure interactive mode doesn't run if flags like --version were handled
 		// (This check might be redundant now due to earlier exit, but safe to keep)
-		if len(os.Args) > 1 && os.Args[1] != "--browser" && os.Args[1] != "-b" {
-			// Handle cases where flags might have been passed but not enough args for direct setup
-			errorMsg := styles.ErrorBox.Render(
-				lipgloss.JoinVertical(lipgloss.Left,
-					styles.TextStyle.Render("Invalid combination of arguments/flags."),
-					"",
-					styles.HelpStyle.Render(usageString), // Updated usage string
-				),
-			)
-			fmt.Print("\n", errorMsg, "\n\n")
-			os.Exit(1)
+		if len(os.Args) > 1 {
+			isFlagArg := false
+			for _, arg := range os.Args[1:] {
+				if strings.HasPrefix(arg, "-") {
+					isFlagArg = true
+					break
+				}
+			}
+			// If any flag is passed in interactive mode (except potentially known safe ones in the future)
+			if isFlagArg {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.TextStyle.Render("Invalid combination of arguments/flags for interactive mode."),
+						"",
+						styles.HelpStyle.Render(usageString), // Updated usage string
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(1)
+			}
 		}
 
 		// Start interactive TUI

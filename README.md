@@ -40,13 +40,19 @@ You can edit, remove and manage SSO. As well as set region per account and open 
 Run the tui by typing: `sesh` or use the cli if you already know what you need.
 
 ```sh
-sesh [--version|-v] [-b|--browser] [SSONAME ACCOUNTNAME [ROLENAME]]
+sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]
 ```
 
 Let's say you want to open a browser directly with the Admin role you would type:
 
 ```sh
 sesh MyOrg MyAccount AdminRole -b
+```
+
+If you want to set the region for that session directly, you can use the `-r` flag:
+
+```sh
+sesh MyOrg MyAccount AdminRole -r eu-west-1
 ```
 
 If you have used the `tui` (not the cli) to select a role for a specific account, sesh will remember which role you used last time and use that even if you use the cli.
