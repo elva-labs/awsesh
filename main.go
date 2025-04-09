@@ -173,9 +173,10 @@ func (i item) FilterValue() string { return i.title }
 
 // Initialize form inputs
 func initialInputs() []textinput.Model {
-	inputs := make([]textinput.Model, 3)
+	inputs := make([]textinput.Model, 4)
 	var t textinput.Model
 
+	// Alias
 	t = textinput.New()
 	t.Placeholder = "My Company SSO"
 	t.Focus()
@@ -186,6 +187,7 @@ func initialInputs() []textinput.Model {
 	t.TextStyle = styles.FocusedInputStyle
 	inputs[0] = t
 
+	// Company Name
 	t = textinput.New()
 	t.Placeholder = "company"
 	t.CharLimit = 100
@@ -195,6 +197,7 @@ func initialInputs() []textinput.Model {
 	t.TextStyle = styles.InputStyle
 	inputs[1] = t
 
+	// SSO Region
 	t = textinput.New()
 	t.Placeholder = "us-east-1"
 	t.CharLimit = 20
@@ -203,6 +206,16 @@ func initialInputs() []textinput.Model {
 	t.PromptStyle = styles.InputStyle
 	t.TextStyle = styles.InputStyle
 	inputs[2] = t
+
+	// Default Region
+	t = textinput.New()
+	t.Placeholder = "us-east-1"
+	t.CharLimit = 20
+	t.Width = 40
+	t.Prompt = "› "
+	t.PromptStyle = styles.InputStyle
+	t.TextStyle = styles.InputStyle
+	inputs[3] = t
 
 	return inputs
 }
@@ -432,7 +445,7 @@ func sortItems(items []list.Item) {
 }
 
 // Helper function to create account list items
-func makeAccountItems(accounts []aws.Account, defaultRegion string, configMgr *config.Manager, ssoProfileName string) []list.Item {
+func makeAccountItems(accounts []aws.Account, ssoDefaultRegion string, configMgr *config.Manager, ssoProfileName string) []list.Item {
 	accountItems := make([]list.Item, len(accounts))
 	for i, acc := range accounts {
 		region := acc.Region
@@ -442,7 +455,7 @@ func makeAccountItems(accounts []aws.Account, defaultRegion string, configMgr *c
 			if err == nil && customRegion != "" {
 				region = customRegion
 			} else {
-				region = defaultRegion
+				region = ssoDefaultRegion
 			}
 		}
 
@@ -546,7 +559,7 @@ func fetchAccounts(client *aws.Client, accessToken string, requestID string, exi
 }
 
 // Get credentials for a role
-func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName string, selectedAcc *aws.Account, requestID string) tea.Cmd {
+func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName string, selectedAcc *aws.Account, ssoDefaultRegion string, requestID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -555,8 +568,8 @@ func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName str
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to get role credentials: %w", err), requestID: requestID}
 		}
 
-		// Use account-specific region if available, otherwise use SSO default
-		region := client.Region()
+		// Determine the effective region: account-specific region first, then SSO default region
+		region := ssoDefaultRegion
 		if selectedAcc != nil && selectedAcc.Region != "" {
 			region = selectedAcc.Region
 		}
@@ -647,7 +660,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Use account-specific region if available, otherwise use SSO default
 				region := m.selectedAcc.Region
 				if region == "" {
-					region = m.selectedSSO.Region
+					region = m.selectedSSO.DefaultRegion
 				}
 				details := styles.SuccessBox.Render(
 					lipgloss.JoinVertical(lipgloss.Left,
@@ -673,10 +686,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Print session information if we have an active session with a role selected
 				if m.selectedAcc != nil && m.selectedAcc.SelectedRole != "" {
-					// Use account-specific region if available, otherwise use SSO default
+					// Use account-specific region if available, otherwise use SSO default region
 					region := m.selectedAcc.Region
 					if region == "" {
-						region = m.selectedSSO.Region
+						region = m.selectedSSO.DefaultRegion
 					}
 					details := styles.SuccessBox.Render(
 						lipgloss.JoinVertical(lipgloss.Left,
@@ -836,7 +849,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									// Set values from selected profile
 									m.inputs[0].SetValue(profile.Name)
 									m.inputs[1].SetValue(companyName)
-									m.inputs[2].SetValue(profile.Region)
+									m.inputs[2].SetValue(profile.SSORegion)
+									m.inputs[3].SetValue(profile.DefaultRegion)
 
 									m.focusIndex = 0
 									// Clear the filter when leaving the view
@@ -883,9 +897,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.selectedSSO = &profile
 									m.isAuthenticating = true
 
-									// Initialize AWS client for the selected region
+									// Initialize AWS client for the selected SSO region
 									var err error
-									m.awsClient, err = aws.NewClient(profile.Region)
+									m.awsClient, err = aws.NewClient(profile.SSORegion)
 									if err != nil {
 										m.errorMessage = fmt.Sprintf("Failed to initialize AWS client: %v", err)
 										return m, nil
@@ -910,7 +924,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 												acc.Region = customRegion
 											}
 										}
-										accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+										accountItems := makeAccountItems(m.accounts, m.selectedSSO.DefaultRegion, m.configMgr, m.selectedSSO.Name)
 										m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 										m.accountList.SetItems(accountItems)
 
@@ -923,7 +937,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.loadingText = "Starting SSO login process..."
 									// Clear the filter when leaving the view
 									m.ssoList.ResetFilter()
-									return m, startSSOLogin(profile.StartURL, profile.Region, m.configMgr, m.awsClient, m.currentRequestID)
+									return m, startSSOLogin(profile.StartURL, profile.SSORegion, m.configMgr, m.awsClient, m.currentRequestID)
 								}
 							}
 						}
@@ -1027,6 +1041,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.selectedAcc.AccountID,
 							m.selectedAcc.SelectedRole,
 							m.selectedAcc,
+							m.selectedSSO.DefaultRegion,
 							m.currentRequestID,
 						)
 					}
@@ -1116,7 +1131,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				// Refresh the account list items to show the updated region
-				accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+				accountItems := makeAccountItems(m.accounts, m.selectedSSO.DefaultRegion, m.configMgr, m.selectedSSO.Name)
 				m.accountList.SetItems(accountItems)
 				m.accountList.ResetFilter()
 				m.state = stateSelectAccount
@@ -1196,7 +1211,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingText = ""
 
 		// Create account list items
-		accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+		accountItems := makeAccountItems(m.accounts, m.selectedSSO.DefaultRegion, m.configMgr, m.selectedSSO.Name)
 
 		// Update account list title with breadcrumb and role loading status
 		title := fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
@@ -1271,7 +1286,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.accounts[idx].Roles = []string{"Error loading roles"}
 				m.accounts[idx].RolesLoaded = true
 				// Update the account list display
-				accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+				accountItems := makeAccountItems(m.accounts, m.selectedSSO.DefaultRegion, m.configMgr, m.selectedSSO.Name)
 				m.accountList.SetItems(accountItems)
 				break
 			}
@@ -1325,7 +1340,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				// Update the account list display
-				accountItems := makeAccountItems(m.accounts, m.selectedSSO.Region, m.configMgr, m.selectedSSO.Name)
+				accountItems := makeAccountItems(m.accounts, m.selectedSSO.DefaultRegion, m.configMgr, m.selectedSSO.Name)
 				m.accountList.SetItems(accountItems)
 				break
 			}
@@ -1433,15 +1448,18 @@ func (m *model) selectLastUsedRole(profileName, accountName string) {
 	}
 }
 
-func validateSSOForm(alias, companyName, region string) string {
+func validateSSOForm(alias, companyName, ssoRegion, defaultRegion string) string {
 	if alias == "" {
 		return "Alias cannot be empty"
 	}
 	if companyName == "" {
 		return "Company name cannot be empty"
 	}
-	if region == "" {
-		return "Region cannot be empty"
+	if ssoRegion == "" {
+		return "SSO Region cannot be empty"
+	}
+	if defaultRegion == "" {
+		return "Default Region cannot be empty"
 	}
 	return ""
 }
@@ -1449,9 +1467,10 @@ func validateSSOForm(alias, companyName, region string) string {
 func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 	alias := strings.TrimSpace(m.inputs[0].Value())
 	companyName := strings.TrimSpace(m.inputs[1].Value())
-	region := strings.TrimSpace(m.inputs[2].Value())
+	ssoRegion := strings.TrimSpace(m.inputs[2].Value())
+	defaultRegion := strings.TrimSpace(m.inputs[3].Value())
 
-	if err := validateSSOForm(alias, companyName, region); err != "" {
+	if err := validateSSOForm(alias, companyName, ssoRegion, defaultRegion); err != "" {
 		m.formError = err
 		return m, nil
 	}
@@ -1466,9 +1485,10 @@ func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 	}
 
 	newProfile := config.SSOProfile{
-		Name:     alias,
-		StartURL: portalURL,
-		Region:   region,
+		Name:          alias,
+		StartURL:      portalURL,
+		SSORegion:     ssoRegion,
+		DefaultRegion: defaultRegion,
 	}
 
 	m.ssoProfiles = append(m.ssoProfiles, newProfile)
@@ -1492,9 +1512,10 @@ func (m *model) handleAddFormSubmission() (tea.Model, tea.Cmd) {
 func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
 	alias := strings.TrimSpace(m.inputs[0].Value())
 	companyName := strings.TrimSpace(m.inputs[1].Value())
-	region := strings.TrimSpace(m.inputs[2].Value())
+	ssoRegion := strings.TrimSpace(m.inputs[2].Value())
+	defaultRegion := strings.TrimSpace(m.inputs[3].Value())
 
-	if err := validateSSOForm(alias, companyName, region); err != "" {
+	if err := validateSSOForm(alias, companyName, ssoRegion, defaultRegion); err != "" {
 		m.formError = err
 		return m, nil
 	}
@@ -1509,9 +1530,10 @@ func (m *model) handleEditFormSubmission() (tea.Model, tea.Cmd) {
 	}
 
 	m.ssoProfiles[m.editingIndex] = config.SSOProfile{
-		Name:     alias,
-		StartURL: portalURL,
-		Region:   region,
+		Name:          alias,
+		StartURL:      portalURL,
+		SSORegion:     ssoRegion,
+		DefaultRegion: defaultRegion,
 	}
 
 	m.updateSSOList()
@@ -1541,7 +1563,7 @@ func (m *model) updateSSOList() {
 	for i, profile := range m.ssoProfiles {
 		ssoItems[i] = item{
 			title:       profile.Name,
-			description: fmt.Sprintf("Region: %s", profile.Region),
+			description: fmt.Sprintf("SSO Region: %s, Default Region: %s", profile.SSORegion, profile.DefaultRegion),
 		}
 	}
 	m.ssoList.SetItems(ssoItems)
@@ -1631,8 +1653,8 @@ func (m model) View() string {
 		// Add the header back
 		header := styles.TitleStyle.Render("AWS Session Activated")
 
-		// Determine region
-		region := m.selectedSSO.Region
+		// Determine region: account-specific > SSO default
+		region := m.selectedSSO.DefaultRegion
 		if m.selectedAcc.Region != "" {
 			region = m.selectedAcc.Region
 		}
@@ -1662,6 +1684,7 @@ func (m model) View() string {
 		fields := []string{
 			"Alias (friendly name):",
 			"Company Name (e.g. 'mycompany' from mycompany.awsapps.com):",
+			"SSO Region:",
 			"Default Region:",
 		}
 
@@ -1740,8 +1763,8 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		return fmt.Errorf("SSO profile '%s' not found", ssoName)
 	}
 
-	// Initialize AWS client
-	awsClient, err := aws.NewClient(selectedProfile.Region)
+	// Initialize AWS client using the SSO Region
+	awsClient, err := aws.NewClient(selectedProfile.SSORegion)
 	if err != nil {
 		return fmt.Errorf("failed to initialize AWS client: %w", err)
 	}
@@ -1909,7 +1932,7 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		var err error
 		region, err = configMgr.GetAccountRegion(selectedProfile.Name, selectedAccount.Name)
 		if err != nil || region == "" {
-			region = selectedProfile.Region
+			region = selectedProfile.DefaultRegion
 		}
 	}
 
@@ -2038,7 +2061,7 @@ func main() {
 				// Use account-specific region if available, otherwise use SSO default
 				region := model.selectedAcc.Region
 				if region == "" {
-					region = model.selectedSSO.Region
+					region = model.selectedSSO.DefaultRegion
 				}
 				details := styles.SuccessBox.Render(
 					lipgloss.JoinVertical(lipgloss.Left,

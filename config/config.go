@@ -29,7 +29,8 @@ const (
 type SSOProfile struct {
 	Name            string
 	StartURL        string
-	Region          string
+	SSORegion       string
+	DefaultRegion   string
 	AccountsLoading bool
 }
 
@@ -175,7 +176,8 @@ func (m *Manager) SaveProfiles(profiles []SSOProfile) error {
 		}
 
 		section.Key("start_url").SetValue(profile.StartURL)
-		section.Key("region").SetValue(profile.Region)
+		section.Key("sso_region").SetValue(profile.SSORegion)
+		section.Key("default_region").SetValue(profile.DefaultRegion)
 	}
 
 	if err := cfg.SaveTo(m.configPath); err != nil {
@@ -203,9 +205,23 @@ func (m *Manager) LoadProfiles() ([]SSOProfile, error) {
 		}
 
 		profile := SSOProfile{
-			Name:     section.Name(),
-			StartURL: section.Key("start_url").String(),
-			Region:   section.Key("region").String(),
+			Name:          section.Name(),
+			StartURL:      section.Key("start_url").String(),
+			SSORegion:     section.Key("sso_region").String(),
+			DefaultRegion: section.Key("default_region").String(),
+		}
+
+		// Backwards compatibility: If sso_region is empty, try reading the old 'region' key
+		// Remove in the future
+		if profile.SSORegion == "" {
+			oldRegion := section.Key("region").String()
+			if oldRegion != "" {
+				profile.SSORegion = oldRegion
+				// If default_region is also empty, use the old region value for it too
+				if profile.DefaultRegion == "" {
+					profile.DefaultRegion = oldRegion
+				}
+			}
 		}
 
 		profiles = append(profiles, profile)
