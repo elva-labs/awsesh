@@ -1,3 +1,3 @@
 - support china sso urls (https://start.${SSO_REGION}.home.awsapps.cn/directory/${COMPANY_NAME}#/)
 - add profile support
-- allow smaller window
+- choose last used sso first
