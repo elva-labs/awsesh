@@ -1,6 +1,6 @@
 package styles
 
-import "github.com/charmbracelet/lipgloss"
+import "github.com/charmbracelet/lipgloss/v2"
 
 var (
 	// Colors
@@ -44,6 +44,12 @@ var (
 
 	WarningStyle = lipgloss.NewStyle().
 			Foreground(Warning)
+
+	PrimaryStyle = lipgloss.NewStyle().
+			Foreground(Primary)
+
+	SecondaryStyle = lipgloss.NewStyle().
+			Foreground(Secondary)
 
 	// Base box style with common properties
 	baseBox = lipgloss.NewStyle().
