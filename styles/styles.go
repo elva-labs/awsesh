@@ -14,7 +14,7 @@ var (
 
 	// Layout constants
 	MinWidth  = 80
-	MinHeight = 18
+	MinHeight = 10
 	Padding   = 1
 
 	// Base styles
