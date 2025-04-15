@@ -12,12 +12,12 @@ import (
 	flag "github.com/spf13/pflag"
 
 	"github.com/aws/smithy-go"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/bubbles/v2/key"
+	"github.com/charmbracelet/bubbles/v2/list"
+	"github.com/charmbracelet/bubbles/v2/spinner"
+	"github.com/charmbracelet/bubbles/v2/textinput"
+	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 
 	"awsesh/aws"
 	"awsesh/config"
@@ -181,41 +181,43 @@ func initialInputs() []textinput.Model {
 	t.Placeholder = "My Company SSO"
 	t.Focus()
 	t.CharLimit = 50
-	t.Width = 40
+	t.SetWidth(40)
 	t.Prompt = "› "
-	t.PromptStyle = styles.FocusedInputStyle
-	t.TextStyle = styles.FocusedInputStyle
 	inputs[0] = t
 
 	// Company Name
 	t = textinput.New()
 	t.Placeholder = "company"
 	t.CharLimit = 100
-	t.Width = 40
+	t.SetWidth(40)
 	t.Prompt = "› "
-	t.PromptStyle = styles.InputStyle
-	t.TextStyle = styles.InputStyle
 	inputs[1] = t
 
 	// SSO Region
 	t = textinput.New()
 	t.Placeholder = "us-east-1"
 	t.CharLimit = 20
-	t.Width = 40
+	t.SetWidth(40)
 	t.Prompt = "› "
-	t.PromptStyle = styles.InputStyle
-	t.TextStyle = styles.InputStyle
 	inputs[2] = t
 
 	// Default Region
 	t = textinput.New()
 	t.Placeholder = "us-east-1"
 	t.CharLimit = 20
-	t.Width = 40
+	t.SetWidth(40)
 	t.Prompt = "› "
-	t.PromptStyle = styles.InputStyle
-	t.TextStyle = styles.InputStyle
 	inputs[3] = t
+
+	// Apply styles to all inputs
+	for i := range inputs {
+		inputs[i].Styles.Focused.Text = styles.PrimaryStyle
+		inputs[i].Styles.Focused.Prompt = styles.TextStyle
+		inputs[i].Styles.Focused.Placeholder = styles.SecondaryStyle
+
+		// Set cursor style
+		inputs[i].Styles.Cursor.Color = styles.Primary
+	}
 
 	return inputs
 }
@@ -368,10 +370,11 @@ func initialModel() model {
 	regionInput := textinput.New()
 	regionInput.Placeholder = "us-east-1"
 	regionInput.CharLimit = 20
-	regionInput.Width = 30
+	regionInput.SetWidth(30)
 	regionInput.Prompt = "› "
-	regionInput.PromptStyle = styles.InputStyle
-	regionInput.TextStyle = styles.InputStyle
+	regionInput.Styles.Focused.Text = styles.PrimaryStyle
+	regionInput.Styles.Focused.Prompt = styles.TextStyle
+	regionInput.Styles.Focused.Placeholder = styles.SecondaryStyle
 
 	// Create initial model
 	m := model{
@@ -648,8 +651,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.roleList.SetHeight(contentHeight)
 
 	case tea.KeyMsg:
+		// Check if it's a key press message
+		keyPress, isKeyPress := msg.(tea.KeyPressMsg)
+		if !isKeyPress {
+			// If it's not a key press (could be release), ignore for now or handle separately if needed
+			return m, nil
+		}
+
 		// Global keybindings
-		switch msg.String() {
+		switch keyPress.String() {
 		case "ctrl+c":
 			// Only clear cached token if we haven't set up a session
 			if m.selectedSSO != nil && m.selectedAcc == nil {
@@ -776,6 +786,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+		// Add check for 'c' key press to copy verification code
+		case "c":
+			if m.state == stateSelectAccount && m.verificationCode != "" {
+				return m, tea.SetClipboard(m.verificationCode)
+			}
+
 		case "o":
 			if m.state == stateSelectSSO && m.ssoList.FilterState() != list.Filtering {
 				if i, ok := m.ssoList.SelectedItem().(item); ok {
@@ -820,7 +836,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateSelectSSO:
 			// Only process special keybindings if we're not filtering
 			if m.ssoList.FilterState() != list.Filtering {
-				switch msg.String() {
+				switch keyPress.String() {
 				case "a":
 					// Switch to add SSO form
 					m.state = stateAddSSO
@@ -949,7 +965,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case stateDeleteConfirm:
-			switch msg.String() {
+			switch keyPress.String() {
 			case "y":
 				// Delete the profile
 				for idx, profile := range m.ssoProfiles {
@@ -978,7 +994,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case stateSelectAccount:
 			// Only process enter key if we're not filtering
-			if m.accountList.FilterState() != list.Filtering && msg.String() == "enter" {
+			if m.accountList.FilterState() != list.Filtering && keyPress.String() == "enter" {
 				i, ok := m.accountList.SelectedItem().(item)
 				if ok {
 					for idx, acc := range m.accounts {
@@ -1021,7 +1037,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateSelectRole:
 			// Only process special keybindings if we're not filtering and not loading
 			if m.roleList.FilterState() != list.Filtering && m.loadingText == "" {
-				switch msg.String() {
+				switch keyPress.String() {
 				case "enter":
 					i, ok := m.roleList.SelectedItem().(item)
 					if ok {
@@ -1060,16 +1076,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case stateSessionSuccess:
-			var cmd tea.Cmd
-			m.spinner, cmd = m.spinner.Update(msg)
-			cmds = append(cmds, cmd)
-
 		case stateAddSSO, stateEditSSO:
-			switch msg.String() {
+			switch keyPress.String() {
 			case "tab", "shift+tab", "enter", "up", "down":
 				// Handle input navigation
-				if msg.String() == "enter" && m.focusIndex == len(m.inputs) {
+				if keyPress.String() == "enter" && m.focusIndex == len(m.inputs) {
 					// Submit form
 					if m.state == stateAddSSO {
 						return m.handleAddFormSubmission()
@@ -1079,7 +1090,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				// Cycle through inputs
-				if msg.String() == "up" || msg.String() == "shift+tab" {
+				if keyPress.String() == "up" || keyPress.String() == "shift+tab" {
 					m.focusIndex--
 				} else {
 					m.focusIndex++
@@ -1104,7 +1115,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case stateSetAccountRegion:
-			if msg.String() == "enter" {
+			if keyPress.String() == "enter" {
 				region := strings.TrimSpace(m.accountRegionInput.Value())
 				if region != "" {
 					// Save the region for this account
@@ -1377,11 +1388,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateSelectRole:
 		var cmd tea.Cmd
 		m.roleList, cmd = m.roleList.Update(msg)
-		cmds = append(cmds, cmd)
-
-	case stateSessionSuccess:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 
 	case stateAddSSO, stateEditSSO:
@@ -2046,7 +2052,7 @@ func main() {
 		// Start interactive TUI
 		os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
 
-		p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+		p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
 		m, err := p.Run()
 		if err != nil {
 			errorMsg := styles.ErrorBox.Render(
