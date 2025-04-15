@@ -399,6 +399,18 @@ func initialModel() model {
 	// Update the list items
 	if len(profiles) > 0 {
 		m.updateSSOList()
+
+		lastProfileName, err := m.configMgr.GetLastSelectedSSOProfile()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get last used SSO profile: %v\n", err)
+		} else if lastProfileName != "" {
+			for i, listItem := range m.ssoList.Items() {
+				if listItem.(item).Title() == lastProfileName {
+					m.ssoList.Select(i)
+					break
+				}
+			}
+		}
 	} else {
 		// If no profiles exist, start in the add state
 		m.state = stateAddSSO
@@ -956,6 +968,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.loadingText = "Starting SSO login process..."
 									// Clear the filter when leaving the view
 									m.ssoList.ResetFilter()
+
+									// Save the selected profile as last used *before* starting login
+									go func(name string) {
+										if err := m.configMgr.SaveLastSelectedSSOProfile(name); err != nil {
+											fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected SSO profile: %v\n", err)
+										}
+									}(profile.Name)
+
 									return m, startSSOLogin(profile.StartURL, profile.SSORegion, m.configMgr, m.awsClient, m.currentRequestID)
 								}
 							}
@@ -2015,6 +2035,11 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 			),
 		)
 		fmt.Printf("\n%s\n\n", details)
+	}
+
+	// Save the last used SSO profile after successful setup
+	if err := configMgr.SaveLastSelectedSSOProfile(selectedProfile.Name); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected SSO profile: %v\n", err)
 	}
 
 	return nil
