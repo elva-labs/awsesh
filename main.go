@@ -215,8 +215,7 @@ func initialInputs() []textinput.Model {
 		inputs[i].Styles.Focused.Prompt = styles.TextStyle
 		inputs[i].Styles.Focused.Placeholder = styles.SecondaryStyle
 
-		// Set cursor style
-		inputs[i].Styles.Cursor.Color = styles.Primary
+		inputs[i].Styles.Blurred.Text = styles.SecondaryStyle
 	}
 
 	return inputs
@@ -375,6 +374,7 @@ func initialModel() model {
 	regionInput.Styles.Focused.Text = styles.PrimaryStyle
 	regionInput.Styles.Focused.Prompt = styles.TextStyle
 	regionInput.Styles.Focused.Placeholder = styles.SecondaryStyle
+	regionInput.VirtualCursor = false // Don't render own cursor
 
 	// Create initial model
 	m := model{
@@ -1589,8 +1589,9 @@ func (m model) renderLoadingView() string {
 	)
 }
 
-func (m model) View() string {
+func (m model) View() (string, *tea.Cursor) {
 	var s string
+	var cur *tea.Cursor
 
 	// If there's an error message, show it at the bottom
 	errorBar := ""
@@ -1726,6 +1727,26 @@ func (m model) View() string {
 
 		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String()))
 
+		if m.focusIndex < len(m.inputs) {
+			input := m.inputs[m.focusIndex]
+
+			cursorY := 2 + (m.focusIndex * 3)
+			cursorX := input.Cursor().X
+
+			maxCursorX := len(input.Prompt) + input.Width()
+			if cursorX > maxCursorX {
+				cursorX = maxCursorX
+			}
+
+			// Adjust for padding of the FullPageStyle
+			cursorX += styles.FullPageStyle.GetPaddingLeft()
+			cursorY += styles.FullPageStyle.GetPaddingTop()
+
+			cur = tea.NewCursor(cursorX, cursorY)
+			cur.Shape = tea.CursorBar
+			cur.Blink = true
+		}
+
 	case stateSetAccountRegion:
 		header := styles.TitleStyle.Render("Set Account Region")
 		content = styles.BoxStyle.Render(
@@ -1738,12 +1759,25 @@ func (m model) View() string {
 			),
 		)
 		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, "", content))
+
+		input := m.accountRegionInput
+
+		cursorY := 2 + 1 + 2 + 1
+		cursorX := len(input.Prompt) + input.Cursor().X
+
+		// Adjust for padding of the FullPageStyle
+		cursorX += styles.FullPageStyle.GetPaddingLeft()
+		cursorY += styles.FullPageStyle.GetPaddingTop()
+
+		cur = tea.NewCursor(cursorX, cursorY)
+		cur.Shape = tea.CursorBar
+		cur.Blink = true
 	}
 
 	// Apply base style and ensure content fills the terminal
 	s = styles.BaseStyle.Render(content)
 
-	return s + errorBar
+	return s + errorBar, cur
 }
 
 // DirectSessionSetup handles setting up a session directly from command line arguments
