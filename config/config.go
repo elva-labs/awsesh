@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	awseshConfigFileName = "awsesh"
-	awseshTokensFileName = "awsesh-tokens"
+	awseshConfigFileName   = "awsesh"
+	awseshMetaFileName     = "awsesh-meta"
+	awseshAccountsFileName = "awsesh-accounts"
+	awseshTokensFileName   = "awsesh-tokens"
 
 	// Error message constants
 	errGetHomeDir       = "failed to get home directory: %w"
@@ -144,7 +146,7 @@ func getAwseshAccountsCachePath() (string, error) {
 		return "", fmt.Errorf(errCreateAwsDir, err)
 	}
 
-	return filepath.Join(awsDir, "awsesh-accounts"), nil
+	return filepath.Join(awsDir, awseshAccountsFileName), nil
 }
 
 // NewManager creates a new configuration manager
@@ -291,6 +293,20 @@ func (m *Manager) LoadToken(startURL string) (*awsclient.TokenCache, error) {
 		ExpiresAt:   expiresAt,
 		StartURL:    startURL,
 	}, nil
+}
+
+func getAwseshMetaPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf(errGetHomeDir, err)
+	}
+
+	awsDir := filepath.Join(homeDir, ".aws")
+	if err := os.MkdirAll(awsDir, 0700); err != nil {
+		return "", fmt.Errorf(errCreateAwsDir, err)
+	}
+
+	return filepath.Join(awsDir, awseshMetaFileName), nil
 }
 
 func getAwseshConfigPath() (string, error) {
@@ -500,4 +516,59 @@ func (m *Manager) GetAccountRegion(profileName, accountName string) (string, err
 	}
 
 	return section.Key(fmt.Sprintf("region_%s", accountName)).String(), nil
+}
+
+func (m *Manager) SaveLastSelectedSSOProfile(profileName string) error {
+	metaPath, err := getAwseshMetaPath()
+	if err != nil {
+		return err
+	}
+
+	cfg, err := ini.Load(metaPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg = ini.Empty()
+		} else {
+			return fmt.Errorf("failed to load awsesh-meta file: %w", err)
+		}
+	}
+
+	section, err := cfg.GetSection("metadata")
+	if err != nil {
+		section, err = cfg.NewSection("metadata")
+		if err != nil {
+			return fmt.Errorf("failed to create metadata section in awsesh-meta: %w", err)
+		}
+	}
+
+	section.Key("last_sso_profile").SetValue(profileName)
+
+	if err := cfg.SaveTo(metaPath); err != nil {
+		return fmt.Errorf("failed to save awsesh-meta file: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) GetLastSelectedSSOProfile() (string, error) {
+	metaPath, err := getAwseshMetaPath()
+	if err != nil {
+		return "", err
+	}
+
+	cfg, err := ini.Load(metaPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to load awsesh-meta file: %w", err)
+	}
+
+	section, err := cfg.GetSection("metadata")
+	if err != nil {
+		// Section doesn't exist, so no last profile saved
+		return "", nil
+	}
+
+	return section.Key("last_sso_profile").String(), nil
 }
