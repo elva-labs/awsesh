@@ -39,7 +39,7 @@ const (
 
 // Constants for limits
 const (
-	maxAccountsForRoleLoading = 30
+	maxAccountsForRoleLoading = 100
 	Version                   = "0.0.7"
 )
 
