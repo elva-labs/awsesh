@@ -10,16 +10,12 @@ var (
 	Warning   = lipgloss.Color("#FFB800") // Yellow
 	Error     = lipgloss.Color("#FF4D4D") // Red
 	Muted     = lipgloss.Color("#6B7280") // Gray
-	Text      = lipgloss.Color("#E5E7EB") // Light Gray
+	Text      = lipgloss.Color("#000000") // Black
 
 	// Layout constants
 	MinWidth  = 80
 	MinHeight = 10
 	Padding   = 1
-
-	// Base styles
-	BaseStyle = lipgloss.NewStyle().
-			Foreground(Text)
 
 	// Title styles
 	TitleStyle = lipgloss.NewStyle().
@@ -29,7 +25,7 @@ var (
 			Bold(true)
 
 	// Text styles
-	TextStyle = lipgloss.NewStyle().
+	BaseStyle = lipgloss.NewStyle().
 			Foreground(Text)
 
 	MutedStyle = lipgloss.NewStyle().

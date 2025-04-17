@@ -212,9 +212,8 @@ func initialInputs() []textinput.Model {
 	// Apply styles to all inputs
 	for i := range inputs {
 		inputs[i].Styles.Focused.Text = styles.PrimaryStyle
-		inputs[i].Styles.Focused.Prompt = styles.TextStyle
+		inputs[i].Styles.Focused.Prompt = styles.BaseStyle
 		inputs[i].Styles.Focused.Placeholder = styles.SecondaryStyle
-
 		inputs[i].Styles.Blurred.Text = styles.SecondaryStyle
 	}
 
@@ -372,7 +371,7 @@ func initialModel() model {
 	regionInput.SetWidth(30)
 	regionInput.Prompt = "› "
 	regionInput.Styles.Focused.Text = styles.PrimaryStyle
-	regionInput.Styles.Focused.Prompt = styles.TextStyle
+	regionInput.Styles.Focused.Prompt = styles.BaseStyle
 	regionInput.Styles.Focused.Placeholder = styles.SecondaryStyle
 	regionInput.VirtualCursor = false // Don't render own cursor
 
@@ -689,10 +688,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				details := styles.SuccessBox.Render(
 					lipgloss.JoinVertical(lipgloss.Left,
-						fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(m.selectedSSO.Name)),
-						fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
-						fmt.Sprintf("Role: %s", styles.TextStyle.Render(m.selectedAcc.SelectedRole)),
-						fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+						fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(m.selectedSSO.Name)),
+						fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
+						fmt.Sprintf("Role: %s", styles.BaseStyle.Render(m.selectedAcc.SelectedRole)),
+						fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
 					),
 				)
 				fmt.Printf("\n%s\n\n", details)
@@ -718,10 +717,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					details := styles.SuccessBox.Render(
 						lipgloss.JoinVertical(lipgloss.Left,
-							fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(m.selectedSSO.Name)),
-							fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
-							fmt.Sprintf("Role: %s", styles.TextStyle.Render(m.selectedAcc.SelectedRole)),
-							fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+							fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(m.selectedSSO.Name)),
+							fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
+							fmt.Sprintf("Role: %s", styles.BaseStyle.Render(m.selectedAcc.SelectedRole)),
+							fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
 						),
 					)
 					fmt.Printf("\n%s\n\n", details)
@@ -1601,7 +1600,7 @@ func (m *model) updateSSOList() {
 func (m model) renderLoadingView() string {
 	loading := lipgloss.JoinHorizontal(lipgloss.Center,
 		m.spinner.View(),
-		" "+styles.TextStyle.Render(m.loadingText),
+		" "+styles.BaseStyle.Render(m.loadingText),
 	)
 	return lipgloss.Place(m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
@@ -1629,7 +1628,7 @@ func (m model) View() (string, *tea.Cursor) {
 		header := styles.TitleStyle.Render("Delete SSO Profile")
 		content = styles.BoxStyle.Render(
 			lipgloss.JoinVertical(lipgloss.Center,
-				fmt.Sprintf("Are you sure you want to delete the SSO profile '%s'?", styles.TextStyle.Render(m.deleteProfileName)),
+				fmt.Sprintf("Are you sure you want to delete the SSO profile '%s'?", styles.BaseStyle.Render(m.deleteProfileName)),
 				"",
 				styles.MutedStyle.Render("Press ")+styles.SuccessStyle.Render("'y'")+styles.MutedStyle.Render(" to confirm or ")+styles.ErrorStyle.Render("'n'")+styles.MutedStyle.Render(" to cancel"),
 			),
@@ -1643,20 +1642,20 @@ func (m model) View() (string, *tea.Cursor) {
 				// Show verification screen
 				instructions := styles.VerificationBox.Render(
 					lipgloss.JoinVertical(lipgloss.Center,
-						styles.TextStyle.Render("Your browser should open automatically for SSO login."),
-						styles.TextStyle.Render("If it doesn't, you can authenticate manually:"),
+						styles.BaseStyle.Render("Your browser should open automatically for SSO login."),
+						styles.BaseStyle.Render("If it doesn't, you can authenticate manually:"),
 						"",
-						fmt.Sprintf("1. Visit: %s", styles.TextStyle.Render(m.verificationUri)),
-						styles.TextStyle.Render("2. Enter the following code:"),
+						fmt.Sprintf("1. Visit: %s", styles.BaseStyle.Render(m.verificationUri)),
+						styles.BaseStyle.Render("2. Enter the following code:"),
 						"",
 						styles.CodeBox.Render(m.verificationCode),
 						"",
 						styles.HelpStyle.Render("You can also click the link below to open directly:"),
-						styles.TextStyle.Render(m.verificationUriComplete),
+						styles.BaseStyle.Render(m.verificationUriComplete),
 						"",
 						lipgloss.JoinHorizontal(lipgloss.Center,
 							m.spinner.View(),
-							" "+styles.TextStyle.Render(m.loadingText),
+							" "+styles.BaseStyle.Render(m.loadingText),
 						),
 					),
 				)
@@ -1692,10 +1691,10 @@ func (m model) View() (string, *tea.Cursor) {
 		// Use the simplified details format
 		details := styles.SuccessBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(m.selectedSSO.Name)),
-				fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
-				fmt.Sprintf("Role: %s", styles.TextStyle.Render(m.selectedAcc.SelectedRole)),
-				fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+				fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(m.selectedSSO.Name)),
+				fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
+				fmt.Sprintf("Role: %s", styles.BaseStyle.Render(m.selectedAcc.SelectedRole)),
+				fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
 			),
 		)
 
@@ -1723,7 +1722,7 @@ func (m model) View() (string, *tea.Cursor) {
 		for i, field := range fields {
 			input := m.inputs[i].View()
 			if i == m.focusIndex {
-				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.TextStyle.Render(field), input))
+				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.BaseStyle.Render(field), input))
 			} else {
 				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.MutedStyle.Render(field), input))
 			}
@@ -1771,7 +1770,7 @@ func (m model) View() (string, *tea.Cursor) {
 		header := styles.TitleStyle.Render("Set Account Region")
 		content = styles.BoxStyle.Render(
 			lipgloss.JoinVertical(lipgloss.Center,
-				fmt.Sprintf("Set region for account %s:", styles.TextStyle.Render(m.selectedAcc.Name)),
+				fmt.Sprintf("Set region for account %s:", styles.BaseStyle.Render(m.selectedAcc.Name)),
 				"",
 				m.accountRegionInput.View(),
 				"",
@@ -1852,16 +1851,16 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		// Render the verification instructions using the TUI style
 		verificationInstructions := styles.VerificationBox.Render(
 			lipgloss.JoinVertical(lipgloss.Center,
-				styles.TextStyle.Render("Your browser should open automatically for SSO login."),
-				styles.TextStyle.Render("If it doesn't, you can authenticate manually:"),
+				styles.BaseStyle.Render("Your browser should open automatically for SSO login."),
+				styles.BaseStyle.Render("If it doesn't, you can authenticate manually:"),
 				"",
-				fmt.Sprintf("1. Visit: %s", styles.TextStyle.Render(loginInfo.VerificationUri)),
-				styles.TextStyle.Render("2. Enter the following code:"),
+				fmt.Sprintf("1. Visit: %s", styles.BaseStyle.Render(loginInfo.VerificationUri)),
+				styles.BaseStyle.Render("2. Enter the following code:"),
 				"",
 				styles.CodeBox.Render(loginInfo.UserCode),
 				"",
 				styles.HelpStyle.Render("You can also click the link below to open directly:"),
-				styles.TextStyle.Render(loginInfo.VerificationUriComplete),
+				styles.BaseStyle.Render(loginInfo.VerificationUriComplete),
 			),
 		)
 		fmt.Println(verificationInstructions)
@@ -2002,10 +2001,19 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 	if browserFlag {
 		// Open AWS console in browser
 		url := awsClient.GetAccountURL(selectedAccount.AccountID, accessToken, selectedProfile.StartURL, roleName)
+		// Style the output message
+		outputMsg := lipgloss.JoinHorizontal(lipgloss.Left,
+			styles.BaseStyle.Render("Opening AWS Console for "),
+			styles.PrimaryStyle.Render(selectedProfile.Name),
+			styles.BaseStyle.Render(" / "),
+			styles.PrimaryStyle.Render(selectedAccount.Name),
+			styles.BaseStyle.Render(" / "),
+			styles.PrimaryStyle.Render(roleName),
+		)
+		fmt.Println(outputMsg)
 		if err := utils.OpenBrowser(url); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to open browser: %v\\n", err)
+			fmt.Fprintf(os.Stderr, "Warning: Failed to open browser automatically: %v\\n", err)
 			fmt.Printf("URL: %s\\n", url)
-
 		}
 	} else {
 		// Get credentials for the role
@@ -2028,10 +2036,10 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		// Print success message with styling
 		details := styles.SuccessBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(selectedProfile.Name)),
-				fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(selectedAccount.Name), styles.MutedStyle.Render(selectedAccount.AccountID)),
-				fmt.Sprintf("Role: %s", styles.TextStyle.Render(roleName)),
-				fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
+				fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(selectedProfile.Name)),
+				fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(selectedAccount.Name), styles.MutedStyle.Render(selectedAccount.AccountID)),
+				fmt.Sprintf("Role: %s", styles.BaseStyle.Render(roleName)),
+				fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
 			),
 		)
 		fmt.Printf("\n%s\n\n", details)
@@ -2040,6 +2048,12 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 	// Save the last used SSO profile after successful setup
 	if err := configMgr.SaveLastSelectedSSOProfile(selectedProfile.Name); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected SSO profile: %v\n", err)
+	}
+	if err := configMgr.SaveLastSelectedAccount(selectedProfile.Name, selectedAccount.Name); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected account: %v\n", err)
+	}
+	if err := configMgr.SaveLastSelectedRole(selectedProfile.Name, selectedAccount.Name, roleName); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected role: %v\n", err)
 	}
 
 	return nil
@@ -2077,75 +2091,227 @@ func main() {
 		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag, *regionFlag); err != nil {
 			errorMsg := styles.ErrorBox.Render(
 				lipgloss.JoinVertical(lipgloss.Left,
-					styles.TextStyle.Render(err.Error()),
+					styles.BaseStyle.Render(err.Error()),
 					"",
 					styles.HelpStyle.Render(usageString),
 				),
 			)
 			fmt.Print("\n", errorMsg, "\n\n")
+			// Exit with 0 on known errors like profile not found, as the error is displayed
+			os.Exit(0)
 		}
 		os.Exit(0)
 	}
 
-	// If browser flag or region flag is used without arguments, show error
-	if (*browserFlag || *regionFlag != "") && len(args) == 0 {
-		var flagName string
+	// Handle interactive mode or opening last session
+	if len(args) == 0 {
 		if *browserFlag {
-			flagName = "--browser/-b"
+			// Handle opening last session in browser
+			configMgr, err := config.NewManager()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error initializing config manager: %v\n", err)
+				os.Exit(1)
+			}
+
+			lastSSOProfileName, err := configMgr.GetLastSelectedSSOProfile()
+			if err != nil || lastSSOProfileName == "" {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.BaseStyle.Render("Error: Could not determine the last used SSO profile."),
+						styles.HelpStyle.Render("Please run 'sesh' interactively or 'sesh <SSONAME> <ACCOUNTNAME> [ROLENAME]' first."),
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(1)
+			}
+
+			profiles, err := configMgr.LoadProfiles()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading SSO profiles: %v\n", err)
+				os.Exit(1)
+			}
+
+			var selectedProfile *config.SSOProfile
+			for i := range profiles {
+				if profiles[i].Name == lastSSOProfileName {
+					selectedProfile = &profiles[i]
+					break
+				}
+			}
+			if selectedProfile == nil {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.BaseStyle.Render(fmt.Sprintf("Error: Last used SSO profile '%s' not found in configuration.", lastSSOProfileName)),
+						styles.HelpStyle.Render("Please check your configuration or run 'sesh' interactively."),
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(1)
+			}
+
+			awsClient, err := aws.NewClient(selectedProfile.SSORegion)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error initializing AWS client: %v\n", err)
+				os.Exit(1)
+			}
+
+			// Attempt to load cached token
+			cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to check token cache: %v\n", err)
+				// Continue, but opening browser might fail if token is required and invalid
+			}
+
+			if cachedToken == nil {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.BaseStyle.Render("Error: No active session found for the last used profile."),
+						styles.BaseStyle.Render("Authentication required."),
+						styles.HelpStyle.Render("Please run 'sesh' interactively or 'sesh %s <ACCOUNTNAME>' first.", selectedProfile.Name),
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(1)
+			}
+			accessToken := cachedToken.AccessToken
+
+			lastAccountName, err := configMgr.GetLastSelectedAccount(selectedProfile.Name)
+			if err != nil || lastAccountName == "" {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.BaseStyle.Render(fmt.Sprintf("Error: Could not determine the last used account for profile '%s'.", selectedProfile.Name)),
+						styles.HelpStyle.Render("Please run 'sesh %s <ACCOUNTNAME>' first.", selectedProfile.Name),
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(1)
+			}
+
+			lastRoleName, err := configMgr.GetLastSelectedRole(selectedProfile.Name, lastAccountName)
+			if err != nil || lastRoleName == "" {
+				// Attempt to determine a default/fallback role if none specifically saved
+				fmt.Fprintf(os.Stderr, "Warning: Last used role not found for %s/%s. Attempting fallback...\n", selectedProfile.Name, lastAccountName)
+				// Try AdministratorAccess first, this might need adjustment based on common roles
+				lastRoleName = "AdministratorAccess"
+				// Note: We don't have the roles list here without fetching accounts + roles,
+				// so we proceed with the fallback role name optimistically.
+			}
+
+			// Fetch accounts to get the Account ID (necessary for GetAccountURL)
+			ctx := context.Background()
+			accounts, err := awsClient.ListAccounts(ctx, accessToken, nil)
+			if err != nil {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.BaseStyle.Render(fmt.Sprintf("Error listing accounts for profile '%s': %v", selectedProfile.Name, err)),
+						styles.HelpStyle.Render("Ensure your SSO session is valid."),
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(0)
+			}
+
+			var selectedAccountID string
+			for _, acc := range accounts {
+				if acc.Name == lastAccountName {
+					selectedAccountID = acc.AccountID
+					break
+				}
+			}
+
+			if selectedAccountID == "" {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.BaseStyle.Render(fmt.Sprintf("Error: Last used account '%s' not found within profile '%s'.", lastAccountName, selectedProfile.Name)),
+						styles.HelpStyle.Render("Account list might be outdated or name mismatch. Try 'sesh %s %s' directly.", selectedProfile.Name, lastAccountName),
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(0)
+			}
+
+			// Generate URL and open browser
+			url := awsClient.GetAccountURL(selectedAccountID, accessToken, selectedProfile.StartURL, lastRoleName)
+			// Style the output message
+			outputMsg := lipgloss.JoinHorizontal(lipgloss.Left,
+				styles.BaseStyle.Render("Opening AWS Console for "),
+				styles.PrimaryStyle.Render(selectedProfile.Name),
+				styles.BaseStyle.Render(" / "),
+				styles.PrimaryStyle.Render(lastAccountName),
+				styles.BaseStyle.Render(" / "),
+				styles.PrimaryStyle.Render(lastRoleName),
+			)
+			fmt.Println(outputMsg)
+			if err := utils.OpenBrowser(url); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to open browser automatically: %v\\n", err)
+				fmt.Printf("URL: %s\\n", url) // Print URL if browser fails
+			}
+			os.Exit(0)
+
+		} else if *regionFlag != "" {
+			// Region flag without arguments is still an error
+			errorMsg := styles.ErrorBox.Render(
+				lipgloss.JoinVertical(lipgloss.Left,
+					styles.BaseStyle.Render("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments."),
+					"",
+					styles.HelpStyle.Render(usageString),
+				),
+			)
+			fmt.Print("\n", errorMsg, "\n\n")
+			os.Exit(0)
+
 		} else {
-			flagName = "--region/-r"
+			// Start interactive TUI
+			os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
+
+			p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
+			m, err := p.Run()
+			if err != nil {
+				errorMsg := styles.ErrorBox.Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						styles.BaseStyle.Render(fmt.Sprintf("Error running program: %v", err)),
+					),
+				)
+				fmt.Print("\n", errorMsg, "\n\n")
+				os.Exit(0)
+			}
+
+			// Print session information after program has quit (successful interactive session)
+			if model, ok := m.(model); ok {
+				if model.selectedAcc != nil && model.selectedAcc.SelectedRole != "" {
+					// Use account-specific region if available, otherwise use SSO default
+					region := model.selectedAcc.Region
+					if region == "" {
+						region = model.selectedSSO.DefaultRegion
+					}
+					details := styles.SuccessBox.Render(
+						lipgloss.JoinVertical(lipgloss.Left,
+							fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(model.selectedSSO.Name)),
+							fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
+							fmt.Sprintf("Role: %s", styles.BaseStyle.Render(model.selectedAcc.SelectedRole)),
+							fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
+						),
+					)
+					fmt.Printf("\n%s\n\n", details)
+				}
+			}
+			os.Exit(0)
 		}
+	}
+
+	// If region flag is used without arguments, show error (browser flag check removed here)
+	if *regionFlag != "" && len(args) == 0 {
 		errorMsg := styles.ErrorBox.Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				styles.TextStyle.Render(fmt.Sprintf("Error: %s flag requires SSONAME and ACCOUNTNAME arguments.", flagName)),
+				styles.BaseStyle.Render("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments."),
 				"",
 				styles.HelpStyle.Render(usageString),
 			),
 		)
 		fmt.Print("\n", errorMsg, "\n\n")
-		os.Exit(1)
-	}
-
-	// Handle interactive mode (no non-flag args)
-	if len(args) == 0 {
-		// Start interactive TUI
-		os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
-
-		p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
-		m, err := p.Run()
-		if err != nil {
-			errorMsg := styles.ErrorBox.Render(
-				lipgloss.JoinVertical(lipgloss.Left,
-					styles.TextStyle.Render(fmt.Sprintf("Error running program: %v", err)),
-				),
-			)
-			fmt.Print("\n", errorMsg, "\n\n")
-			os.Exit(0)
-		}
-
-		// Print session information after program has quit (successful interactive session)
-		if model, ok := m.(model); ok {
-			if model.selectedAcc != nil && model.selectedAcc.SelectedRole != "" {
-				// Use account-specific region if available, otherwise use SSO default
-				region := model.selectedAcc.Region
-				if region == "" {
-					region = model.selectedSSO.DefaultRegion
-				}
-				details := styles.SuccessBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						fmt.Sprintf("SSO Profile: %s", styles.TextStyle.Render(model.selectedSSO.Name)),
-						fmt.Sprintf("Account: %s (%s)", styles.TextStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
-						fmt.Sprintf("Role: %s", styles.TextStyle.Render(model.selectedAcc.SelectedRole)),
-						fmt.Sprintf("Region: %s", styles.TextStyle.Render(region)),
-					),
-				)
-				fmt.Printf("\n%s\n\n", details)
-			}
-		}
 		os.Exit(0)
 	}
 
-	// Handle incorrect number of arguments (not 0, 2, or 3)
 	var errorText string
 	if len(args) < 2 {
 		errorText = "Too few arguments"
@@ -2154,7 +2320,7 @@ func main() {
 	}
 	errorMsg := styles.ErrorBox.Render(
 		lipgloss.JoinVertical(lipgloss.Left,
-			styles.TextStyle.Render(errorText),
+			styles.BaseStyle.Render(errorText),
 			"",
 			styles.HelpStyle.Render(usageString),
 		),
