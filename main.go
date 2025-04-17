@@ -2222,22 +2222,21 @@ func handleInteractiveSession() {
 }
 
 func main() {
-	// Define browser flag using BoolP for both long and short names
+	// Define flags
 	browserFlag := flag.BoolP("browser", "b", false, "Open AWS console in browser instead of setting credentials")
-	// Define region flag
 	regionFlag := flag.StringP("region", "r", "", "Specify the AWS region to use")
-
-	// Check for version flags first, before parsing other flags
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("v%s\\n", Version)
-		os.Exit(0)
-	}
+	versionFlag := flag.BoolP("version", "v", false, "Print version information")
 
 	flag.Parse()
 
+	// Handle version flag immediately after parsing
+	if *versionFlag {
+		fmt.Printf("v%s\n", Version)
+		os.Exit(0)
+	}
+
 	args := flag.Args()
 
-	// Update usage string
 	usageString := "Usage: sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]"
 
 	// Check for direct session setup (2 or 3 args)
@@ -2251,13 +2250,9 @@ func main() {
 
 		// Pass the role name arg and browser flag
 		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag, *regionFlag); err != nil {
-			// Use fatalError, but exit 0 for known/handled errors from directSessionSetup
 			fatalError(err.Error(), usageString)
-			// Note: directSessionSetup doesn't return specific error types, so differentiating exit codes here is hard.
-			// For now, all errors from directSessionSetup will cause exit(1) via fatalError.
-			// We could adjust fatalError or directSessionSetup if needed.
 		}
-		os.Exit(0) // Successful direct setup
+		os.Exit(0)
 	}
 
 	// Handle interactive mode or opening last session (0 args)
@@ -2265,24 +2260,14 @@ func main() {
 		if *browserFlag {
 			// Handle opening last session in browser
 			handleLastSessionBrowser()
-		} else if *regionFlag != "" {
-			// Region flag without arguments is an error
-			fatalError("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments.", usageString)
 		} else {
 			// Start interactive TUI
 			handleInteractiveSession()
 		}
 	}
 
-	// If region flag is used without arguments (but args are present > 0), show error
-	// This case should technically be caught by the len(args) != 0, 2, 3 check below
-	// but we keep it for clarity, although it might be redundant.
-	if *regionFlag != "" && len(args) != 0 && len(args) != 2 && len(args) != 3 {
-		fatalError("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments.", usageString)
-	}
-
 	// Handle incorrect number of arguments (not 0, 2, or 3)
-	if len(args) != 0 && len(args) != 2 && len(args) != 3 {
+	if len(args) != 2 && len(args) != 3 {
 		var errorText string
 		if len(args) < 2 {
 			errorText = "Too few arguments"
