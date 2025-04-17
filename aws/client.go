@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sso"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
@@ -25,6 +26,12 @@ type Client struct {
 func NewClient(region string) (*Client, error) {
 	cfg, err := config.LoadDefaultConfig(context.Background(),
 		config.WithRegion(region),
+		config.WithRetryer(func() aws.Retryer {
+			// Use standard retryer options but increase max attempts
+			return retry.NewStandard(func(o *retry.StandardOptions) {
+				o.MaxAttempts = 10
+			})
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to load SDK config: %w", err)
