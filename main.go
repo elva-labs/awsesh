@@ -2059,6 +2059,168 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 	return nil
 }
 
+func fatalError(errMsg string, usage string) {
+	content := []string{styles.BaseStyle.Render(errMsg)}
+	if usage != "" {
+		content = append(content, "", styles.HelpStyle.Render(usage))
+	}
+	errorMsgBox := styles.ErrorBox.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			content...,
+		),
+	)
+	fmt.Print("\n", errorMsgBox, "\n\n")
+	os.Exit(0)
+}
+
+// handleLastSessionBrowser handles the logic for `sesh -b`
+func handleLastSessionBrowser() {
+	configMgr, err := config.NewManager()
+	if err != nil {
+		fatalError(fmt.Sprintf("Error initializing config manager: %v", err), "")
+	}
+
+	lastSSOProfileName, err := configMgr.GetLastSelectedSSOProfile()
+	if err != nil || lastSSOProfileName == "" {
+		fatalError(
+			"Error: Could not determine the last used SSO profile.",
+			"Please run 'sesh' interactively or 'sesh <SSONAME> <ACCOUNTNAME> [ROLENAME]' first.",
+		)
+	}
+
+	profiles, err := configMgr.LoadProfiles()
+	if err != nil {
+		fatalError(fmt.Sprintf("Error loading SSO profiles: %v", err), "")
+	}
+
+	var selectedProfile *config.SSOProfile
+	for i := range profiles {
+		if profiles[i].Name == lastSSOProfileName {
+			selectedProfile = &profiles[i]
+			break
+		}
+	}
+	if selectedProfile == nil {
+		fatalError(
+			fmt.Sprintf("Error: Last used SSO profile '%s' not found in configuration.", lastSSOProfileName),
+			"Please check your configuration or run 'sesh' interactively.",
+		)
+	}
+
+	awsClient, err := aws.NewClient(selectedProfile.SSORegion)
+	if err != nil {
+		fatalError(fmt.Sprintf("Error initializing AWS client: %v", err), "")
+	}
+
+	// Attempt to load cached token
+	cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to check token cache: %v\\n", err)
+		// Continue, but opening browser might fail if token is required and invalid
+	}
+
+	if cachedToken == nil {
+		fatalError(
+			"Error: No active session found for the last used profile. Authentication required.",
+			fmt.Sprintf("Please run 'sesh' interactively or 'sesh %s <ACCOUNTNAME>' first.", selectedProfile.Name),
+		)
+	}
+	accessToken := cachedToken.AccessToken
+
+	lastAccountName, err := configMgr.GetLastSelectedAccount(selectedProfile.Name)
+	if err != nil || lastAccountName == "" {
+		fatalError(
+			fmt.Sprintf("Error: Could not determine the last used account for profile '%s'.", selectedProfile.Name),
+			fmt.Sprintf("Please run 'sesh %s <ACCOUNTNAME>' first.", selectedProfile.Name),
+		)
+	}
+
+	lastRoleName, err := configMgr.GetLastSelectedRole(selectedProfile.Name, lastAccountName)
+	if err != nil || lastRoleName == "" {
+		// Attempt to determine a default/fallback role if none specifically saved
+		fmt.Fprintf(os.Stderr, "Warning: Last used role not found for %s/%s. Attempting fallback...\\n", selectedProfile.Name, lastAccountName)
+		// Try AdministratorAccess first, this might need adjustment based on common roles
+		lastRoleName = "AdministratorAccess"
+		// Note: We don't have the roles list here without fetching accounts + roles,
+		// so we proceed with the fallback role name optimistically.
+	}
+
+	// Fetch accounts to get the Account ID (necessary for GetAccountURL)
+	ctx := context.Background()
+	accounts, err := awsClient.ListAccounts(ctx, accessToken, nil)
+	if err != nil {
+		fatalError(
+			fmt.Sprintf("Error listing accounts for profile '%s': %v", selectedProfile.Name, err),
+			"Ensure your SSO session is valid.",
+		)
+	}
+
+	var selectedAccountID string
+	for _, acc := range accounts {
+		if acc.Name == lastAccountName {
+			selectedAccountID = acc.AccountID
+			break
+		}
+	}
+
+	if selectedAccountID == "" {
+		fatalError(
+			fmt.Sprintf("Error: Last used account '%s' not found within profile '%s'.", lastAccountName, selectedProfile.Name),
+			fmt.Sprintf("Account list might be outdated or name mismatch. Try 'sesh %s %s' directly.", selectedProfile.Name, lastAccountName),
+		)
+	}
+
+	// Generate URL and open browser
+	url := awsClient.GetAccountURL(selectedAccountID, accessToken, selectedProfile.StartURL, lastRoleName)
+	// Style the output message
+	outputMsg := lipgloss.JoinHorizontal(lipgloss.Left,
+		styles.BaseStyle.Render("Opening AWS Console for "),
+		styles.PrimaryStyle.Render(selectedProfile.Name),
+		styles.BaseStyle.Render(" / "),
+		styles.PrimaryStyle.Render(lastAccountName),
+		styles.BaseStyle.Render(" / "),
+		styles.PrimaryStyle.Render(lastRoleName),
+	)
+	fmt.Println(outputMsg)
+	if err := utils.OpenBrowser(url); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to open browser automatically: %v\\n", err)
+		fmt.Printf("URL: %s\\n", url) // Print URL if browser fails
+	}
+	os.Exit(0)
+}
+
+// handleInteractiveSession handles the interactive TUI mode.
+func handleInteractiveSession() {
+	os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
+
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
+	m, err := p.Run()
+	if err != nil {
+		fatalError(fmt.Sprintf("Error running program: %v", err), "")
+	}
+
+	// Print session information after program has quit (successful interactive session)
+	if model, ok := m.(model); ok {
+		if model.selectedAcc != nil && model.selectedAcc.SelectedRole != "" {
+			// Use account-specific region if available, otherwise use SSO default
+			region := model.selectedAcc.Region
+			if region == "" {
+				region = model.selectedSSO.DefaultRegion
+			}
+			details := styles.SuccessBox.Render(
+				lipgloss.JoinVertical(lipgloss.Left,
+					fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(model.selectedSSO.Name)),
+					fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
+					fmt.Sprintf("Role: %s", styles.BaseStyle.Render(model.selectedAcc.SelectedRole)),
+					fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
+				),
+			)
+			fmt.Printf("\n%s\n\n", details)
+		}
+	}
+	os.Exit(0)
+}
+
 func main() {
 	// Define browser flag using BoolP for both long and short names
 	browserFlag := flag.BoolP("browser", "b", false, "Open AWS console in browser instead of setting credentials")
@@ -2067,7 +2229,7 @@ func main() {
 
 	// Check for version flags first, before parsing other flags
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("v%s\n", Version)
+		fmt.Printf("v%s\\n", Version)
 		os.Exit(0)
 	}
 
@@ -2089,242 +2251,47 @@ func main() {
 
 		// Pass the role name arg and browser flag
 		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag, *regionFlag); err != nil {
-			errorMsg := styles.ErrorBox.Render(
-				lipgloss.JoinVertical(lipgloss.Left,
-					styles.BaseStyle.Render(err.Error()),
-					"",
-					styles.HelpStyle.Render(usageString),
-				),
-			)
-			fmt.Print("\n", errorMsg, "\n\n")
-			// Exit with 0 on known errors like profile not found, as the error is displayed
-			os.Exit(0)
+			// Use fatalError, but exit 0 for known/handled errors from directSessionSetup
+			fatalError(err.Error(), usageString)
+			// Note: directSessionSetup doesn't return specific error types, so differentiating exit codes here is hard.
+			// For now, all errors from directSessionSetup will cause exit(1) via fatalError.
+			// We could adjust fatalError or directSessionSetup if needed.
 		}
-		os.Exit(0)
+		os.Exit(0) // Successful direct setup
 	}
 
-	// Handle interactive mode or opening last session
+	// Handle interactive mode or opening last session (0 args)
 	if len(args) == 0 {
 		if *browserFlag {
 			// Handle opening last session in browser
-			configMgr, err := config.NewManager()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error initializing config manager: %v\n", err)
-				os.Exit(1)
-			}
-
-			lastSSOProfileName, err := configMgr.GetLastSelectedSSOProfile()
-			if err != nil || lastSSOProfileName == "" {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.BaseStyle.Render("Error: Could not determine the last used SSO profile."),
-						styles.HelpStyle.Render("Please run 'sesh' interactively or 'sesh <SSONAME> <ACCOUNTNAME> [ROLENAME]' first."),
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(1)
-			}
-
-			profiles, err := configMgr.LoadProfiles()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error loading SSO profiles: %v\n", err)
-				os.Exit(1)
-			}
-
-			var selectedProfile *config.SSOProfile
-			for i := range profiles {
-				if profiles[i].Name == lastSSOProfileName {
-					selectedProfile = &profiles[i]
-					break
-				}
-			}
-			if selectedProfile == nil {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.BaseStyle.Render(fmt.Sprintf("Error: Last used SSO profile '%s' not found in configuration.", lastSSOProfileName)),
-						styles.HelpStyle.Render("Please check your configuration or run 'sesh' interactively."),
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(1)
-			}
-
-			awsClient, err := aws.NewClient(selectedProfile.SSORegion)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error initializing AWS client: %v\n", err)
-				os.Exit(1)
-			}
-
-			// Attempt to load cached token
-			cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to check token cache: %v\n", err)
-				// Continue, but opening browser might fail if token is required and invalid
-			}
-
-			if cachedToken == nil {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.BaseStyle.Render("Error: No active session found for the last used profile."),
-						styles.BaseStyle.Render("Authentication required."),
-						styles.HelpStyle.Render("Please run 'sesh' interactively or 'sesh %s <ACCOUNTNAME>' first.", selectedProfile.Name),
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(1)
-			}
-			accessToken := cachedToken.AccessToken
-
-			lastAccountName, err := configMgr.GetLastSelectedAccount(selectedProfile.Name)
-			if err != nil || lastAccountName == "" {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.BaseStyle.Render(fmt.Sprintf("Error: Could not determine the last used account for profile '%s'.", selectedProfile.Name)),
-						styles.HelpStyle.Render("Please run 'sesh %s <ACCOUNTNAME>' first.", selectedProfile.Name),
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(1)
-			}
-
-			lastRoleName, err := configMgr.GetLastSelectedRole(selectedProfile.Name, lastAccountName)
-			if err != nil || lastRoleName == "" {
-				// Attempt to determine a default/fallback role if none specifically saved
-				fmt.Fprintf(os.Stderr, "Warning: Last used role not found for %s/%s. Attempting fallback...\n", selectedProfile.Name, lastAccountName)
-				// Try AdministratorAccess first, this might need adjustment based on common roles
-				lastRoleName = "AdministratorAccess"
-				// Note: We don't have the roles list here without fetching accounts + roles,
-				// so we proceed with the fallback role name optimistically.
-			}
-
-			// Fetch accounts to get the Account ID (necessary for GetAccountURL)
-			ctx := context.Background()
-			accounts, err := awsClient.ListAccounts(ctx, accessToken, nil)
-			if err != nil {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.BaseStyle.Render(fmt.Sprintf("Error listing accounts for profile '%s': %v", selectedProfile.Name, err)),
-						styles.HelpStyle.Render("Ensure your SSO session is valid."),
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(0)
-			}
-
-			var selectedAccountID string
-			for _, acc := range accounts {
-				if acc.Name == lastAccountName {
-					selectedAccountID = acc.AccountID
-					break
-				}
-			}
-
-			if selectedAccountID == "" {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.BaseStyle.Render(fmt.Sprintf("Error: Last used account '%s' not found within profile '%s'.", lastAccountName, selectedProfile.Name)),
-						styles.HelpStyle.Render("Account list might be outdated or name mismatch. Try 'sesh %s %s' directly.", selectedProfile.Name, lastAccountName),
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(0)
-			}
-
-			// Generate URL and open browser
-			url := awsClient.GetAccountURL(selectedAccountID, accessToken, selectedProfile.StartURL, lastRoleName)
-			// Style the output message
-			outputMsg := lipgloss.JoinHorizontal(lipgloss.Left,
-				styles.BaseStyle.Render("Opening AWS Console for "),
-				styles.PrimaryStyle.Render(selectedProfile.Name),
-				styles.BaseStyle.Render(" / "),
-				styles.PrimaryStyle.Render(lastAccountName),
-				styles.BaseStyle.Render(" / "),
-				styles.PrimaryStyle.Render(lastRoleName),
-			)
-			fmt.Println(outputMsg)
-			if err := utils.OpenBrowser(url); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to open browser automatically: %v\\n", err)
-				fmt.Printf("URL: %s\\n", url) // Print URL if browser fails
-			}
-			os.Exit(0)
-
+			handleLastSessionBrowser()
 		} else if *regionFlag != "" {
-			// Region flag without arguments is still an error
-			errorMsg := styles.ErrorBox.Render(
-				lipgloss.JoinVertical(lipgloss.Left,
-					styles.BaseStyle.Render("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments."),
-					"",
-					styles.HelpStyle.Render(usageString),
-				),
-			)
-			fmt.Print("\n", errorMsg, "\n\n")
-			os.Exit(0)
-
+			// Region flag without arguments is an error
+			fatalError("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments.", usageString)
 		} else {
 			// Start interactive TUI
-			os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
-
-			p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
-			m, err := p.Run()
-			if err != nil {
-				errorMsg := styles.ErrorBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						styles.BaseStyle.Render(fmt.Sprintf("Error running program: %v", err)),
-					),
-				)
-				fmt.Print("\n", errorMsg, "\n\n")
-				os.Exit(0)
-			}
-
-			// Print session information after program has quit (successful interactive session)
-			if model, ok := m.(model); ok {
-				if model.selectedAcc != nil && model.selectedAcc.SelectedRole != "" {
-					// Use account-specific region if available, otherwise use SSO default
-					region := model.selectedAcc.Region
-					if region == "" {
-						region = model.selectedSSO.DefaultRegion
-					}
-					details := styles.SuccessBox.Render(
-						lipgloss.JoinVertical(lipgloss.Left,
-							fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(model.selectedSSO.Name)),
-							fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
-							fmt.Sprintf("Role: %s", styles.BaseStyle.Render(model.selectedAcc.SelectedRole)),
-							fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
-						),
-					)
-					fmt.Printf("\n%s\n\n", details)
-				}
-			}
-			os.Exit(0)
+			handleInteractiveSession()
 		}
 	}
 
-	// If region flag is used without arguments, show error (browser flag check removed here)
-	if *regionFlag != "" && len(args) == 0 {
-		errorMsg := styles.ErrorBox.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				styles.BaseStyle.Render("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments."),
-				"",
-				styles.HelpStyle.Render(usageString),
-			),
-		)
-		fmt.Print("\n", errorMsg, "\n\n")
-		os.Exit(0)
+	// If region flag is used without arguments (but args are present > 0), show error
+	// This case should technically be caught by the len(args) != 0, 2, 3 check below
+	// but we keep it for clarity, although it might be redundant.
+	if *regionFlag != "" && len(args) != 0 && len(args) != 2 && len(args) != 3 {
+		fatalError("Error: --region/-r flag requires SSONAME and ACCOUNTNAME arguments.", usageString)
 	}
 
-	var errorText string
-	if len(args) < 2 {
-		errorText = "Too few arguments"
-	} else {
-		errorText = "Too many arguments"
+	// Handle incorrect number of arguments (not 0, 2, or 3)
+	if len(args) != 0 && len(args) != 2 && len(args) != 3 {
+		var errorText string
+		if len(args) < 2 {
+			errorText = "Too few arguments"
+		} else {
+			errorText = "Too many arguments"
+		}
+		fatalError(errorText, usageString)
 	}
-	errorMsg := styles.ErrorBox.Render(
-		lipgloss.JoinVertical(lipgloss.Left,
-			styles.BaseStyle.Render(errorText),
-			"",
-			styles.HelpStyle.Render(usageString),
-		),
-	)
-	fmt.Print("\n", errorMsg, "\n\n")
-	os.Exit(0)
+
+	// If we reach here, something unexpected happened with argument parsing
+	fatalError("Unhandled argument combination.", usageString)
 }
