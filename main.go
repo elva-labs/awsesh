@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"os"
 	"slices"
 	"strings"
@@ -98,7 +99,7 @@ type updateRolesMsg struct {
 }
 
 // Initialize the sequential loading
-func startLoadingRoles(client *aws.Client, accessToken string, accounts []aws.Account) tea.Cmd {
+func startLoadingRoles(accessToken string, accounts []aws.Account) tea.Cmd {
 	// If we have more accounts than the limit, don't start loading roles
 	if len(accounts) > maxAccountsForRoleLoading {
 		return nil
@@ -159,6 +160,9 @@ type model struct {
 
 	// Add new field to track if we're authenticating
 	isAuthenticating bool
+
+	// Field for dynamic styles
+	dynamicStyles dynamicStyles
 }
 
 // Items to display in list
@@ -211,10 +215,14 @@ func initialInputs() []textinput.Model {
 
 	// Apply styles to all inputs
 	for i := range inputs {
-		inputs[i].Styles.Focused.Text = styles.PrimaryStyle
-		inputs[i].Styles.Focused.Prompt = styles.BaseStyle
-		inputs[i].Styles.Focused.Placeholder = styles.SecondaryStyle
-		inputs[i].Styles.Blurred.Text = styles.SecondaryStyle
+		inputs[i].Styles.Focused.Text = lipgloss.NewStyle().
+			Foreground(styles.Secondary)
+		inputs[i].Styles.Focused.Prompt = lipgloss.NewStyle().
+			Foreground(styles.Text)
+		inputs[i].Styles.Focused.Placeholder = lipgloss.NewStyle().
+			Foreground(styles.Text)
+		inputs[i].Styles.Blurred.Text = lipgloss.NewStyle().
+			Foreground(styles.Primary)
 	}
 
 	return inputs
@@ -230,9 +238,11 @@ func initialModel() model {
 	// Create empty SSO list
 	ssoList := list.New([]list.Item{}, delegate, 0, 0)
 	ssoList.Title = "Select AWS SSO Profile"
-	ssoList.Styles.Title = styles.TitleStyle
-	ssoList.Styles.PaginationStyle = styles.MutedStyle
-	ssoList.Styles.HelpStyle = styles.HelpStyle
+	ssoList.Styles.PaginationStyle = lipgloss.NewStyle().
+		Foreground(styles.Muted)
+	ssoList.Styles.HelpStyle = lipgloss.NewStyle().
+		Foreground(styles.Muted).
+		Italic(true)
 	ssoList.SetShowHelp(true)
 	ssoList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -278,9 +288,11 @@ func initialModel() model {
 	// Empty account list (will be populated later)
 	accountList := list.New([]list.Item{}, delegate, 0, 0)
 	accountList.Title = "Select AWS Account"
-	accountList.Styles.Title = styles.TitleStyle
-	accountList.Styles.PaginationStyle = styles.MutedStyle
-	accountList.Styles.HelpStyle = styles.HelpStyle
+	accountList.Styles.PaginationStyle = lipgloss.NewStyle().
+		Foreground(styles.Muted)
+	accountList.Styles.HelpStyle = lipgloss.NewStyle().
+		Foreground(styles.Muted).
+		Italic(true)
 	accountList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(
@@ -309,9 +321,11 @@ func initialModel() model {
 	// Empty role list (will be populated later)
 	roleList := list.New([]list.Item{}, delegate, 0, 0)
 	roleList.Title = "Select AWS Role"
-	roleList.Styles.Title = styles.TitleStyle
-	roleList.Styles.PaginationStyle = styles.MutedStyle
-	roleList.Styles.HelpStyle = styles.HelpStyle
+	roleList.Styles.PaginationStyle = lipgloss.NewStyle().
+		Foreground(styles.Muted)
+	roleList.Styles.HelpStyle = lipgloss.NewStyle().
+		Foreground(styles.Muted).
+		Italic(true)
 	roleList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(
@@ -348,7 +362,8 @@ func initialModel() model {
 	// Create spinner for loading states
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = styles.SpinnerStyle
+	s.Style = lipgloss.NewStyle().
+		Foreground(styles.Primary)
 
 	// Create config manager
 	configMgr, err := config.NewManager()
@@ -370,10 +385,12 @@ func initialModel() model {
 	regionInput.CharLimit = 20
 	regionInput.SetWidth(30)
 	regionInput.Prompt = "› "
-	regionInput.Styles.Focused.Text = styles.PrimaryStyle
-	regionInput.Styles.Focused.Prompt = styles.BaseStyle
-	regionInput.Styles.Focused.Placeholder = styles.SecondaryStyle
-	regionInput.VirtualCursor = false // Don't render own cursor
+	regionInput.Styles.Focused.Text = lipgloss.NewStyle().
+		Foreground(styles.Primary)
+	regionInput.Styles.Focused.Prompt = lipgloss.NewStyle().
+		Foreground(styles.Text)
+	regionInput.Styles.Focused.Placeholder = lipgloss.NewStyle().
+		Foreground(styles.Secondary)
 
 	// Create initial model
 	m := model{
@@ -393,7 +410,13 @@ func initialModel() model {
 		currentRequestID:    "",
 		accountRegionInput:  regionInput,
 		isAuthenticating:    false,
+		dynamicStyles:       getDynamicStyles(true),
 	}
+
+	// Apply initial dynamic styles to lists
+	m.ssoList.Styles.Title = m.dynamicStyles.title
+	m.accountList.Styles.Title = m.dynamicStyles.title
+	m.roleList.Styles.Title = m.dynamicStyles.title
 
 	// Update the list items
 	if len(profiles) > 0 {
@@ -419,7 +442,7 @@ func initialModel() model {
 }
 
 // Start SSO login process
-func startSSOLogin(startUrl string, region string, configMgr *config.Manager, client *aws.Client, requestID string) tea.Cmd {
+func startSSOLogin(startUrl string, configMgr *config.Manager, client *aws.Client, requestID string) tea.Cmd {
 	return func() tea.Msg {
 		// First check if we have a valid cached token
 		cachedToken, err := configMgr.LoadToken(startUrl)
@@ -605,7 +628,6 @@ func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName str
 	}
 }
 
-// Add new function to open browser
 func openBrowser(url string) tea.Cmd {
 	return func() tea.Msg {
 		if err := utils.OpenBrowser(url); err != nil {
@@ -615,7 +637,6 @@ func openBrowser(url string) tea.Cmd {
 	}
 }
 
-// Add new function to load roles
 func loadAccountRoles(client *aws.Client, accessToken string, accountID string, currentIdx int) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -627,14 +648,59 @@ func loadAccountRoles(client *aws.Client, accessToken string, accountID string, 
 	}
 }
 
+type dynamicStyles struct {
+	foreground color.Color
+	background color.Color
+	// fgColor     lipgloss.Style
+	// fgColorAsBg lipgloss.Style
+	// bgColor     lipgloss.Style
+	// bgColorAsFg lipgloss.Style
+	title lipgloss.Style
+}
+
+func getDynamicStyles(bgIsDark bool) (s dynamicStyles) {
+	lightDark := lipgloss.LightDark(bgIsDark)
+
+	lightGray, darkGray := lipgloss.Color("#f1f1f1"), lipgloss.Color("#333333")
+	foreground := lightDark(lightGray, darkGray)
+	background := lightDark(darkGray, lightGray)
+
+	s.foreground = foreground
+	s.background = background
+
+	// s.fgColor = lipgloss.NewStyle().Foreground(foreground)
+	// s.fgColorAsBg = lipgloss.NewStyle().Background(foreground)
+	// s.bgColor = lipgloss.NewStyle().Foreground(background)
+	// s.bgColorAsFg = lipgloss.NewStyle().Background(background)
+
+	s.title = lipgloss.NewStyle().
+		Foreground(background).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.Primary).
+		Padding(0, 1)
+
+	return s
+}
+
 func (m model) Init() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(
+		m.spinner.Tick,
+		tea.RequestBackgroundColor,
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.dynamicStyles = getDynamicStyles(msg.IsDark())
+
+		m.ssoList.Styles.Title = m.dynamicStyles.title
+		m.accountList.Styles.Title = m.dynamicStyles.title
+		m.roleList.Styles.Title = m.dynamicStyles.title
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		// Ensure minimum dimensions
 		if msg.Width < styles.MinWidth {
@@ -686,14 +752,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if region == "" {
 					region = m.selectedSSO.DefaultRegion
 				}
-				details := styles.SuccessBox.Render(
-					lipgloss.JoinVertical(lipgloss.Left,
-						fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(m.selectedSSO.Name)),
-						fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
-						fmt.Sprintf("Role: %s", styles.BaseStyle.Render(m.selectedAcc.SelectedRole)),
-						fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
-					),
-				)
+				details := lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					Padding(1).
+					BorderForeground(styles.Success).
+					Render(
+						lipgloss.JoinVertical(lipgloss.Left,
+							fmt.Sprintf("SSO Profile: %s", lipgloss.NewStyle().
+								Foreground(styles.Text).Render(m.selectedSSO.Name)),
+							fmt.Sprintf("Account: %s (%s)", lipgloss.NewStyle().
+								Foreground(styles.Text).Render(m.selectedAcc.Name), lipgloss.NewStyle().
+								Foreground(styles.Muted).Render(m.selectedAcc.AccountID)),
+							fmt.Sprintf("Role: %s", lipgloss.NewStyle().
+								Foreground(styles.Text).Render(m.selectedAcc.SelectedRole)),
+							fmt.Sprintf("Region: %s", lipgloss.NewStyle().
+								Foreground(styles.Text).Render(region)),
+						),
+					)
 				fmt.Printf("\n%s\n\n", details)
 			}
 
@@ -715,14 +790,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if region == "" {
 						region = m.selectedSSO.DefaultRegion
 					}
-					details := styles.SuccessBox.Render(
-						lipgloss.JoinVertical(lipgloss.Left,
-							fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(m.selectedSSO.Name)),
-							fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
-							fmt.Sprintf("Role: %s", styles.BaseStyle.Render(m.selectedAcc.SelectedRole)),
-							fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
-						),
-					)
+					details := lipgloss.NewStyle().
+						Border(lipgloss.RoundedBorder()).
+						Padding(1).
+						BorderForeground(styles.Success).
+						Render(
+							lipgloss.JoinVertical(lipgloss.Left,
+								fmt.Sprintf("SSO Profile: %s", lipgloss.NewStyle().
+									Foreground(styles.Text).Render(m.selectedSSO.Name)),
+								fmt.Sprintf("Account: %s (%s)", lipgloss.NewStyle().
+									Foreground(styles.Text).Render(m.selectedAcc.Name), lipgloss.NewStyle().
+									Foreground(styles.Muted).Render(m.selectedAcc.AccountID)),
+								fmt.Sprintf("Role: %s", lipgloss.NewStyle().
+									Foreground(styles.Text).Render(m.selectedAcc.SelectedRole)),
+								fmt.Sprintf("Region: %s", lipgloss.NewStyle().
+									Foreground(styles.Text).Render(region)),
+							),
+						)
 					fmt.Printf("\n%s\n\n", details)
 				}
 
@@ -975,7 +1059,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										}
 									}(profile.Name)
 
-									return m, startSSOLogin(profile.StartURL, profile.SSORegion, m.configMgr, m.awsClient, m.currentRequestID)
+									return m, startSSOLogin(profile.StartURL, m.configMgr, m.awsClient, m.currentRequestID)
 								}
 							}
 						}
@@ -1256,7 +1340,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Start sequential role loading only if we're under the limit
 		if len(m.accounts) <= maxAccountsForRoleLoading {
-			return m, startLoadingRoles(m.awsClient, m.accessToken, m.accounts)
+			return m, startLoadingRoles(m.accessToken, m.accounts)
 		}
 		return m, nil
 
@@ -1600,7 +1684,8 @@ func (m *model) updateSSOList() {
 func (m model) renderLoadingView() string {
 	loading := lipgloss.JoinHorizontal(lipgloss.Center,
 		m.spinner.View(),
-		" "+styles.BaseStyle.Render(m.loadingText),
+		" "+lipgloss.NewStyle().
+			Foreground(styles.Text).Render(m.loadingText),
 	)
 	return lipgloss.Place(m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
@@ -1615,50 +1700,81 @@ func (m model) View() (string, *tea.Cursor) {
 	// If there's an error message, show it at the bottom
 	errorBar := ""
 	if m.errorMessage != "" {
-		errorBar = "\n" + styles.ErrorBox.Render(m.errorMessage)
+		errorBar = "\n" + lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(1).
+			BorderForeground(styles.Error).Render(m.errorMessage)
 	}
 
-	// Add consistent margin to all views
 	var content string
+
 	switch m.state {
 	case stateSelectSSO:
-		content = styles.ListStyle.Render(m.ssoList.View())
+		content = m.ssoList.View()
 
 	case stateDeleteConfirm:
-		header := styles.TitleStyle.Render("Delete SSO Profile")
-		content = styles.BoxStyle.Render(
-			lipgloss.JoinVertical(lipgloss.Center,
-				fmt.Sprintf("Are you sure you want to delete the SSO profile '%s'?", styles.BaseStyle.Render(m.deleteProfileName)),
+		header := m.dynamicStyles.title.Margin(0, 2).Render("Delete SSO Profile")
+
+		content = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(1).
+			Margin(0).Render(
+			lipgloss.JoinVertical(
+				lipgloss.Center,
+				fmt.Sprintf("Are you sure you want to delete the SSO profile '%s'?", lipgloss.NewStyle().
+					Foreground(styles.Text).Render(m.deleteProfileName)),
 				"",
-				styles.MutedStyle.Render("Press ")+styles.SuccessStyle.Render("'y'")+styles.MutedStyle.Render(" to confirm or ")+styles.ErrorStyle.Render("'n'")+styles.MutedStyle.Render(" to cancel"),
+				lipgloss.NewStyle().
+					Foreground(styles.Muted).Render("Press ")+lipgloss.NewStyle().
+					Foreground(styles.Success).Render("'y'")+lipgloss.NewStyle().
+					Foreground(styles.Muted).Render(" to confirm or ")+lipgloss.NewStyle().
+					Foreground(styles.Error).Render("'n'")+lipgloss.NewStyle().
+					Foreground(styles.Muted).Render(" to cancel"),
 			),
 		)
-		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, "", content))
+		content = lipgloss.JoinVertical(lipgloss.Left, header, content)
 
 	case stateSelectAccount:
 		// Show auth screen when authenticating or fetching initial accounts
 		if m.isAuthenticating || (len(m.accounts) == 0 && m.loadingText != "") {
 			if m.verificationUri != "" && m.verificationCode != "" {
 				// Show verification screen
-				instructions := styles.VerificationBox.Render(
-					lipgloss.JoinVertical(lipgloss.Center,
-						styles.BaseStyle.Render("Your browser should open automatically for SSO login."),
-						styles.BaseStyle.Render("If it doesn't, you can authenticate manually:"),
-						"",
-						fmt.Sprintf("1. Visit: %s", styles.BaseStyle.Render(m.verificationUri)),
-						styles.BaseStyle.Render("2. Enter the following code:"),
-						"",
-						styles.CodeBox.Render(m.verificationCode),
-						"",
-						styles.HelpStyle.Render("You can also click the link below to open directly:"),
-						styles.BaseStyle.Render(m.verificationUriComplete),
-						"",
-						lipgloss.JoinHorizontal(lipgloss.Center,
-							m.spinner.View(),
-							" "+styles.BaseStyle.Render(m.loadingText),
+				instructions := lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(styles.Secondary).
+					Padding(1).
+					Align(lipgloss.Center).
+					Render(
+						lipgloss.JoinVertical(lipgloss.Center,
+							lipgloss.NewStyle().
+								Foreground(styles.Text).Render("Your browser should open automatically for SSO login."),
+							lipgloss.NewStyle().
+								Foreground(styles.Text).Render("If it doesn't, you can authenticate manually:"),
+							"",
+							fmt.Sprintf("1. Visit: %s", lipgloss.NewStyle().
+								Foreground(styles.Text).Render(m.verificationUri)),
+							lipgloss.NewStyle().
+								Foreground(styles.Text).Render("2. Enter the following code:"),
+							"",
+							lipgloss.NewStyle().
+								Border(lipgloss.ThickBorder()).
+								BorderForeground(styles.Secondary).
+								Padding(0, 1).
+								Bold(true).Render(m.verificationCode),
+							"",
+							lipgloss.NewStyle().
+								Foreground(styles.Muted).
+								Italic(true).Render("You can also click the link below to open directly:"),
+							lipgloss.NewStyle().
+								Foreground(styles.Text).Render(m.verificationUriComplete),
+							"",
+							lipgloss.JoinHorizontal(lipgloss.Center,
+								m.spinner.View(),
+								" "+lipgloss.NewStyle().
+									Foreground(styles.Text).Render(m.loadingText),
+							),
 						),
-					),
-				)
+					)
 				content = lipgloss.JoinVertical(lipgloss.Left,
 					instructions,
 				)
@@ -1667,7 +1783,7 @@ func (m model) View() (string, *tea.Cursor) {
 				content = m.renderLoadingView()
 			}
 		} else {
-			content = styles.ListStyle.Render(m.accountList.View())
+			content = m.accountList.View()
 		}
 
 	case stateSelectRole:
@@ -1675,12 +1791,12 @@ func (m model) View() (string, *tea.Cursor) {
 			// Show loading spinner while fetching roles
 			content = m.renderLoadingView()
 		} else {
-			content = styles.ListStyle.Render(m.roleList.View())
+			content = m.roleList.View()
 		}
 
 	case stateSessionSuccess:
 		// Add the header back
-		header := styles.TitleStyle.Render("AWS Session Activated")
+		header := m.dynamicStyles.title.Padding(0, 1).Margin(0, 1).Render("AWS Session Activated")
 
 		// Determine region: account-specific > SSO default
 		region := m.selectedSSO.DefaultRegion
@@ -1689,25 +1805,37 @@ func (m model) View() (string, *tea.Cursor) {
 		}
 
 		// Use the simplified details format
-		details := styles.SuccessBox.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(m.selectedSSO.Name)),
-				fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(m.selectedAcc.Name), styles.MutedStyle.Render(m.selectedAcc.AccountID)),
-				fmt.Sprintf("Role: %s", styles.BaseStyle.Render(m.selectedAcc.SelectedRole)),
-				fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
-			),
-		)
+		details := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(1).
+			BorderForeground(styles.Success).
+			Render(
+				lipgloss.JoinVertical(lipgloss.Left,
+					fmt.Sprintf("SSO Profile: %s", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(m.selectedSSO.Name)),
+					fmt.Sprintf("Account: %s (%s)", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(m.selectedAcc.Name), lipgloss.NewStyle().
+						Foreground(styles.Muted).Render(m.selectedAcc.AccountID)),
+					fmt.Sprintf("Role: %s", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(m.selectedAcc.SelectedRole)),
+					fmt.Sprintf("Region: %s", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(region)),
+				),
+			)
 
 		// Display header, details box, and help text
-		helpText := styles.HelpStyle.Render("Press ESC to go back or q to quit.")
-		content = lipgloss.JoinVertical(lipgloss.Left, header, "\n", details, "\n", helpText)
+		helpText := lipgloss.NewStyle().
+			Foreground(styles.Muted).
+			Italic(true).Render("Press ESC to go back or q to quit.")
+		content = lipgloss.NewStyle().
+			Margin(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, header, details, helpText))
 
 	case stateAddSSO, stateEditSSO:
 		var formTitle string
 		if m.state == stateAddSSO {
-			formTitle = styles.TitleStyle.Render("Add New AWS SSO Profile")
+			formTitle = m.dynamicStyles.title.MarginLeft(2).MarginBottom(1).Render("Add New AWS SSO Profile")
 		} else {
-			formTitle = styles.TitleStyle.Render("Edit AWS SSO Profile")
+			formTitle = m.dynamicStyles.title.MarginLeft(2).MarginBottom(1).Render("Edit AWS SSO Profile")
 		}
 
 		fields := []string{
@@ -1721,45 +1849,47 @@ func (m model) View() (string, *tea.Cursor) {
 
 		for i, field := range fields {
 			input := m.inputs[i].View()
+
 			if i == m.focusIndex {
-				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.BaseStyle.Render(field), input))
+				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", lipgloss.NewStyle().
+					Foreground(m.dynamicStyles.background).Render(field), input))
 			} else {
-				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", styles.MutedStyle.Render(field), input))
+				formContent.WriteString(fmt.Sprintf("%s\n%s\n\n", lipgloss.NewStyle().
+					Foreground(styles.Muted).Render(field), input))
 			}
 		}
 
-		button := styles.ButtonStyle.Render("[ Submit ]")
+		button := lipgloss.NewStyle().
+			Foreground(styles.Primary).
+			Padding(0, 1).Render("[ Submit ]")
 		if m.focusIndex == len(m.inputs) {
-			button = styles.FocusedButtonStyle.Render("[ Submit ]")
+			button = lipgloss.NewStyle().
+				Foreground(styles.Secondary).
+				Padding(0, 1).Render("[ Submit ]")
 		}
 		formContent.WriteString(button + "\n\n")
 
 		if m.formError != "" {
-			formContent.WriteString(styles.ErrorStyle.Render(m.formError) + "\n\n")
+			formContent.WriteString(lipgloss.NewStyle().
+				Foreground(styles.Error).Render(m.formError) + "\n\n")
 		}
 
-		if m.formSuccess != "" {
-			formContent.WriteString(styles.SuccessStyle.Render(m.formSuccess) + "\n\n")
-		}
+		formContent.WriteString(lipgloss.NewStyle().
+			Foreground(styles.Muted).
+			Italic(true).Render("Press ESC to cancel"))
 
-		formContent.WriteString(styles.HelpStyle.Render("Press ESC to cancel"))
-
-		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String()))
+		content = lipgloss.JoinVertical(lipgloss.Left, formTitle, formContent.String())
 
 		if m.focusIndex < len(m.inputs) {
 			input := m.inputs[m.focusIndex]
 
-			cursorY := 2 + (m.focusIndex * 3)
-			cursorX := input.Cursor().X
+			cursorY := 6 + (m.focusIndex * 3)
+			cursorX := input.Cursor().X + 2
 
 			maxCursorX := len(input.Prompt) + input.Width()
 			if cursorX > maxCursorX {
 				cursorX = maxCursorX
 			}
-
-			// Adjust for padding of the FullPageStyle
-			cursorX += styles.FullPageStyle.GetPaddingLeft()
-			cursorY += styles.FullPageStyle.GetPaddingTop()
 
 			cur = tea.NewCursor(cursorX, cursorY)
 			cur.Shape = tea.CursorBar
@@ -1767,34 +1897,35 @@ func (m model) View() (string, *tea.Cursor) {
 		}
 
 	case stateSetAccountRegion:
-		header := styles.TitleStyle.Render("Set Account Region")
-		content = styles.BoxStyle.Render(
-			lipgloss.JoinVertical(lipgloss.Center,
-				fmt.Sprintf("Set region for account %s:", styles.BaseStyle.Render(m.selectedAcc.Name)),
+		header := m.dynamicStyles.title.Margin(0, 2).Render("Set Account Region")
+
+		content = lipgloss.NewStyle().
+			Padding(1).Render(
+			lipgloss.JoinVertical(
+				lipgloss.Left,
+				lipgloss.NewStyle().Foreground(m.dynamicStyles.background).Render("Set region for account:"),
+				lipgloss.NewStyle().
+					Foreground(styles.Primary).Render(m.selectedAcc.Name),
 				"",
 				m.accountRegionInput.View(),
-				"",
-				styles.HelpStyle.Render("Press Enter to save or ESC to cancel"),
 			),
 		)
-		content = styles.FullPageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, "", content))
+		content = lipgloss.JoinVertical(lipgloss.Left, header, content, lipgloss.NewStyle().
+			Foreground(styles.Muted).
+			Italic(true).Render("Press Enter to save or ESC to cancel"))
 
 		input := m.accountRegionInput
 
-		cursorY := 2 + 1 + 2 + 1
-		cursorX := len(input.Prompt) + input.Cursor().X
-
-		// Adjust for padding of the FullPageStyle
-		cursorX += styles.FullPageStyle.GetPaddingLeft()
-		cursorY += styles.FullPageStyle.GetPaddingTop()
+		cursorY := 2 + 1 + 2 + 3
+		cursorX := len(input.Prompt) + input.Cursor().X - 1
 
 		cur = tea.NewCursor(cursorX, cursorY)
 		cur.Shape = tea.CursorBar
 		cur.Blink = true
 	}
 
-	// Apply base style and ensure content fills the terminal
-	s = styles.BaseStyle.Render(content)
+	s = lipgloss.NewStyle().
+		Margin(1, 2).Render(content)
 
 	return s + errorBar, cur
 }
@@ -1849,20 +1980,37 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		}
 
 		// Render the verification instructions using the TUI style
-		verificationInstructions := styles.VerificationBox.Render(
-			lipgloss.JoinVertical(lipgloss.Center,
-				styles.BaseStyle.Render("Your browser should open automatically for SSO login."),
-				styles.BaseStyle.Render("If it doesn't, you can authenticate manually:"),
-				"",
-				fmt.Sprintf("1. Visit: %s", styles.BaseStyle.Render(loginInfo.VerificationUri)),
-				styles.BaseStyle.Render("2. Enter the following code:"),
-				"",
-				styles.CodeBox.Render(loginInfo.UserCode),
-				"",
-				styles.HelpStyle.Render("You can also click the link below to open directly:"),
-				styles.BaseStyle.Render(loginInfo.VerificationUriComplete),
-			),
-		)
+		verificationInstructions := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(styles.Secondary).
+			Padding(1).
+			Align(lipgloss.Center).
+			Render(
+				lipgloss.JoinVertical(
+					lipgloss.Center,
+					lipgloss.NewStyle().
+						Foreground(styles.Text).Render("Your browser should open automatically for SSO login."),
+					lipgloss.NewStyle().
+						Foreground(styles.Text).Render("If it doesn't, you can authenticate manually:"),
+					"",
+					fmt.Sprintf("1. Visit: %s", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(loginInfo.VerificationUri)),
+					lipgloss.NewStyle().
+						Foreground(styles.Text).Render("2. Enter the following code:"),
+					"",
+					lipgloss.NewStyle().
+						Border(lipgloss.ThickBorder()).
+						BorderForeground(styles.Secondary).
+						Padding(0, 1).
+						Bold(true).Render(loginInfo.UserCode),
+					"",
+					lipgloss.NewStyle().
+						Foreground(styles.Muted).
+						Italic(true).Render("You can also click the link below to open directly:"),
+					lipgloss.NewStyle().
+						Foreground(styles.Text).Render(loginInfo.VerificationUriComplete),
+				),
+			)
 		fmt.Println(verificationInstructions)
 
 		// Open browser for login (attempt it silently)
@@ -1871,7 +2019,7 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		}
 
 		// Poll for token
-		pollingCtx, cancel := context.WithTimeout(ctx, loginInfo.ExpiresAt.Sub(time.Now()))
+		pollingCtx, cancel := context.WithTimeout(ctx, time.Until(loginInfo.ExpiresAt))
 		defer cancel()
 
 		ticker := time.NewTicker(time.Duration(loginInfo.Interval) * time.Second)
@@ -2003,12 +2151,18 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 		url := awsClient.GetAccountURL(selectedAccount.AccountID, accessToken, selectedProfile.StartURL, roleName)
 		// Style the output message
 		outputMsg := lipgloss.JoinHorizontal(lipgloss.Left,
-			styles.BaseStyle.Render("Opening AWS Console for "),
-			styles.PrimaryStyle.Render(selectedProfile.Name),
-			styles.BaseStyle.Render(" / "),
-			styles.PrimaryStyle.Render(selectedAccount.Name),
-			styles.BaseStyle.Render(" / "),
-			styles.PrimaryStyle.Render(roleName),
+			lipgloss.NewStyle().
+				Foreground(styles.Text).Render("Opening AWS Console for "),
+			lipgloss.NewStyle().
+				Foreground(styles.Primary).Render(selectedProfile.Name),
+			lipgloss.NewStyle().
+				Foreground(styles.Text).Render(" / "),
+			lipgloss.NewStyle().
+				Foreground(styles.Primary).Render(selectedAccount.Name),
+			lipgloss.NewStyle().
+				Foreground(styles.Text).Render(" / "),
+			lipgloss.NewStyle().
+				Foreground(styles.Primary).Render(roleName),
 		)
 		fmt.Println(outputMsg)
 		if err := utils.OpenBrowser(url); err != nil {
@@ -2027,21 +2181,30 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 			*resp.RoleCredentials.AccessKeyId,
 			*resp.RoleCredentials.SecretAccessKey,
 			*resp.RoleCredentials.SessionToken,
-			region, // Use determined region
+			region,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to write credentials: %w", err)
 		}
 
 		// Print success message with styling
-		details := styles.SuccessBox.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(selectedProfile.Name)),
-				fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(selectedAccount.Name), styles.MutedStyle.Render(selectedAccount.AccountID)),
-				fmt.Sprintf("Role: %s", styles.BaseStyle.Render(roleName)),
-				fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
-			),
-		)
+		details := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(1).
+			BorderForeground(styles.Success).
+			Render(
+				lipgloss.JoinVertical(lipgloss.Left,
+					fmt.Sprintf("SSO Profile: %s", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(selectedProfile.Name)),
+					fmt.Sprintf("Account: %s (%s)", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(selectedAccount.Name), lipgloss.NewStyle().
+						Foreground(styles.Muted).Render(selectedAccount.AccountID)),
+					fmt.Sprintf("Role: %s", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(roleName)),
+					fmt.Sprintf("Region: %s", lipgloss.NewStyle().
+						Foreground(styles.Text).Render(region)),
+				),
+			)
 		fmt.Printf("\n%s\n\n", details)
 	}
 
@@ -2060,11 +2223,17 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 }
 
 func fatalError(errMsg string, usage string) {
-	content := []string{styles.BaseStyle.Render(errMsg)}
+	content := []string{lipgloss.NewStyle().
+		Foreground(styles.Text).Render(errMsg)}
 	if usage != "" {
-		content = append(content, "", styles.HelpStyle.Render(usage))
+		content = append(content, "", lipgloss.NewStyle().
+			Foreground(styles.Muted).
+			Italic(true).Render(usage))
 	}
-	errorMsgBox := styles.ErrorBox.Render(
+	errorMsgBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(1).
+		BorderForeground(styles.Error).Render(
 		lipgloss.JoinVertical(lipgloss.Left,
 			content...,
 		),
@@ -2174,12 +2343,18 @@ func handleLastSessionBrowser() {
 	url := awsClient.GetAccountURL(selectedAccountID, accessToken, selectedProfile.StartURL, lastRoleName)
 	// Style the output message
 	outputMsg := lipgloss.JoinHorizontal(lipgloss.Left,
-		styles.BaseStyle.Render("Opening AWS Console for "),
-		styles.PrimaryStyle.Render(selectedProfile.Name),
-		styles.BaseStyle.Render(" / "),
-		styles.PrimaryStyle.Render(lastAccountName),
-		styles.BaseStyle.Render(" / "),
-		styles.PrimaryStyle.Render(lastRoleName),
+		lipgloss.NewStyle().
+			Foreground(styles.Text).Render("Opening AWS Console for "),
+		lipgloss.NewStyle().
+			Foreground(styles.Primary).Render(selectedProfile.Name),
+		lipgloss.NewStyle().
+			Foreground(styles.Text).Render(" / "),
+		lipgloss.NewStyle().
+			Foreground(styles.Primary).Render(lastAccountName),
+		lipgloss.NewStyle().
+			Foreground(styles.Text).Render(" / "),
+		lipgloss.NewStyle().
+			Foreground(styles.Primary).Render(lastRoleName),
 	)
 	fmt.Println(outputMsg)
 	if err := utils.OpenBrowser(url); err != nil {
@@ -2207,14 +2382,23 @@ func handleInteractiveSession() {
 			if region == "" {
 				region = model.selectedSSO.DefaultRegion
 			}
-			details := styles.SuccessBox.Render(
-				lipgloss.JoinVertical(lipgloss.Left,
-					fmt.Sprintf("SSO Profile: %s", styles.BaseStyle.Render(model.selectedSSO.Name)),
-					fmt.Sprintf("Account: %s (%s)", styles.BaseStyle.Render(model.selectedAcc.Name), styles.MutedStyle.Render(model.selectedAcc.AccountID)),
-					fmt.Sprintf("Role: %s", styles.BaseStyle.Render(model.selectedAcc.SelectedRole)),
-					fmt.Sprintf("Region: %s", styles.BaseStyle.Render(region)),
-				),
-			)
+			details := lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				Padding(1).
+				BorderForeground(styles.Success).
+				Render(
+					lipgloss.JoinVertical(lipgloss.Left,
+						fmt.Sprintf("SSO Profile: %s", lipgloss.NewStyle().
+							Foreground(styles.Text).Render(model.selectedSSO.Name)),
+						fmt.Sprintf("Account: %s (%s)", lipgloss.NewStyle().
+							Foreground(styles.Text).Render(model.selectedAcc.Name), lipgloss.NewStyle().
+							Foreground(styles.Muted).Render(model.selectedAcc.AccountID)),
+						fmt.Sprintf("Role: %s", lipgloss.NewStyle().
+							Foreground(styles.Text).Render(model.selectedAcc.SelectedRole)),
+						fmt.Sprintf("Region: %s", lipgloss.NewStyle().
+							Foreground(styles.Text).Render(region)),
+					),
+				)
 			fmt.Printf("\n%s\n\n", details)
 		}
 	}
