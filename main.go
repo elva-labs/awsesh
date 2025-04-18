@@ -2366,11 +2366,11 @@ func handleLastSessionBrowser() {
 	url := awsClient.GetAccountURL(selectedAccountID, accessToken, selectedProfile.StartURL, lastRoleName)
 	// Style the output message
 	outputMsg := lipgloss.JoinHorizontal(lipgloss.Left,
-		cliStyles.muted.Render("Opening AWS Console for "),
+		cliStyles.text.Render("Opening AWS Console for "),
 		cliStyles.primary.Render(selectedProfile.Name),
-		cliStyles.muted.Render(" / "),
+		cliStyles.text.Render(" / "),
 		cliStyles.primary.Render(lastAccountName),
-		cliStyles.muted.Render(" / "),
+		cliStyles.text.Render(" / "),
 		cliStyles.primary.Render(lastRoleName),
 	)
 	fmt.Println(outputMsg)
@@ -2430,7 +2430,7 @@ func main() {
 
 	args := flag.Args()
 
-	usageString := "Usage: sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]"
+	usageString := "Usage: sesh [options] [SSONAME ACCOUNTNAME [ROLENAME]]\nOptions:\n  --version, -v     Print version information\n  --browser, -b     Open AWS console in browser\n  --region, -r REGION Specify AWS region"
 
 	// Check for direct session setup (2 or 3 args)
 	if len(args) == 2 || len(args) == 3 {
