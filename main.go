@@ -1418,7 +1418,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// but don't change the view or state
 		if m.usingCachedAccounts {
 			m.accounts = msg.accounts
-			// Update the account list title to show we're using cached data
 			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 			return m, nil
 		}
