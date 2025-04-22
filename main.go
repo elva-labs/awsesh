@@ -687,7 +687,7 @@ func getDynamicStyles(bgIsDark bool) (s dynamicStyles) {
 
 	// Define the color palette
 	primaryColor := lipgloss.Color("#7D56F4")
-	secondaryColor := lipgloss.Color("#00F5FF")
+	secondaryColor := lightDark(lipgloss.Color("#00F5FF"), lipgloss.Color("#FF9F9F"))
 	successColor := lipgloss.Color("#00E680")
 	errorColor := lipgloss.Color("#FF4D4D")
 	mutedColor := lipgloss.Color("#6B7280")
@@ -765,6 +765,7 @@ func getDynamicStyles(bgIsDark bool) (s dynamicStyles) {
 		Padding(1)
 	s.box = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
+		BorderForeground(secondaryColor).
 		Padding(1)
 
 	return s
@@ -1958,7 +1959,7 @@ func (m model) View() (string, *tea.Cursor) {
 		header := m.dynamicStyles.title.Margin(0, 2).Render("Set Account Region")
 
 		regionContent := lipgloss.JoinVertical(
-			lipgloss.Left,
+			lipgloss.Center,
 			m.dynamicStyles.text.Render("Set region for account:"),
 			m.dynamicStyles.primary.Render(m.selectedAcc.Name),
 			"",
