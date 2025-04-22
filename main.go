@@ -40,7 +40,7 @@ const (
 // Constants for limits
 const (
 	maxAccountsForRoleLoading = 100
-	Version                   = "0.0.8"
+	Version                   = "0.1.2"
 )
 
 // Messages
@@ -1929,11 +1929,6 @@ func (m model) View() (string, *tea.Cursor) {
 		if m.formError != "" {
 			formContent.WriteString(m.dynamicStyles.errorText.Render(m.formError) + "\n\n")
 		}
-
-		// No success message needed here anymore, transition happens immediately
-		// if m.formSuccess != "" {
-		// 	formContent.WriteString(m.dynamicStyles.successText.Render(m.formSuccess) + "\n\n")
-		// }
 
 		formContent.WriteString(m.dynamicStyles.help.Render("Press ESC to cancel"))
 
