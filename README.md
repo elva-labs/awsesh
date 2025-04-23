@@ -5,7 +5,7 @@ Sesh is a simple to use AWS session manager with charm! ✨💕
 Sesh is made to easily manage your AWS SSO sessions and accounts.
 Filter your accounts by name, and quickly switch between them.
 
-![sesh demo](tapes/demo.gif)
+![sesh demo](tapes/demo2.gif)
 _Basic demo_
 
 ![sesh editing and removing](tapes/editing-removing.gif)
