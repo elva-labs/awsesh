@@ -5,7 +5,7 @@ Sesh is a simple to use AWS session manager with charm! ✨💕
 Sesh is made to easily manage your AWS SSO sessions and accounts.
 Filter your accounts by name, and quickly switch between them.
 
-![sesh demo](tapes/demo2.webm)
+![sesh demo](tapes/demo2.webm.mp4)
 _Basic demo_
 
 ![sesh editing and removing](tapes/editing-removing.gif)
@@ -46,33 +46,33 @@ Download the latest release executables directly from the [Releases page](https:
 
 1. Download the appropriate binary (`sesh-linux-amd64`, `sesh-linux-arm64`, `sesh-darwin-amd64`, `sesh-darwin-arm64`). Example for Linux x86_64:
 
-    ```bash
-    curl -L https://github.com/elva-labs/awsesh/releases/latest/download/sesh-linux-amd64 -o sesh
-    ```
+   ```bash
+   curl -L https://github.com/elva-labs/awsesh/releases/latest/download/sesh-linux-amd64 -o sesh
+   ```
 
 2. Make it executable:
 
-    ```bash
-    chmod +x sesh
-    ```
+   ```bash
+   chmod +x sesh
+   ```
 
 3. Move it to a directory in your PATH:
 
-    ```bash
-    # For system-wide installation (may require sudo depending on permissions):
-    mv sesh /usr/local/bin/
+   ```bash
+   # For system-wide installation (may require sudo depending on permissions):
+   mv sesh /usr/local/bin/
 
-    # Or for user-local installation:
-    mkdir -p ~/.local/bin
-    mv sesh ~/.local/bin/
-    ```
+   # Or for user-local installation:
+   mkdir -p ~/.local/bin
+   mv sesh ~/.local/bin/
+   ```
 
 4. If using `~/.local/bin`, ensure it's in your PATH:
 
-    ```bash
-    # Add this to your ~/.bashrc, ~/.zshrc, or equivalent if needed
-    export PATH="$HOME/.local/bin:$PATH"
-    ```
+   ```bash
+   # Add this to your ~/.bashrc, ~/.zshrc, or equivalent if needed
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
 
 **Windows:**
 
@@ -81,66 +81,66 @@ Download the latest release executables directly from the [Releases page](https:
 3. Move the downloaded file there and rename it to `sesh.exe`.
 4. Add the folder to your PATH via System Properties or PowerShell:
 
-    ```powershell
-    # Ensure the target directory exists
-    New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\sesh"
-    # Add to user PATH (requires restart of terminal/session)
-    $CurrentUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $NewPath = $CurrentUserPath + ";$env:LOCALAPPDATA\Programs\sesh"
-    [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User')
-    ```
+   ```powershell
+   # Ensure the target directory exists
+   New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\sesh"
+   # Add to user PATH (requires restart of terminal/session)
+   $CurrentUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+   $NewPath = $CurrentUserPath + ";$env:LOCALAPPDATA\Programs\sesh"
+   [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User')
+   ```
 
 ### Build from Source
 
 1. Clone the repository:
 
-    ```sh
-    git clone https://github.com/elva-labs/awsesh.git
-    cd awsesh
-    ```
+   ```sh
+   git clone https://github.com/elva-labs/awsesh.git
+   cd awsesh
+   ```
 
 2. Build the application:
 
-    **Linux/macOS:**
+   **Linux/macOS:**
 
-    ```sh
-    go build -o build/sesh
-    ```
+   ```sh
+   go build -o build/sesh
+   ```
 
-    **Windows:**
+   **Windows:**
 
-    ```powershell
-    # Set environment variables for cross-compilation if needed
-    # $env:GOOS = "windows"
-    # $env:GOARCH = "amd64"
-    go build -o build/sesh.exe
-    ```
+   ```powershell
+   # Set environment variables for cross-compilation if needed
+   # $env:GOOS = "windows"
+   # $env:GOARCH = "amd64"
+   go build -o build/sesh.exe
+   ```
 
 3. Install the binary (move it to your PATH):
 
-    **Linux/macOS:**
+   **Linux/macOS:**
 
-    ```sh
-    # For system-wide installation (may require sudo depending on permissions):
-    cp build/sesh /usr/local/bin/
+   ```sh
+   # For system-wide installation (may require sudo depending on permissions):
+   cp build/sesh /usr/local/bin/
 
-    # For user-local installation:
-    mkdir -p ~/.local/bin
-    cp build/sesh ~/.local/bin/
+   # For user-local installation:
+   mkdir -p ~/.local/bin
+   cp build/sesh ~/.local/bin/
 
-    # Ensure it's executable
-    chmod +x /usr/local/bin/sesh  # Or ~/.local/bin/sesh
-    ```
+   # Ensure it's executable
+   chmod +x /usr/local/bin/sesh  # Or ~/.local/bin/sesh
+   ```
 
-    **Windows:**
+   **Windows:**
 
-    ```powershell
-    # Ensure the target directory exists
-    New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\sesh"
-    # Copy the binary
-    Copy-Item "build\sesh.exe" "$env:LOCALAPPDATA\Programs\sesh\sesh.exe"
-    # Add to user PATH (see Pre-built Binaries section for command)
-    ```
+   ```powershell
+   # Ensure the target directory exists
+   New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\sesh"
+   # Copy the binary
+   Copy-Item "build\sesh.exe" "$env:LOCALAPPDATA\Programs\sesh\sesh.exe"
+   # Add to user PATH (see Pre-built Binaries section for command)
+   ```
 
 ## 🚀 Usage
 
@@ -213,8 +213,8 @@ curl -sSL https://raw.githubusercontent.com/elva-labs/awsesh/main/uninstall.sh |
 
 1. **Locate the binary:** Check common locations: `/usr/local/bin/sesh`, `~/.local/bin/sesh`.
 2. **Remove the binary:**
-    - `rm /usr/local/bin/sesh` (may require `sudo` depending on how it was installed)
-    - `rm ~/.local/bin/sesh`
+   - `rm /usr/local/bin/sesh` (may require `sudo` depending on how it was installed)
+   - `rm ~/.local/bin/sesh`
 3. **Remove from PATH (if applicable):** If you manually added `~/.local/bin` to your `PATH`, remove that line from your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`).
 
 **Windows:**
