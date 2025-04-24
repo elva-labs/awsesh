@@ -2,7 +2,12 @@ name: Update Homebrew Tap
 
 on:
   release:
-    types: [published]
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to use (e.g. v.0.1.2)"
+        required: true
 
 jobs:
   update-tap:
@@ -15,7 +20,14 @@ jobs:
       - name: Get release version
         id: get_version
         run: |
-          echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "No version found. Exiting."
+            exit 1
+          fi
 
       - name: Download release assets and compute SHA256
         id: shasums
