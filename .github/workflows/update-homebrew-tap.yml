@@ -48,7 +48,7 @@ jobs:
 
       - name: Clone Homebrew tap repo
         run: |
-          git clone https://x-access-token:${{ secrets.TAP_GITHUB_TOKEN }}@github.com/elva-labs/homebrew-awsesh.git ../tap
+          git clone https://x-access-token:${{ secrets.TAP_GITHUB_TOKEN }}@github.com/elva-labs/homebrew-elva.git ../tap
 
       - name: Commit updated formula
         run: |
