@@ -1,0 +1,73 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to use (e.g. v0.1.2)"
+        required: true
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Get release version
+        id: get_version
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "No version found. Exiting."
+            exit 1
+          fi
+
+      - name: Download release assets and compute SHA256
+        id: shasums
+        run: |
+          VERSION=${{ steps.get_version.outputs.tag }}
+
+          mkdir -p tmp
+          cd tmp
+
+          # Define base URL
+          BASE_URL="https://github.com/elva-labs/awsesh/releases/download/${VERSION}"
+
+          # Download and calculate SHAs
+          for TARGET in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
+            FILE="sesh-${TARGET}"
+            curl -sL -o "${FILE}" "${BASE_URL}/${FILE}"
+            echo "::set-output name=SHA_${TARGET^^}::$(shasum -a 256 "${FILE}" | awk '{print $1}')"
+          done
+
+      - name: Replace placeholders in formula template
+        run: |
+          VERSION=${{ steps.get_version.outputs.tag }}
+          mkdir -p out
+          sed -e "s/__VERSION__/${VERSION}/g" \
+              -e "s/__SHA_DARWIN_AMD64__/${{ steps.shasums.outputs.SHA_DARWIN-AMD64 }}/g" \
+              -e "s/__SHA_DARWIN_ARM64__/${{ steps.shasums.outputs.SHA_DARWIN-ARM64 }}/g" \
+              -e "s/__SHA_LINUX_AMD64__/${{ steps.shasums.outputs.SHA_LINUX-AMD64 }}/g" \
+              -e "s/__SHA_LINUX_ARM64__/${{ steps.shasums.outputs.SHA_LINUX-ARM64 }}/g" \
+              homebrew/formula/awsesh.rb.in > out/awsesh.rb
+
+      - name: Clone Homebrew tap repo
+        run: |
+          git clone https://x-access-token:${{ secrets.TAP_GITHUB_TOKEN }}@github.com/elva-labs/homebrew-awsesh.git ../tap
+
+      - name: Commit updated formula
+        run: |
+          cp out/awsesh.rb ../tap/Formula/awsesh.rb
+          cd ../tap
+          git config user.name "elva-bot"
+          git config user.email "gh-bot@elva-group.com"
+          git add Formula/awsesh.rb
+          git commit -m "Update formula for ${{ steps.get_version.outputs.tag }}"
+          git push
