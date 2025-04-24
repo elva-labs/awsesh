@@ -2409,11 +2409,90 @@ func handleInteractiveSession() {
 	os.Exit(0)
 }
 
+func handleWhoami() {
+	configMgr, err := config.NewManager()
+
+	if err != nil {
+		fatalError(fmt.Sprintf("Error initializing config manager: %v", err), "")
+	}
+
+	lastSSOProfileName, err := configMgr.GetLastSelectedSSOProfile()
+	profiles, err := configMgr.LoadProfiles()
+
+	if err != nil {
+		fatalError(fmt.Sprintf("Error loading SSO profiles: %v", err), "")
+	}
+
+	var selectedProfile *config.SSOProfile
+
+	for i := range profiles {
+		if profiles[i].Name == lastSSOProfileName {
+			selectedProfile = &profiles[i]
+
+			break
+		}
+	}
+
+	if selectedProfile == nil {
+		fatalError(
+			fmt.Sprintf("Error: Last used SSO profile '%s' not found in configuration.", lastSSOProfileName),
+			"Please check your configuration or run 'sesh' interactively.",
+		)
+	}
+
+	cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to check token cache: %v\\n", err)
+	}
+
+	if cachedToken == nil {
+		fatalError(
+			"Error: No active session found for the last used profile. Authentication required.",
+			fmt.Sprintf("Please run 'sesh' interactively or 'sesh %s <ACCOUNTNAME>' first.", selectedProfile.Name),
+		)
+	}
+
+	awsClient, err := aws.NewClient(selectedProfile.SSORegion)
+
+	if err != nil {
+		fatalError(fmt.Sprintf("Error initializing AWS client: %v", err), "")
+	}
+
+	var selectedAccountID aws.Account
+
+	ctx := context.Background()
+	accounts, err := awsClient.ListAccounts(ctx, cachedToken.AccessToken, nil)
+	lastAccountName, err := configMgr.GetLastSelectedAccount(selectedProfile.Name)
+
+	for _, acc := range accounts {
+		if acc.Name == lastAccountName {
+			selectedAccountID = acc
+
+			break
+		}
+	}
+
+	cliStyles := getDynamicStyles(true)
+
+	fmt.Println(
+		lipgloss.JoinHorizontal(lipgloss.Left,
+			cliStyles.text.Render(selectedProfile.Name),
+			cliStyles.text.Render(" / "),
+			cliStyles.primary.Render(selectedAccountID.Name),
+			cliStyles.text.Render(" / "),
+			cliStyles.secondary.Render(selectedAccountID.AccountID),
+		),
+	)
+	os.Exit(0)
+}
+
 func main() {
 	// Define flags
 	browserFlag := flag.BoolP("browser", "b", false, "Open AWS console in browser instead of setting credentials")
 	regionFlag := flag.StringP("region", "r", "", "Specify the AWS region to use")
 	versionFlag := flag.BoolP("version", "v", false, "Print version information")
+	whoamiFlag := flag.BoolP("whoami", "w", false, "Print current AWS Account name & ID")
 
 	flag.Parse()
 
@@ -2425,7 +2504,7 @@ func main() {
 
 	args := flag.Args()
 
-	usageString := "Usage: sesh [options] [SSONAME ACCOUNTNAME [ROLENAME]]\nOptions:\n  --version, -v     Print version information\n  --browser, -b     Open AWS console in browser\n  --region, -r REGION Specify AWS region"
+	usageString := "Usage: sesh [options] [SSONAME ACCOUNTNAME [ROLENAME]]\nOptions:\n  --version, -v     Print version information\n  --browser, -b     Open AWS console in browser\n  --region, -r REGION Specify AWS region\n --whoami, -w Print current AWS Account name & ID"
 
 	// Check for direct session setup (2 or 3 args)
 	if len(args) == 2 || len(args) == 3 {
@@ -2448,6 +2527,8 @@ func main() {
 		if *browserFlag {
 			// Handle opening last session in browser
 			handleLastSessionBrowser()
+		} else if *whoamiFlag {
+			handleWhoami()
 		} else {
 			// Start interactive TUI
 			handleInteractiveSession()
