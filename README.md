@@ -28,7 +28,16 @@ _Editing, removing, managing SSO, setting region per account, and opening in bro
 
 There are several ways to install Sesh:
 
-### Installation Script (Recommended - Linux/macOS)
+### Homebrew (Recommended - Linux/macOS)
+
+If you have [Homebrew](https://brew.sh/) installed, you can install `sesh` with:
+
+```sh
+brew tap elva-labs/elva
+brew install awsesh
+```
+
+### Installation Script
 
 Download and run the installation script:
 
