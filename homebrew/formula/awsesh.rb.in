@@ -3,12 +3,25 @@ class Awsesh < Formula
   homepage "https://github.com/elva-labs/awsesh"
   license "MIT"
 
-  os     = OS.mac? ? "darwin" : "linux"
-  arch   = Hardware::CPU.intel? ? "amd64" : "arm64"
-  binary = "sesh-#{os}-#{arch}"
+  on_macos do
+    if Hardware::CPU.intel?
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-darwin-amd64"
+      sha256 "__SHA_DARWIN_AMD64__"
+    elsif Hardware::CPU.arm?
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-darwin-arm64"
+      sha256 "__SHA_DARWIN_ARM64__"
+    end
+  end
 
-  url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/#{binary}"
-  sha256 "__SHA_#{os.upcase}_#{arch.upcase}__"
+  on_linux do
+    if Hardware::CPU.intel?
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-linux-amd64"
+      sha256 "__SHA_LINUX_AMD64__"
+    elsif Hardware::CPU.arm?
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-linux-arm64"
+      sha256 "__SHA_LINUX_ARM64__"
+    end
+  end
 
   def install
     os     = OS.mac? ? "darwin" : "linux"
