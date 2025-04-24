@@ -166,7 +166,7 @@ sesh
 You can also use `sesh` directly from the command line:
 
 ```sh
-sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]
+sesh [-v|--version] [-b|--browser] [-w|--whoami] [-r|--region REGION] [SSONAME ACCOUNTNAME [ROLENAME]]
 ```
 
 **Examples:**
@@ -200,7 +200,7 @@ sesh [--version|-v] [-b|--browser] [-r|--region REGION] [SSONAME ACCOUNTNAME [RO
 
 #### Large Number of SSO Accounts
 
-There is a known issue where fetching roles for AWS SSO setups with a very large number of accounts (>30) can trigger AWS API rate limiting (429 errors). To mitigate this, `sesh` only automatically fetches roles on startup if there are fewer than 30 accounts. For larger setups, roles are lazy-loaded when you select an account in the TUI.
+There is a known issue where fetching roles for AWS SSO setups with a very large number of accounts (>100) can trigger AWS API rate limiting (429 errors). To mitigate this, `sesh` only automatically fetches roles on startup if there are fewer than 100 accounts. For larger setups, roles are lazy-loaded when you select an account in the TUI.
 
 ## 🧹 Uninstall
 
