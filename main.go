@@ -987,7 +987,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Add check for 'c' key press to copy verification code
 		case "c":
-			if m.state == stateSelectAccount && m.verificationCode != "" {
+			if m.state == stateSelectAccount && m.verificationCode != "" && m.accountList.FilterState() != list.Filtering {
 				return m, tea.SetClipboard(m.verificationCode)
 			}
 
