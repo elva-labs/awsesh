@@ -19,12 +19,9 @@ _Editing, removing, managing SSO, setting region per account, and opening in bro
 - 🌐 Open the AWS console in your browser
 - 💅 Charming interactive terminal user interface
 - 🪶 Lightweight and easy to install
-- 🔧 Shell integration with automatic AWS_PROFILE environment variable setting
+- 🏷️ Profile support
 - ⭐ Compatible with shell prompt tools like Starship
 - 📁 XDG Base Directory specification compliance
-- 🔧 Respects AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE environment variables
-- 🏷️ Custom AWS profile name support (CLI flag and TUI option)
-- 🧠 Remembers profile names for account+role combinations
 
 ## 📋 Prerequisites
 
@@ -223,6 +220,7 @@ Use the `--eval` flag to set AWS environment variables in your shell for seamles
 Add this function to your shell configuration (`~/.bashrc`, `~/.zshrc`, etc.):
 
 **Bash/Zsh:**
+
 ```bash
 sesh() {
     eval "$(command sesh --eval "$@")"
@@ -230,6 +228,7 @@ sesh() {
 ```
 
 **Fish:**
+
 ```fish
 function sesh
     eval (command sesh --eval $argv)
@@ -242,7 +241,7 @@ end
 # CLI mode
 sesh MyOrg MyAccount AdminRole
 
-# TUI mode  
+# TUI mode
 sesh
 ```
 
@@ -250,7 +249,7 @@ This sets all AWS environment variables for compatibility with AWS tools and she
 
 ```bash
 export AWS_PROFILE='myorg-adminrole'
-export AWS_REGION='us-east-1' 
+export AWS_REGION='us-east-1'
 export AWS_ACCESS_KEY_ID='AKIA...'
 export AWS_SECRET_ACCESS_KEY='...'
 export AWS_SESSION_TOKEN='...'
@@ -262,6 +261,7 @@ export AWS_SESSION_EXPIRATION='2024-08-19T10:30:00Z'
 By default, `sesh` writes credentials to the `default` profile in your AWS credentials file. You can specify a custom profile name using the `--profile` flag.
 
 **CLI Usage:**
+
 ```bash
 # Use a custom profile name
 sesh MyOrg MyAccount AdminRole --profile production
@@ -274,7 +274,7 @@ In the interactive mode, when selecting a role, press `p` to enter a custom prof
 
 `sesh` remembers the custom profile names you use for specific account+role combinations:
 
-- **First time**: `sesh MyOrg MyAccount AdminRole --profile production` 
+- **First time**: `sesh MyOrg MyAccount AdminRole --profile production`
 - **Next time**: `sesh MyOrg MyAccount --profile production` (automatically uses AdminRole)
 - **TUI**: Press `p` on "MyAccount/AdminRole" → input pre-filled with "production"
 
@@ -302,20 +302,23 @@ This makes it easy to consistently use the same profile names for your different
 - `AWS_SHARED_CREDENTIALS_FILE` - Path to AWS credentials file (default: `~/.aws/credentials`)
 
 **Example XDG setup:**
+
 ```bash
 export AWS_CONFIG_FILE="$XDG_CONFIG_HOME/aws/config"
 export AWS_SHARED_CREDENTIALS_FILE="$XDG_DATA_HOME/aws/credentials"
 ```
 
 When these environment variables are set, `sesh` will:
+
 - Read existing SSO profiles from the custom config location
-- Write credentials to the custom credentials location  
+- Write credentials to the custom credentials location
 - Store its own configuration files (`awsesh`, `awsesh-tokens`, etc.) in the same directory as your AWS config file
 
 **Example with XDG compliance:**
+
 ```bash
 # Set XDG-compliant paths
-export AWS_CONFIG_FILE="$XDG_CONFIG_HOME/aws/config"  
+export AWS_CONFIG_FILE="$XDG_CONFIG_HOME/aws/config"
 export AWS_SHARED_CREDENTIALS_FILE="$XDG_DATA_HOME/aws/credentials"
 
 # Use sesh with shell integration
