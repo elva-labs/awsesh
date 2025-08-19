@@ -1571,8 +1571,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case credentialsSetMsg:
 		// Handle eval flag for shell integration
 		if globalEvalMode {
-			// Create styled success message for TUI eval mode with simpler border
-			// to avoid lipgloss box rendering issues after TUI stderr usage
+			// Create clean styled success message for TUI eval mode without borders
+			// This avoids ANSI padding calculation issues and looks cleaner
 			cliStyles := getDynamicStyles(true) // Assume dark background for CLI output
 
 			// Determine region: account-specific > SSO default
@@ -1584,36 +1584,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Clear screen and reset terminal state for clean appearance after TUI exit
 			fmt.Fprintf(os.Stderr, "\033[2J\033[H\033[0m") // Clear screen, home cursor, reset all attributes
 
-			// Print success message with colors and properly formatted box
+			// Print clean success message with colors (no borders for cleaner output)
 			fmt.Fprintf(os.Stderr, "\r\n")
-			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("╭──────────────────────────────────────────╮"))
-			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("│                                          │"))
 
-			// Format each line with proper padding to fit the box width (40 chars content + 2 for borders)
-			ssoLine := fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(m.selectedSSO.Name))
-			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
-				cliStyles.successText.Render("│"), ssoLine, cliStyles.successText.Render("│"))
+			ssoLine := fmt.Sprintf("  SSO Profile: %s", cliStyles.primary.Bold(true).Render(m.selectedSSO.Name))
+			fmt.Fprintf(os.Stderr, "\r%s\n", ssoLine)
 
-			accountLine := fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(m.selectedAcc.Name), cliStyles.muted.Render(m.selectedAcc.AccountID))
-			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
-				cliStyles.successText.Render("│"), accountLine, cliStyles.successText.Render("│"))
+			accountLine := fmt.Sprintf("  Account: %s %s", cliStyles.primary.Bold(true).Render(m.selectedAcc.Name), cliStyles.muted.Render(fmt.Sprintf("(%s)", m.selectedAcc.AccountID)))
+			fmt.Fprintf(os.Stderr, "\r%s\n", accountLine)
 
-			roleLine := fmt.Sprintf("Role: %s", cliStyles.primary.Render(m.selectedAcc.SelectedRole))
-			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
-				cliStyles.successText.Render("│"), roleLine, cliStyles.successText.Render("│"))
+			roleLine := fmt.Sprintf("  Role: %s", cliStyles.primary.Bold(true).Render(m.selectedAcc.SelectedRole))
+			fmt.Fprintf(os.Stderr, "\r%s\n", roleLine)
 
-			regionLine := fmt.Sprintf("Region: %s", cliStyles.primary.Render(region))
-			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
-				cliStyles.successText.Render("│"), regionLine, cliStyles.successText.Render("│"))
+			regionLine := fmt.Sprintf("  Region: %s", cliStyles.primary.Bold(true).Render(region))
+			fmt.Fprintf(os.Stderr, "\r%s\n", regionLine)
 
 			if msg.profileName != "default" {
-				profileLine := fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(msg.profileName))
-				fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
-					cliStyles.successText.Render("│"), profileLine, cliStyles.successText.Render("│"))
+				profileLine := fmt.Sprintf("  AWS Profile: %s", cliStyles.primary.Bold(true).Render(msg.profileName))
+				fmt.Fprintf(os.Stderr, "\r%s\n", profileLine)
 			}
 
-			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("│                                          │"))
-			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("╰──────────────────────────────────────────╯"))
 			fmt.Fprintf(os.Stderr, "\r\n")
 
 			// Output shell commands to stdout (gets eval'd)
