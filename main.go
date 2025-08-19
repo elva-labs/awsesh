@@ -1552,32 +1552,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case credentialsSetMsg:
 		// Handle eval flag for shell integration
 		if globalEvalMode {
-			// Print formatted success message first (like CLI does)
+			// Create styled success message for stderr (visible but not eval'd)
+			cliStyles := getDynamicStyles(true) // Assume dark background for CLI output
 			var detailsLines []string
-			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", m.selectedSSO.Name))
-			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", m.selectedAcc.Name, m.selectedAcc.AccountID))
-			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", m.selectedAcc.SelectedRole))
+			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(m.selectedSSO.Name)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(m.selectedAcc.Name), cliStyles.muted.Render(m.selectedAcc.AccountID)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(m.selectedAcc.SelectedRole)))
 
 			// Determine region: account-specific > SSO default
 			region := m.selectedSSO.DefaultRegion
 			if m.selectedAcc.Region != "" {
 				region = m.selectedAcc.Region
 			}
-			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", region))
+			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
 
 			if msg.profileName != "default" {
-				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", msg.profileName))
+				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(msg.profileName)))
 			}
+			detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
+			details := cliStyles.successBox.Render(detailsContent)
 
-			// Print without styling since we're in terminal mode
-			fmt.Printf("\nAWS Session Activated\n")
-			for _, line := range detailsLines {
-				fmt.Printf("%s\n", line)
-			}
-			fmt.Printf("\n")
+			// Print styled success message to stderr (visible but not eval'd)
+			fmt.Fprintf(os.Stderr, "\n%s\n\n", details)
 
-			// Then print the export command
+			// Output shell commands to stdout (gets eval'd)
 			fmt.Printf("export AWS_PROFILE='%s'\n", msg.profileName)
+			fmt.Printf("export AWS_REGION='%s'\n", region)
+			// TODO: Add AWS credentials to TUI eval mode (requires passing credentials through credentialsSetMsg)
 			os.Exit(0)
 		}
 		// Store the profile name for the success display
@@ -2385,22 +2386,49 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 			return fmt.Errorf("failed to write credentials: %w", err)
 		}
 
-		// Print success message with styling
-		var detailsLines []string
-		detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(selectedProfile.Name)))
-		detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(selectedAccount.Name), cliStyles.muted.Render(selectedAccount.AccountID)))
-		detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(roleName)))
-		detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
-		if profileName != "default" {
-			detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(profileName)))
-		}
-		detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
-		details := cliStyles.successBox.Render(detailsContent)
-		fmt.Printf("\n%s\n\n", details)
-
-		// Handle eval flag for shell integration (print export command after success message)
+		// Handle eval flag for shell integration
 		if evalFlag {
+			// In eval mode, send styled success message to stderr so it doesn't interfere with eval
+			var detailsLines []string
+			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(selectedProfile.Name)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(selectedAccount.Name), cliStyles.muted.Render(selectedAccount.AccountID)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(roleName)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
+			if profileName != "default" {
+				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(profileName)))
+			}
+			detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
+			details := cliStyles.successBox.Render(detailsContent)
+
+			// Print styled success message to stderr (visible but not eval'd)
+			fmt.Fprintf(os.Stderr, "\n%s\n\n", details)
+
+			// Output shell commands to stdout (gets eval'd)
 			fmt.Printf("export AWS_PROFILE='%s'\n", profileName)
+			fmt.Printf("export AWS_REGION='%s'\n", region)
+			fmt.Printf("export AWS_ACCESS_KEY_ID='%s'\n", *resp.RoleCredentials.AccessKeyId)
+			fmt.Printf("export AWS_SECRET_ACCESS_KEY='%s'\n", *resp.RoleCredentials.SecretAccessKey)
+			fmt.Printf("export AWS_SESSION_TOKEN='%s'\n", *resp.RoleCredentials.SessionToken)
+
+			// Add session expiration for Starship duration display
+			if resp.RoleCredentials.Expiration != 0 {
+				// Format expiration time in RFC3339 format for AWS_SESSION_EXPIRATION
+				expirationTime := time.UnixMilli(resp.RoleCredentials.Expiration)
+				fmt.Printf("export AWS_SESSION_EXPIRATION='%s'\n", expirationTime.Format(time.RFC3339))
+			}
+		} else {
+			// Normal mode: print styled success message
+			var detailsLines []string
+			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(selectedProfile.Name)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(selectedAccount.Name), cliStyles.muted.Render(selectedAccount.AccountID)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(roleName)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
+			if profileName != "default" {
+				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(profileName)))
+			}
+			detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
+			details := cliStyles.successBox.Render(detailsContent)
+			fmt.Printf("\n%s\n\n", details)
 		}
 	}
 
