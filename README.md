@@ -208,19 +208,19 @@ sesh [-v|--version] [-b|--browser] [-w|--whoami] [-r|--region REGION] [-e|--eval
   sesh MyOrg MyAccount --profile production
   ```
 
-- Combine custom profile name with shell integration:
+- Combine custom profile with shell integration:
 
   ```sh
-  sesh MyOrg MyAccount AdminRole --profile dev --eval
+  sesh MyOrg MyAccount AdminRole --profile dev
   ```
 
-### Shell Integration (AWS Environment Variables)
+### Shell Integration
 
-For better integration with tools like [Starship](https://starship.rs/) that display AWS session information, use the `--eval` flag to automatically set AWS environment variables in your shell.
+Use the `--eval` flag to set AWS environment variables in your shell for seamless integration with tools like [Starship](https://starship.rs/).
 
-#### Recommended Setup: Simplified Shell Function
+#### Setup
 
-Add this simple function to your shell configuration file (`~/.bashrc`, `~/.zshrc`, etc.):
+Add this function to your shell configuration (`~/.bashrc`, `~/.zshrc`, etc.):
 
 **Bash/Zsh:**
 ```bash
@@ -236,74 +236,26 @@ function sesh
 end
 ```
 
-> **💡 Quick Setup:** You can also source the provided helper script: `source shell-integration.sh`
-
-This approach always uses `--eval` mode, which sets comprehensive AWS environment variables that work with:
-- ✅ **Starship** - Shows profile, region, and session duration
-- ✅ **AWS CLI** - Uses environment variables over credentials file
-- ✅ **Terraform** - Recognizes AWS environment variables
-- ✅ **Other AWS tools** - Standard environment variable support
-
-#### Advanced Setup: Conditional Shell Function
-
-For users who want both eval and file-only modes:
-
-**Bash/Zsh:**
-```bash
-sesh() {
-    if [[ "$*" == *"--eval"* ]] || [[ "$*" == *"-e"* ]]; then
-        eval "$(command sesh "$@")"
-    else
-        command sesh "$@"
-    fi
-}
-```
-
-**Fish:**
-```fish
-function sesh
-    if string match -q "*--eval*" $argv; or string match -q "*-e*" $argv
-        eval (command sesh $argv)
-    else
-        command sesh $argv
-    end
-end
-```
-
-After setting up the function, you can use:
+#### Usage
 
 ```sh
-# Direct CLI mode with comprehensive AWS environment variables
+# CLI mode
 sesh MyOrg MyAccount AdminRole
 
-# Interactive TUI mode with comprehensive AWS environment variables
-sesh  # Shows TUI interface, sets all env vars after selection
+# TUI mode  
+sesh
 ```
 
-#### Manual usage (Alternative)
-
-If you prefer not to use a shell function, you can manually eval the output:
-
-```sh
-# Set credentials and capture the export command
-eval "$(sesh MyOrg MyAccount AdminRole --eval)"
-
-# Or with the TUI
-eval "$(sesh --eval)"
-```
-
-The `--eval` flag makes `sesh` output comprehensive shell commands that set all relevant AWS environment variables:
+This sets all AWS environment variables for compatibility with AWS tools and shell prompts:
 
 ```bash
 export AWS_PROFILE='myorg-adminrole'
-export AWS_REGION='us-east-1'
+export AWS_REGION='us-east-1' 
 export AWS_ACCESS_KEY_ID='AKIA...'
 export AWS_SECRET_ACCESS_KEY='...'
 export AWS_SESSION_TOKEN='...'
 export AWS_SESSION_EXPIRATION='2024-08-19T10:30:00Z'
 ```
-
-This provides complete session information for AWS tools and shell prompts like Starship.
 
 ### Custom Profile Names
 
@@ -313,9 +265,6 @@ By default, `sesh` writes credentials to the `default` profile in your AWS crede
 ```bash
 # Use a custom profile name
 sesh MyOrg MyAccount AdminRole --profile production
-
-# Combine with eval flag to set both credentials and AWS_PROFILE
-eval "$(sesh MyOrg MyAccount AdminRole --profile dev --eval)"
 ```
 
 **TUI Usage:**
@@ -333,9 +282,9 @@ This makes it easy to consistently use the same profile names for your different
 
 #### Profile Naming Convention
 
-- **Default behavior**: Credentials are written to the `default` profile
-- **With `--profile` flag**: Credentials are written to your specified profile name
-- **With `--eval` flag**: `AWS_PROFILE` is set to the profile name used (either "default" or your custom name)
+- **Default behavior**: Uses the `default` profile
+- **With `--profile` flag**: Uses your specified profile name
+- **Shell integration**: Automatically sets `AWS_PROFILE` environment variable
 
 ### Important Notes
 
@@ -363,18 +312,18 @@ When these environment variables are set, `sesh` will:
 - Write credentials to the custom credentials location  
 - Store its own configuration files (`awsesh`, `awsesh-tokens`, etc.) in the same directory as your AWS config file
 
-**Example combining XDG compliance with shell integration:**
+**Example with XDG compliance:**
 ```bash
 # Set XDG-compliant paths
 export AWS_CONFIG_FILE="$XDG_CONFIG_HOME/aws/config"  
 export AWS_SHARED_CREDENTIALS_FILE="$XDG_DATA_HOME/aws/credentials"
 
-# Use sesh with eval mode
-sesh MyOrg MyAccount AdminRole --eval
+# Use sesh with shell integration
+sesh MyOrg MyAccount AdminRole
 
-# Now both the credentials file and AWS_PROFILE are set correctly
+# Credentials file and environment variables are set
 echo $AWS_PROFILE  # Output: myorg-adminrole
-aws sts get-caller-identity  # Uses credentials from custom location
+aws sts get-caller-identity  # Works with custom location
 ```
 
 > **💡 Note for XDG users:** If you have `AWS_CONFIG_FILE` set but your SSO profiles don't appear, make sure your existing SSO profiles are in the file specified by that environment variable, not in `~/.aws/config`.
