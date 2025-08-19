@@ -16,7 +16,6 @@ import (
 
 const (
 	awseshConfigFileName   = "awsesh"
-	awseshMetaFileName     = "awsesh-meta"
 	awseshAccountsFileName = "awsesh-accounts"
 	awseshTokensFileName   = "awsesh-tokens"
 
@@ -136,12 +135,13 @@ func (m *Manager) LoadCachedAccounts(startURL string) ([]awsclient.Account, time
 
 // Helper function to get the accounts cache file path
 func getAwseshAccountsCachePath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	// Use the same directory as AWS config file to keep awsesh configs together
+	awsConfigPath, err := GetAWSConfigPath()
 	if err != nil {
-		return "", fmt.Errorf(errGetHomeDir, err)
+		return "", err
 	}
 
-	awsDir := filepath.Join(homeDir, ".aws")
+	awsDir := filepath.Dir(awsConfigPath)
 	if err := os.MkdirAll(awsDir, 0700); err != nil {
 		return "", fmt.Errorf(errCreateAwsDir, err)
 	}
@@ -295,27 +295,14 @@ func (m *Manager) LoadToken(startURL string) (*awsclient.TokenCache, error) {
 	}, nil
 }
 
-func getAwseshMetaPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf(errGetHomeDir, err)
-	}
-
-	awsDir := filepath.Join(homeDir, ".aws")
-	if err := os.MkdirAll(awsDir, 0700); err != nil {
-		return "", fmt.Errorf(errCreateAwsDir, err)
-	}
-
-	return filepath.Join(awsDir, awseshMetaFileName), nil
-}
-
 func getAwseshConfigPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	// Use the same directory as AWS config file to keep awsesh configs together
+	awsConfigPath, err := GetAWSConfigPath()
 	if err != nil {
-		return "", fmt.Errorf(errGetHomeDir, err)
+		return "", err
 	}
 
-	awsDir := filepath.Join(homeDir, ".aws")
+	awsDir := filepath.Dir(awsConfigPath)
 	if err := os.MkdirAll(awsDir, 0700); err != nil {
 		return "", fmt.Errorf(errCreateAwsDir, err)
 	}
@@ -324,12 +311,13 @@ func getAwseshConfigPath() (string, error) {
 }
 
 func getAwseshTokensPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	// Use the same directory as AWS config file to keep awsesh configs together
+	awsConfigPath, err := GetAWSConfigPath()
 	if err != nil {
-		return "", fmt.Errorf(errGetHomeDir, err)
+		return "", err
 	}
 
-	awsDir := filepath.Join(homeDir, ".aws")
+	awsDir := filepath.Dir(awsConfigPath)
 	if err := os.MkdirAll(awsDir, 0700); err != nil {
 		return "", fmt.Errorf(errCreateAwsDir, err)
 	}
@@ -339,24 +327,26 @@ func getAwseshTokensPath() (string, error) {
 
 // WriteCredentials writes AWS credentials to the credentials file
 func WriteCredentials(accessKeyID, secretAccessKey, sessionToken, region string) error {
-	homeDir, err := os.UserHomeDir()
+	return WriteCredentialsWithProfile(accessKeyID, secretAccessKey, sessionToken, region, "default")
+}
+
+// WriteCredentialsWithProfile writes AWS credentials to the credentials file with a specific profile name
+func WriteCredentialsWithProfile(accessKeyID, secretAccessKey, sessionToken, region, profileName string) error {
+	credentialsPath, err := GetAWSCredentialsPath()
 	if err != nil {
-		return fmt.Errorf(errGetHomeDir, err)
+		return fmt.Errorf("failed to get credentials path: %w", err)
 	}
 
-	awsDir := filepath.Join(homeDir, ".aws")
-	if err := os.MkdirAll(awsDir, 0700); err != nil {
-		return fmt.Errorf(errCreateAwsDir, err)
+	if err := EnsureAWSDirectoryExists(credentialsPath); err != nil {
+		return err
 	}
-
-	credentialsPath := filepath.Join(awsDir, "credentials")
 
 	cfg, err := ini.Load(credentialsPath)
 	if err != nil {
 		cfg = ini.Empty()
 	}
 
-	section, err := cfg.NewSection("default")
+	section, err := cfg.NewSection(profileName)
 	if err != nil {
 		return fmt.Errorf("failed to create profile section: %w", err)
 	}
@@ -372,6 +362,62 @@ func WriteCredentials(accessKeyID, secretAccessKey, sessionToken, region string)
 		return fmt.Errorf("failed to save credentials file: %w", err)
 	}
 
+	return nil
+}
+
+// GenerateProfileName creates a profile name from account and role information
+func GenerateProfileName(accountName, roleName string) string {
+	if accountName == "" || roleName == "" {
+		return "default"
+	}
+	// Sanitize the name by replacing spaces and special chars with dashes
+	profileName := fmt.Sprintf("%s-%s", accountName, roleName)
+	profileName = strings.ReplaceAll(profileName, " ", "-")
+	profileName = strings.ReplaceAll(profileName, "_", "-")
+	// Convert to lowercase for consistency
+	return strings.ToLower(profileName)
+}
+
+// GetAWSCredentialsPath returns the AWS credentials file path, respecting AWS_SHARED_CREDENTIALS_FILE
+// This enables XDG Base Directory compliance and custom AWS file locations
+func GetAWSCredentialsPath() (string, error) {
+	// Check if AWS_SHARED_CREDENTIALS_FILE is set
+	if credentialsFile := os.Getenv("AWS_SHARED_CREDENTIALS_FILE"); credentialsFile != "" {
+		return credentialsFile, nil
+	}
+
+	// Fall back to default location
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf(errGetHomeDir, err)
+	}
+
+	return filepath.Join(homeDir, ".aws", "credentials"), nil
+}
+
+// GetAWSConfigPath returns the AWS config file path, respecting AWS_CONFIG_FILE
+// This enables XDG Base Directory compliance and custom AWS file locations
+func GetAWSConfigPath() (string, error) {
+	// Check if AWS_CONFIG_FILE is set
+	if configFile := os.Getenv("AWS_CONFIG_FILE"); configFile != "" {
+		return configFile, nil
+	}
+
+	// Fall back to default location
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf(errGetHomeDir, err)
+	}
+
+	return filepath.Join(homeDir, ".aws", "config"), nil
+}
+
+// EnsureAWSDirectoryExists ensures the parent directory of the AWS file exists
+func EnsureAWSDirectoryExists(filePath string) error {
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create AWS directory %s: %w", dir, err)
+	}
 	return nil
 }
 
@@ -519,17 +565,12 @@ func (m *Manager) GetAccountRegion(profileName, accountName string) (string, err
 }
 
 func (m *Manager) SaveLastSelectedSSOProfile(profileName string) error {
-	metaPath, err := getAwseshMetaPath()
-	if err != nil {
-		return err
-	}
-
-	cfg, err := ini.Load(metaPath)
+	cfg, err := ini.Load(m.configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			cfg = ini.Empty()
 		} else {
-			return fmt.Errorf("failed to load awsesh-meta file: %w", err)
+			return fmt.Errorf(errLoadAwseshConfig, err)
 		}
 	}
 
@@ -537,31 +578,26 @@ func (m *Manager) SaveLastSelectedSSOProfile(profileName string) error {
 	if err != nil {
 		section, err = cfg.NewSection("metadata")
 		if err != nil {
-			return fmt.Errorf("failed to create metadata section in awsesh-meta: %w", err)
+			return fmt.Errorf("failed to create metadata section: %w", err)
 		}
 	}
 
 	section.Key("last_sso_profile").SetValue(profileName)
 
-	if err := cfg.SaveTo(metaPath); err != nil {
-		return fmt.Errorf("failed to save awsesh-meta file: %w", err)
+	if err := cfg.SaveTo(m.configPath); err != nil {
+		return fmt.Errorf(errSaveAwseshConfig, err)
 	}
 
 	return nil
 }
 
 func (m *Manager) GetLastSelectedSSOProfile() (string, error) {
-	metaPath, err := getAwseshMetaPath()
-	if err != nil {
-		return "", err
-	}
-
-	cfg, err := ini.Load(metaPath)
+	cfg, err := ini.Load(m.configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
-		return "", fmt.Errorf("failed to load awsesh-meta file: %w", err)
+		return "", fmt.Errorf(errLoadAwseshConfig, err)
 	}
 
 	section, err := cfg.GetSection("metadata")
@@ -571,4 +607,52 @@ func (m *Manager) GetLastSelectedSSOProfile() (string, error) {
 	}
 
 	return section.Key("last_sso_profile").String(), nil
+}
+
+// SaveProfileNameForAccountRole saves the custom profile name used for a specific account+role combination
+func (m *Manager) SaveProfileNameForAccountRole(ssoProfileName, accountName, roleName, customProfileName string) error {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg = ini.Empty()
+		} else {
+			return fmt.Errorf(errLoadAwseshConfig, err)
+		}
+	}
+
+	section, err := cfg.GetSection(ssoProfileName)
+	if err != nil {
+		// If section doesn't exist, create it
+		section, err = cfg.NewSection(ssoProfileName)
+		if err != nil {
+			return fmt.Errorf("failed to create section for profile %s: %w", ssoProfileName, err)
+		}
+	}
+
+	// Store the profile name under a key that includes both account and role name
+	section.Key(fmt.Sprintf("profile_name_%s_%s", accountName, roleName)).SetValue(customProfileName)
+
+	if err := cfg.SaveTo(m.configPath); err != nil {
+		return fmt.Errorf(errSaveAwseshConfig, err)
+	}
+
+	return nil
+}
+
+// GetProfileNameForAccountRole retrieves the custom profile name for a specific account+role combination
+func (m *Manager) GetProfileNameForAccountRole(ssoProfileName, accountName, roleName string) (string, error) {
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf(errLoadAwseshConfig, err)
+	}
+
+	section, err := cfg.GetSection(ssoProfileName)
+	if err != nil {
+		return "", nil
+	}
+
+	return section.Key(fmt.Sprintf("profile_name_%s_%s", accountName, roleName)).String(), nil
 }

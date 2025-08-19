@@ -1,6 +1,9 @@
 package main
 
 import (
+	"awsesh/aws"
+	"awsesh/config"
+	"awsesh/utils"
 	"context"
 	"errors"
 	"fmt"
@@ -19,10 +22,6 @@ import (
 	"github.com/charmbracelet/bubbles/v2/textinput"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
-
-	"awsesh/aws"
-	"awsesh/config"
-	"awsesh/utils"
 )
 
 // Model states
@@ -35,12 +34,18 @@ const (
 	stateEditSSO
 	stateDeleteConfirm
 	stateSetAccountRegion
+	stateSetProfileName
 )
 
 // Constants for limits
 const (
 	maxAccountsForRoleLoading = 100
-	Version                   = "0.1.4"
+	Version                   = "0.1.5"
+)
+
+// Global variables
+var (
+	globalEvalMode bool
 )
 
 // Messages
@@ -64,7 +69,14 @@ type ssoLoginErrMsg struct {
 	requestID string
 }
 
-type credentialsSetMsg struct{}
+type credentialsSetMsg struct {
+	profileName       string
+	accessKeyID       string
+	secretAccessKey   string
+	sessionToken      string
+	region            string
+	sessionExpiration string
+}
 
 type ssoTokenPollingTickMsg struct {
 	info *aws.SSOLoginInfo
@@ -156,6 +168,10 @@ type model struct {
 
 	// Account region setting
 	accountRegionInput textinput.Model
+
+	// Profile name setting
+	profileNameInput  textinput.Model
+	customProfileName string
 
 	// Add new field to track if we're authenticating
 	isAuthenticating bool
@@ -285,6 +301,7 @@ func initialModel() model {
 	accountList.Title = "Select AWS Account"
 	accountList.Styles.PaginationStyle = initialStyles.pagination
 	accountList.Styles.HelpStyle = initialStyles.help
+	accountList.SetShowHelp(true)
 	accountList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(
@@ -315,11 +332,16 @@ func initialModel() model {
 	roleList.Title = "Select AWS Role"
 	roleList.Styles.PaginationStyle = initialStyles.pagination
 	roleList.Styles.HelpStyle = initialStyles.help
+	roleList.SetShowHelp(true)
 	roleList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(
 				key.WithKeys("enter"),
 				key.WithHelp("enter", "select role"),
+			),
+			key.NewBinding(
+				key.WithKeys("p"),
+				key.WithHelp("p", "custom profile"),
 			),
 			key.NewBinding(
 				key.WithKeys("o"),
@@ -378,6 +400,17 @@ func initialModel() model {
 	regionInput.Styles.Focused.Placeholder = initialStyles.inputFocusedPlaceholder
 	regionInput.Styles.Blurred.Text = initialStyles.inputBlurredText
 
+	// Initialize profile name input
+	profileInput := textinput.New()
+	profileInput.Placeholder = "my-profile"
+	profileInput.CharLimit = 50
+	profileInput.SetWidth(30)
+	profileInput.Prompt = "› "
+	profileInput.Styles.Focused.Text = initialStyles.inputFocusedText
+	profileInput.Styles.Focused.Prompt = initialStyles.inputFocusedPrompt
+	profileInput.Styles.Focused.Placeholder = initialStyles.inputFocusedPlaceholder
+	profileInput.Styles.Blurred.Text = initialStyles.inputBlurredText
+
 	// Create initial model
 	m := model{
 		state:               stateSelectSSO,
@@ -395,6 +428,8 @@ func initialModel() model {
 		accountsLastUpdated: time.Time{},
 		currentRequestID:    "",
 		accountRegionInput:  regionInput,
+		profileNameInput:    profileInput,
+		customProfileName:   "",
 		isAuthenticating:    false,
 		dynamicStyles:       initialStyles,
 	}
@@ -522,7 +557,6 @@ func pollForSSOToken(info *aws.SSOLoginInfo, client *aws.Client, configMgr *conf
 		ctx := context.Background()
 
 		token, err := client.CreateToken(ctx, info)
-
 		if err != nil {
 			var apiErr smithy.APIError
 			if errors.As(err, &apiErr) {
@@ -586,6 +620,11 @@ func fetchAccounts(client *aws.Client, accessToken string, requestID string, exi
 
 // Get credentials for a role
 func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName string, selectedAcc *aws.Account, ssoDefaultRegion string, requestID string) tea.Cmd {
+	return getRoleCredentialsWithProfile(client, accessToken, accountID, roleName, selectedAcc, ssoDefaultRegion, requestID, "")
+}
+
+// Get credentials for a role with custom profile name
+func getRoleCredentialsWithProfile(client *aws.Client, accessToken, accountID, roleName string, selectedAcc *aws.Account, ssoDefaultRegion string, requestID string, customProfileName string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -600,17 +639,40 @@ func getRoleCredentials(client *aws.Client, accessToken, accountID, roleName str
 			region = selectedAcc.Region
 		}
 
-		err = config.WriteCredentials(
+		// Use custom profile if provided, otherwise use default
+		var profileName string
+		if customProfileName != "" {
+			profileName = customProfileName
+		} else {
+			profileName = "default"
+		}
+
+		err = config.WriteCredentialsWithProfile(
 			*resp.RoleCredentials.AccessKeyId,
 			*resp.RoleCredentials.SecretAccessKey,
 			*resp.RoleCredentials.SessionToken,
 			region,
+			profileName,
 		)
 		if err != nil {
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to write credentials: %w", err), requestID: requestID}
 		}
 
-		return credentialsSetMsg{}
+		// Prepare session expiration
+		var sessionExpiration string
+		if resp.RoleCredentials.Expiration != 0 {
+			expirationTime := time.UnixMilli(resp.RoleCredentials.Expiration)
+			sessionExpiration = expirationTime.Format(time.RFC3339)
+		}
+
+		return credentialsSetMsg{
+			profileName:       profileName,
+			accessKeyID:       *resp.RoleCredentials.AccessKeyId,
+			secretAccessKey:   *resp.RoleCredentials.SecretAccessKey,
+			sessionToken:      *resp.RoleCredentials.SessionToken,
+			region:            region,
+			sessionExpiration: sessionExpiration,
+		}
 	}
 }
 
@@ -801,6 +863,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.accountRegionInput.Styles.Focused.Prompt = m.dynamicStyles.inputFocusedPrompt
 		m.accountRegionInput.Styles.Focused.Placeholder = m.dynamicStyles.inputFocusedPlaceholder
 		m.accountRegionInput.Styles.Blurred.Text = m.dynamicStyles.inputBlurredText
+		m.profileNameInput.Styles.Focused.Text = m.dynamicStyles.inputFocusedText
+		m.profileNameInput.Styles.Focused.Prompt = m.dynamicStyles.inputFocusedPrompt
+		m.profileNameInput.Styles.Focused.Placeholder = m.dynamicStyles.inputFocusedPlaceholder
+		m.profileNameInput.Styles.Blurred.Text = m.dynamicStyles.inputBlurredText
 
 		// Update spinner style
 		m.spinner.Style = m.dynamicStyles.spinner
@@ -965,6 +1031,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case stateSetAccountRegion:
 				m.state = stateSelectAccount
+				return m, nil
+
+			case stateSetProfileName:
+				m.state = stateSelectRole
 				return m, nil
 			}
 
@@ -1280,6 +1350,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return m, openBrowser(url)
 						}
 					}
+
+				case "p":
+					if i, ok := m.roleList.SelectedItem().(item); ok {
+						// Set the selected role but don't get credentials yet
+						m.selectedAcc.SelectedRole = i.Title()
+						// Try to load previously used profile name for this account+role combination
+						previousProfileName, err := m.configMgr.GetProfileNameForAccountRole(m.selectedSSO.Name, m.selectedAcc.Name, m.selectedAcc.SelectedRole)
+						if err != nil {
+							previousProfileName = "" // Fallback to empty if error
+						}
+						m.profileNameInput.SetValue(previousProfileName)
+						m.state = stateSetProfileName
+						return m, m.profileNameInput.Focus()
+					}
 				}
 			}
 
@@ -1357,6 +1441,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.accountList.ResetFilter()
 				m.state = stateSelectAccount
 				return m, nil
+			}
+
+		case stateSetProfileName:
+			if keyPress.String() == "enter" {
+				profileName := strings.TrimSpace(m.profileNameInput.Value())
+				if profileName != "" {
+					m.customProfileName = profileName
+					// Save the custom profile name for this account+role combination
+					go func() {
+						if err := m.configMgr.SaveProfileNameForAccountRole(m.selectedSSO.Name, m.selectedAcc.Name, m.selectedAcc.SelectedRole, profileName); err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: Failed to save profile name for account+role combination: %v\n", err)
+						}
+					}()
+				} else {
+					m.customProfileName = ""
+				}
+				// Get credentials for the selected role with custom profile name
+				return m, getRoleCredentialsWithProfile(
+					m.awsClient,
+					m.accessToken,
+					m.selectedAcc.AccountID,
+					m.selectedAcc.SelectedRole,
+					m.selectedAcc,
+					m.selectedSSO.DefaultRegion,
+					m.currentRequestID,
+					m.customProfileName,
+				)
 			}
 		}
 
@@ -1458,6 +1569,65 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case credentialsSetMsg:
+		// Handle eval flag for shell integration
+		if globalEvalMode {
+			// Create clean styled success message for TUI eval mode without borders
+			// This avoids ANSI padding calculation issues and looks cleaner
+			cliStyles := getDynamicStyles(true) // Assume dark background for CLI output
+
+			// Determine region: account-specific > SSO default
+			region := m.selectedSSO.DefaultRegion
+			if m.selectedAcc.Region != "" {
+				region = m.selectedAcc.Region
+			}
+
+			// Clear screen and reset terminal state for clean appearance after TUI exit
+			fmt.Fprintf(os.Stderr, "\033[2J\033[H\033[0m") // Clear screen, home cursor, reset all attributes
+
+			// Print clean success message with colors (no borders for cleaner output)
+			fmt.Fprintf(os.Stderr, "\r\n")
+
+			ssoLine := fmt.Sprintf("  SSO Profile: %s", cliStyles.primary.Bold(true).Render(m.selectedSSO.Name))
+			fmt.Fprintf(os.Stderr, "\r%s\n", ssoLine)
+
+			accountLine := fmt.Sprintf("  Account: %s %s", cliStyles.primary.Bold(true).Render(m.selectedAcc.Name), cliStyles.muted.Render(fmt.Sprintf("(%s)", m.selectedAcc.AccountID)))
+			fmt.Fprintf(os.Stderr, "\r%s\n", accountLine)
+
+			roleLine := fmt.Sprintf("  Role: %s", cliStyles.primary.Bold(true).Render(m.selectedAcc.SelectedRole))
+			fmt.Fprintf(os.Stderr, "\r%s\n", roleLine)
+
+			regionLine := fmt.Sprintf("  Region: %s", cliStyles.primary.Bold(true).Render(region))
+			fmt.Fprintf(os.Stderr, "\r%s\n", regionLine)
+
+			if msg.profileName != "default" {
+				profileLine := fmt.Sprintf("  AWS Profile: %s", cliStyles.primary.Bold(true).Render(msg.profileName))
+				fmt.Fprintf(os.Stderr, "\r%s\n", profileLine)
+			}
+
+			fmt.Fprintf(os.Stderr, "\r\n")
+
+			// Output shell commands to stdout (gets eval'd)
+			fmt.Printf("export AWS_PROFILE='%s'\n", msg.profileName)
+			fmt.Printf("export AWS_REGION='%s'\n", region)
+			fmt.Printf("export AWS_ACCESS_KEY_ID='%s'\n", msg.accessKeyID)
+			fmt.Printf("export AWS_SECRET_ACCESS_KEY='%s'\n", msg.secretAccessKey)
+			fmt.Printf("export AWS_SESSION_TOKEN='%s'\n", msg.sessionToken)
+			if msg.sessionExpiration != "" {
+				fmt.Printf("export AWS_SESSION_EXPIRATION='%s'\n", msg.sessionExpiration)
+			}
+
+			// Final terminal reset and explicit flush before exiting
+			fmt.Fprintf(os.Stderr, "\033[0m") // Final reset of all terminal attributes
+			os.Stdout.Sync()
+			os.Stderr.Sync()
+			os.Exit(0)
+		}
+		// Store the profile name for the success display
+		if msg.profileName != "default" {
+			m.customProfileName = msg.profileName
+		} else {
+			m.customProfileName = ""
+		}
 		m.state = stateSessionSuccess
 		return m, nil
 
@@ -1609,6 +1779,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateSetAccountRegion:
 		var cmd tea.Cmd
 		m.accountRegionInput, cmd = m.accountRegionInput.Update(msg)
+		cmds = append(cmds, cmd)
+
+	case stateSetProfileName:
+		var cmd tea.Cmd
+		m.profileNameInput, cmd = m.profileNameInput.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -1880,13 +2055,20 @@ func (m model) View() (string, *tea.Cursor) {
 			region = m.selectedAcc.Region
 		}
 
-		// Use the simplified details format
-		detailsContent := lipgloss.JoinVertical(lipgloss.Left,
-			fmt.Sprintf("SSO Profile: %s", m.dynamicStyles.primary.Render(m.selectedSSO.Name)),
-			fmt.Sprintf("Account: %s (%s)", m.dynamicStyles.primary.Render(m.selectedAcc.Name), m.dynamicStyles.muted.Render(m.selectedAcc.AccountID)),
-			fmt.Sprintf("Role: %s", m.dynamicStyles.primary.Render(m.selectedAcc.SelectedRole)),
-			fmt.Sprintf("Region: %s", m.dynamicStyles.primary.Render(region)),
-		)
+		// Use the actual profile name from the credentials message, but we need to access it somehow
+		// For now, let's determine if we should show the profile name based on whether we have a custom one
+		var detailsLines []string
+		detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", m.dynamicStyles.primary.Render(m.selectedSSO.Name)))
+		detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", m.dynamicStyles.primary.Render(m.selectedAcc.Name), m.dynamicStyles.muted.Render(m.selectedAcc.AccountID)))
+		detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", m.dynamicStyles.primary.Render(m.selectedAcc.SelectedRole)))
+		detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", m.dynamicStyles.primary.Render(region)))
+
+		// Only show AWS Profile if we have a custom profile name stored
+		if m.customProfileName != "" {
+			detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", m.dynamicStyles.primary.Render(m.customProfileName)))
+		}
+
+		detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
 		details := m.dynamicStyles.successBox.Render(detailsContent)
 
 		// Display header, details box, and help text
@@ -1970,6 +2152,27 @@ func (m model) View() (string, *tea.Cursor) {
 		cur = tea.NewCursor(cursorX, cursorY)
 		cur.Shape = tea.CursorBar
 		cur.Blink = true
+
+	case stateSetProfileName:
+		header := m.dynamicStyles.title.Margin(0, 2).Render("Set Custom Profile Name")
+
+		profileContent := lipgloss.JoinVertical(
+			lipgloss.Center,
+			m.dynamicStyles.text.Render("Set custom profile name for:"),
+			m.dynamicStyles.primary.Render(fmt.Sprintf("%s / %s", m.selectedAcc.Name, m.selectedAcc.SelectedRole)),
+			"",
+			m.profileNameInput.View(),
+		)
+		content = lipgloss.JoinVertical(lipgloss.Left, header, m.dynamicStyles.box.Render(profileContent), m.dynamicStyles.help.Render("Press Enter to continue or ESC to cancel"))
+
+		input := m.profileNameInput
+
+		cursorY := 9
+		cursorX := len(input.Prompt) + input.Cursor().X
+
+		cur = tea.NewCursor(cursorX, cursorY)
+		cur.Shape = tea.CursorBar
+		cur.Blink = true
 	}
 
 	// Apply base style and margin
@@ -1979,7 +2182,7 @@ func (m model) View() (string, *tea.Cursor) {
 }
 
 // DirectSessionSetup handles setting up a session directly from command line arguments
-func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bool, regionFlag string) error {
+func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bool, regionFlag string, evalFlag bool, profileFlag string) error {
 	// Create config manager
 	configMgr, err := config.NewManager()
 	if err != nil {
@@ -2204,26 +2407,70 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 			return fmt.Errorf("failed to get role credentials: %w", err)
 		}
 
+		// Use custom profile if provided, otherwise use default
+		var profileName string
+		if profileFlag != "" {
+			profileName = profileFlag
+		} else {
+			profileName = "default"
+		}
+
 		// Write credentials
-		err = config.WriteCredentials(
+		err = config.WriteCredentialsWithProfile(
 			*resp.RoleCredentials.AccessKeyId,
 			*resp.RoleCredentials.SecretAccessKey,
 			*resp.RoleCredentials.SessionToken,
 			region,
+			profileName,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to write credentials: %w", err)
 		}
 
-		// Print success message with styling
-		detailsContent := lipgloss.JoinVertical(lipgloss.Left,
-			fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(selectedProfile.Name)),
-			fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(selectedAccount.Name), cliStyles.muted.Render(selectedAccount.AccountID)),
-			fmt.Sprintf("Role: %s", cliStyles.primary.Render(roleName)),
-			fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)),
-		)
-		details := cliStyles.successBox.Render(detailsContent)
-		fmt.Printf("\n%s\n\n", details)
+		// Handle eval flag for shell integration
+		if evalFlag {
+			// In eval mode, send styled success message to stderr so it doesn't interfere with eval
+			var detailsLines []string
+			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(selectedProfile.Name)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(selectedAccount.Name), cliStyles.muted.Render(selectedAccount.AccountID)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(roleName)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
+			if profileName != "default" {
+				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(profileName)))
+			}
+			detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
+			details := cliStyles.successBox.Render(detailsContent)
+
+			// Print styled success message to stderr (visible but not eval'd)
+			fmt.Fprintf(os.Stderr, "\n%s\n\n", details)
+
+			// Output shell commands to stdout (gets eval'd)
+			fmt.Printf("export AWS_PROFILE='%s'\n", profileName)
+			fmt.Printf("export AWS_REGION='%s'\n", region)
+			fmt.Printf("export AWS_ACCESS_KEY_ID='%s'\n", *resp.RoleCredentials.AccessKeyId)
+			fmt.Printf("export AWS_SECRET_ACCESS_KEY='%s'\n", *resp.RoleCredentials.SecretAccessKey)
+			fmt.Printf("export AWS_SESSION_TOKEN='%s'\n", *resp.RoleCredentials.SessionToken)
+
+			// Add session expiration for Starship duration display
+			if resp.RoleCredentials.Expiration != 0 {
+				// Format expiration time in RFC3339 format for AWS_SESSION_EXPIRATION
+				expirationTime := time.UnixMilli(resp.RoleCredentials.Expiration)
+				fmt.Printf("export AWS_SESSION_EXPIRATION='%s'\n", expirationTime.Format(time.RFC3339))
+			}
+		} else {
+			// Normal mode: print styled success message
+			var detailsLines []string
+			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(selectedProfile.Name)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(selectedAccount.Name), cliStyles.muted.Render(selectedAccount.AccountID)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(roleName)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
+			if profileName != "default" {
+				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(profileName)))
+			}
+			detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
+			details := cliStyles.successBox.Render(detailsContent)
+			fmt.Printf("\n%s\n\n", details)
+		}
 	}
 
 	// Save the last used SSO profile after successful setup
@@ -2235,6 +2482,12 @@ func directSessionSetup(ssoName, accountName, roleNameArg string, browserFlag bo
 	}
 	if err := configMgr.SaveLastSelectedRole(selectedProfile.Name, selectedAccount.Name, roleName); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to save last selected role: %v\n", err)
+	}
+	// Save the custom profile name for this account+role combination if one was provided
+	if profileFlag != "" {
+		if err := configMgr.SaveProfileNameForAccountRole(selectedProfile.Name, selectedAccount.Name, roleName, profileFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to save profile name for account+role combination: %v\n", err)
+		}
 	}
 
 	return nil
@@ -2380,7 +2633,22 @@ func handleLastSessionBrowser() {
 func handleInteractiveSession() {
 	os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
 
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
+	var p *tea.Program
+
+	if globalEvalMode {
+		// In eval mode, we need everything (including alt screen control sequences) to go to stderr
+		// so the TUI is visible during command substitution, but export commands go to stdout
+		p = tea.NewProgram(
+			initialModel(),
+			tea.WithOutput(os.Stderr), // All TUI output including control sequences to stderr
+			tea.WithInput(os.Stdin),   // Keep input from stdin
+			tea.WithAltScreen(),       // Use alt screen for consistent, clean interface
+		)
+	} else {
+		// Normal interactive mode with full terminal features
+		p = tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
+	}
+
 	m, err := p.Run()
 	if err != nil {
 		fatalError(fmt.Sprintf("Error running program: %v", err), "")
@@ -2396,12 +2664,18 @@ func handleInteractiveSession() {
 			if region == "" {
 				region = model.selectedSSO.DefaultRegion
 			}
-			detailsContent := lipgloss.JoinVertical(lipgloss.Left,
-				fmt.Sprintf("SSO Profile: %s", finalStyles.primary.Render(model.selectedSSO.Name)),
-				fmt.Sprintf("Account: %s (%s)", finalStyles.primary.Render(model.selectedAcc.Name), finalStyles.muted.Render(model.selectedAcc.AccountID)),
-				fmt.Sprintf("Role: %s", finalStyles.primary.Render(model.selectedAcc.SelectedRole)),
-				fmt.Sprintf("Region: %s", finalStyles.primary.Render(region)),
-			)
+			var detailsLines []string
+			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", finalStyles.primary.Render(model.selectedSSO.Name)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", finalStyles.primary.Render(model.selectedAcc.Name), finalStyles.muted.Render(model.selectedAcc.AccountID)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", finalStyles.primary.Render(model.selectedAcc.SelectedRole)))
+			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", finalStyles.primary.Render(region)))
+
+			// Show AWS Profile if custom profile was used
+			if model.customProfileName != "" {
+				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", finalStyles.primary.Render(model.customProfileName)))
+			}
+
+			detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
 			details := finalStyles.successBox.Render(detailsContent)
 			fmt.Printf("\n%s\n\n", details)
 		}
@@ -2411,14 +2685,12 @@ func handleInteractiveSession() {
 
 func handleWhoami() {
 	configMgr, err := config.NewManager()
-
 	if err != nil {
 		fatalError(fmt.Sprintf("Error initializing config manager: %v", err), "")
 	}
 
 	lastSSOProfileName, err := configMgr.GetLastSelectedSSOProfile()
 	profiles, err := configMgr.LoadProfiles()
-
 	if err != nil {
 		fatalError(fmt.Sprintf("Error loading SSO profiles: %v", err), "")
 	}
@@ -2441,7 +2713,6 @@ func handleWhoami() {
 	}
 
 	cachedToken, err := configMgr.LoadToken(selectedProfile.StartURL)
-
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to check token cache: %v\\n", err)
 	}
@@ -2454,7 +2725,6 @@ func handleWhoami() {
 	}
 
 	awsClient, err := aws.NewClient(selectedProfile.SSORegion)
-
 	if err != nil {
 		fatalError(fmt.Sprintf("Error initializing AWS client: %v", err), "")
 	}
@@ -2473,17 +2743,34 @@ func handleWhoami() {
 		}
 	}
 
+	// Get the last used role for this account
+	lastRoleName, err := configMgr.GetLastSelectedRole(selectedProfile.Name, lastAccountName)
+	if err != nil || lastRoleName == "" {
+		fatalError("No role found for the last session", "")
+	}
+
+	// Get the region for this account
+	region, err := configMgr.GetAccountRegion(selectedProfile.Name, lastAccountName)
+	if err != nil || region == "" {
+		region = selectedProfile.DefaultRegion
+	}
+
 	cliStyles := getDynamicStyles(true)
 
-	fmt.Println(
-		lipgloss.JoinHorizontal(lipgloss.Left,
-			cliStyles.text.Render(selectedProfile.Name),
-			cliStyles.text.Render(" / "),
-			cliStyles.primary.Render(selectedAccountID.Name),
-			cliStyles.text.Render(" / "),
-			cliStyles.secondary.Render(selectedAccountID.AccountID),
-		),
-	)
+	// Print formatted success message matching the role selection format
+	var detailsLines []string
+	detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(selectedProfile.Name)))
+	detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(selectedAccountID.Name), cliStyles.muted.Render(selectedAccountID.AccountID)))
+	detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(lastRoleName)))
+	detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
+
+	// Check if there's a custom profile in use (this is harder to determine from whoami)
+	// For now, we'll assume default unless we can detect otherwise
+	// TODO: Could enhance this by checking if credentials exist in a named profile
+
+	detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
+	details := cliStyles.successBox.Render(detailsContent)
+	fmt.Printf("\n%s\n\n", details)
 	os.Exit(0)
 }
 
@@ -2493,8 +2780,13 @@ func main() {
 	regionFlag := flag.StringP("region", "r", "", "Specify the AWS region to use")
 	versionFlag := flag.BoolP("version", "v", false, "Print version information")
 	whoamiFlag := flag.BoolP("whoami", "w", false, "Print current AWS Account name & ID")
+	evalFlag := flag.BoolP("eval", "e", false, "Output shell commands to set AWS_PROFILE environment variable")
+	profileFlag := flag.StringP("profile", "p", "", "Specify custom AWS profile name for credentials")
 
 	flag.Parse()
+
+	// Set global eval mode
+	globalEvalMode = *evalFlag
 
 	// Handle version flag immediately after parsing
 	if *versionFlag {
@@ -2504,7 +2796,7 @@ func main() {
 
 	args := flag.Args()
 
-	usageString := "Usage: sesh [options] [SSONAME ACCOUNTNAME [ROLENAME]]\nOptions:\n  --version, -v     Print version information\n  --browser, -b     Open AWS console in browser\n  --region, -r REGION Specify AWS region\n --whoami, -w Print current AWS Account name & ID"
+	usageString := "Usage: sesh [options] [SSONAME ACCOUNTNAME [ROLENAME]]\nOptions:\n  --version, -v     Print version information\n  --browser, -b     Open AWS console in browser\n  --region, -r REGION Specify AWS region\n  --whoami, -w      Print current AWS Account name & ID\n  --eval, -e        Output shell commands to set AWS_PROFILE environment variable\n  --profile, -p PROFILE Specify custom AWS profile name for credentials"
 
 	// Check for direct session setup (2 or 3 args)
 	if len(args) == 2 || len(args) == 3 {
@@ -2516,7 +2808,7 @@ func main() {
 		}
 
 		// Pass the role name arg and browser flag
-		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag, *regionFlag); err != nil {
+		if err := directSessionSetup(ssoName, accountName, roleNameArg, *browserFlag, *regionFlag, *evalFlag, *profileFlag); err != nil {
 			fatalError(err.Error(), usageString)
 		}
 		os.Exit(0)
