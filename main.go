@@ -1571,28 +1571,50 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case credentialsSetMsg:
 		// Handle eval flag for shell integration
 		if globalEvalMode {
-			// Create styled success message for stderr (visible but not eval'd)
+			// Create styled success message for TUI eval mode with simpler border
+			// to avoid lipgloss box rendering issues after TUI stderr usage
 			cliStyles := getDynamicStyles(true) // Assume dark background for CLI output
-			var detailsLines []string
-			detailsLines = append(detailsLines, fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(m.selectedSSO.Name)))
-			detailsLines = append(detailsLines, fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(m.selectedAcc.Name), cliStyles.muted.Render(m.selectedAcc.AccountID)))
-			detailsLines = append(detailsLines, fmt.Sprintf("Role: %s", cliStyles.primary.Render(m.selectedAcc.SelectedRole)))
 
 			// Determine region: account-specific > SSO default
 			region := m.selectedSSO.DefaultRegion
 			if m.selectedAcc.Region != "" {
 				region = m.selectedAcc.Region
 			}
-			detailsLines = append(detailsLines, fmt.Sprintf("Region: %s", cliStyles.primary.Render(region)))
+
+			// Clear screen and reset terminal state for clean appearance after TUI exit
+			fmt.Fprintf(os.Stderr, "\033[2J\033[H\033[0m") // Clear screen, home cursor, reset all attributes
+
+			// Print success message with colors and properly formatted box
+			fmt.Fprintf(os.Stderr, "\r\n")
+			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("╭──────────────────────────────────────────╮"))
+			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("│                                          │"))
+
+			// Format each line with proper padding to fit the box width (40 chars content + 2 for borders)
+			ssoLine := fmt.Sprintf("SSO Profile: %s", cliStyles.primary.Render(m.selectedSSO.Name))
+			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
+				cliStyles.successText.Render("│"), ssoLine, cliStyles.successText.Render("│"))
+
+			accountLine := fmt.Sprintf("Account: %s (%s)", cliStyles.primary.Render(m.selectedAcc.Name), cliStyles.muted.Render(m.selectedAcc.AccountID))
+			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
+				cliStyles.successText.Render("│"), accountLine, cliStyles.successText.Render("│"))
+
+			roleLine := fmt.Sprintf("Role: %s", cliStyles.primary.Render(m.selectedAcc.SelectedRole))
+			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
+				cliStyles.successText.Render("│"), roleLine, cliStyles.successText.Render("│"))
+
+			regionLine := fmt.Sprintf("Region: %s", cliStyles.primary.Render(region))
+			fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
+				cliStyles.successText.Render("│"), regionLine, cliStyles.successText.Render("│"))
 
 			if msg.profileName != "default" {
-				detailsLines = append(detailsLines, fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(msg.profileName)))
+				profileLine := fmt.Sprintf("AWS Profile: %s", cliStyles.primary.Render(msg.profileName))
+				fmt.Fprintf(os.Stderr, "\r%s %-38s %s\n",
+					cliStyles.successText.Render("│"), profileLine, cliStyles.successText.Render("│"))
 			}
-			detailsContent := lipgloss.JoinVertical(lipgloss.Left, detailsLines...)
-			details := cliStyles.successBox.Render(detailsContent)
 
-			// Print styled success message to stderr (visible but not eval'd)
-			fmt.Fprintf(os.Stderr, "\n%s\n\n", details)
+			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("│                                          │"))
+			fmt.Fprintf(os.Stderr, "\r%s\n", cliStyles.successText.Render("╰──────────────────────────────────────────╯"))
+			fmt.Fprintf(os.Stderr, "\r\n")
 
 			// Output shell commands to stdout (gets eval'd)
 			fmt.Printf("export AWS_PROFILE='%s'\n", msg.profileName)
@@ -1603,6 +1625,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.sessionExpiration != "" {
 				fmt.Printf("export AWS_SESSION_EXPIRATION='%s'\n", msg.sessionExpiration)
 			}
+
+			// Final terminal reset and explicit flush before exiting
+			fmt.Fprintf(os.Stderr, "\033[0m") // Final reset of all terminal attributes
+			os.Stdout.Sync()
+			os.Stderr.Sync()
 			os.Exit(0)
 		}
 		// Store the profile name for the success display
@@ -2619,13 +2646,13 @@ func handleInteractiveSession() {
 	var p *tea.Program
 
 	if globalEvalMode {
-		// In eval mode, render TUI to stderr so it's visible during command substitution,
-		// and avoid problematic terminal features that interfere with eval parsing
+		// In eval mode, we need everything (including alt screen control sequences) to go to stderr
+		// so the TUI is visible during command substitution, but export commands go to stdout
 		p = tea.NewProgram(
 			initialModel(),
-			tea.WithOutput(os.Stderr),  // Render TUI to stderr so it's visible during eval
-			tea.WithInput(os.Stdin),    // Keep input from stdin
-			tea.WithoutSignalHandler(), // Avoid signal handling that might interfere
+			tea.WithOutput(os.Stderr), // All TUI output including control sequences to stderr
+			tea.WithInput(os.Stdin),   // Keep input from stdin
+			tea.WithAltScreen(),       // Use alt screen for consistent, clean interface
 		)
 	} else {
 		// Normal interactive mode with full terminal features

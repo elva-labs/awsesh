@@ -214,15 +214,39 @@ sesh [-v|--version] [-b|--browser] [-w|--whoami] [-r|--region REGION] [-e|--eval
   sesh MyOrg MyAccount AdminRole --profile dev --eval
   ```
 
-### Shell Integration (AWS_PROFILE Environment Variable)
+### Shell Integration (AWS Environment Variables)
 
-For better integration with tools like [Starship](https://starship.rs/) that rely on the `AWS_PROFILE` environment variable, you can use the `--eval` flag to automatically set this variable in your shell.
+For better integration with tools like [Starship](https://starship.rs/) that display AWS session information, use the `--eval` flag to automatically set AWS environment variables in your shell.
 
-#### Setting up a shell function (Recommended)
+#### Recommended Setup: Simplified Shell Function
 
-Add this function to your shell configuration file (`~/.bashrc`, `~/.zshrc`, etc.):
+Add this simple function to your shell configuration file (`~/.bashrc`, `~/.zshrc`, etc.):
+
+**Bash/Zsh:**
+```bash
+sesh() {
+    eval "$(command sesh --eval "$@")"
+}
+```
+
+**Fish:**
+```fish
+function sesh
+    eval (command sesh --eval $argv)
+end
+```
 
 > **💡 Quick Setup:** You can also source the provided helper script: `source shell-integration.sh`
+
+This approach always uses `--eval` mode, which sets comprehensive AWS environment variables that work with:
+- ✅ **Starship** - Shows profile, region, and session duration
+- ✅ **AWS CLI** - Uses environment variables over credentials file
+- ✅ **Terraform** - Recognizes AWS environment variables
+- ✅ **Other AWS tools** - Standard environment variable support
+
+#### Advanced Setup: Conditional Shell Function
+
+For users who want both eval and file-only modes:
 
 **Bash/Zsh:**
 ```bash
@@ -249,11 +273,11 @@ end
 After setting up the function, you can use:
 
 ```sh
-# Set credentials AND AWS_PROFILE environment variable
-sesh MyOrg MyAccount AdminRole --eval
+# Direct CLI mode with comprehensive AWS environment variables
+sesh MyOrg MyAccount AdminRole
 
-# Or using the TUI with eval mode
-sesh --eval
+# Interactive TUI mode with comprehensive AWS environment variables
+sesh  # Shows TUI interface, sets all env vars after selection
 ```
 
 #### Manual usage (Alternative)
@@ -268,7 +292,18 @@ eval "$(sesh MyOrg MyAccount AdminRole --eval)"
 eval "$(sesh --eval)"
 ```
 
-The `--eval` flag makes `sesh` output shell commands like `export AWS_PROFILE='myorg-adminrole'` that set the environment variable to match your selected AWS account and role.
+The `--eval` flag makes `sesh` output comprehensive shell commands that set all relevant AWS environment variables:
+
+```bash
+export AWS_PROFILE='myorg-adminrole'
+export AWS_REGION='us-east-1'
+export AWS_ACCESS_KEY_ID='AKIA...'
+export AWS_SECRET_ACCESS_KEY='...'
+export AWS_SESSION_TOKEN='...'
+export AWS_SESSION_EXPIRATION='2024-08-19T10:30:00Z'
+```
+
+This provides complete session information for AWS tools and shell prompts like Starship.
 
 ### Custom Profile Names
 
