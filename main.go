@@ -70,7 +70,12 @@ type ssoLoginErrMsg struct {
 }
 
 type credentialsSetMsg struct {
-	profileName string
+	profileName       string
+	accessKeyID       string
+	secretAccessKey   string
+	sessionToken      string
+	region            string
+	sessionExpiration string
 }
 
 type ssoTokenPollingTickMsg struct {
@@ -653,7 +658,21 @@ func getRoleCredentialsWithProfile(client *aws.Client, accessToken, accountID, r
 			return ssoLoginErrMsg{err: fmt.Errorf("failed to write credentials: %w", err), requestID: requestID}
 		}
 
-		return credentialsSetMsg{profileName: profileName}
+		// Prepare session expiration
+		var sessionExpiration string
+		if resp.RoleCredentials.Expiration != 0 {
+			expirationTime := time.UnixMilli(resp.RoleCredentials.Expiration)
+			sessionExpiration = expirationTime.Format(time.RFC3339)
+		}
+
+		return credentialsSetMsg{
+			profileName:       profileName,
+			accessKeyID:       *resp.RoleCredentials.AccessKeyId,
+			secretAccessKey:   *resp.RoleCredentials.SecretAccessKey,
+			sessionToken:      *resp.RoleCredentials.SessionToken,
+			region:            region,
+			sessionExpiration: sessionExpiration,
+		}
 	}
 }
 
@@ -1578,7 +1597,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Output shell commands to stdout (gets eval'd)
 			fmt.Printf("export AWS_PROFILE='%s'\n", msg.profileName)
 			fmt.Printf("export AWS_REGION='%s'\n", region)
-			// TODO: Add AWS credentials to TUI eval mode (requires passing credentials through credentialsSetMsg)
+			fmt.Printf("export AWS_ACCESS_KEY_ID='%s'\n", msg.accessKeyID)
+			fmt.Printf("export AWS_SECRET_ACCESS_KEY='%s'\n", msg.secretAccessKey)
+			fmt.Printf("export AWS_SESSION_TOKEN='%s'\n", msg.sessionToken)
+			if msg.sessionExpiration != "" {
+				fmt.Printf("export AWS_SESSION_EXPIRATION='%s'\n", msg.sessionExpiration)
+			}
 			os.Exit(0)
 		}
 		// Store the profile name for the success display
@@ -2592,7 +2616,22 @@ func handleLastSessionBrowser() {
 func handleInteractiveSession() {
 	os.Setenv("AWS_SDK_GO_V2_ENABLETRUSTEDCREDENTIALSFEATURE", "true")
 
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
+	var p *tea.Program
+
+	if globalEvalMode {
+		// In eval mode, render TUI to stderr so it's visible during command substitution,
+		// and avoid problematic terminal features that interfere with eval parsing
+		p = tea.NewProgram(
+			initialModel(),
+			tea.WithOutput(os.Stderr),  // Render TUI to stderr so it's visible during eval
+			tea.WithInput(os.Stdin),    // Keep input from stdin
+			tea.WithoutSignalHandler(), // Avoid signal handling that might interfere
+		)
+	} else {
+		// Normal interactive mode with full terminal features
+		p = tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithKeyboardEnhancements())
+	}
+
 	m, err := p.Run()
 	if err != nil {
 		fatalError(fmt.Sprintf("Error running program: %v", err), "")
