@@ -202,7 +202,7 @@ func (m *Manager) LoadProfiles() ([]SSOProfile, error) {
 	var profiles []SSOProfile
 
 	for _, section := range cfg.Sections() {
-		if section.Name() == ini.DefaultSection {
+		if section.Name() == ini.DefaultSection || section.Name() == "metadata" {
 			continue
 		}
 

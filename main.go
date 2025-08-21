@@ -40,7 +40,7 @@ const (
 // Constants for limits
 const (
 	maxAccountsForRoleLoading = 100
-	Version                   = "0.1.5"
+	Version                   = "0.1.6"
 )
 
 // Global variables
