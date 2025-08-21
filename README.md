@@ -116,7 +116,7 @@ Download the latest release executables directly from the [Releases page](https:
    **Linux/macOS:**
 
    ```sh
-   go build -o build/sesh
+   go build -ldflags="-X main.Version=$(git describe --tags --always)" -o sesh
    ```
 
    **Windows:**

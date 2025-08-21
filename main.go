@@ -40,8 +40,10 @@ const (
 // Constants for limits
 const (
 	maxAccountsForRoleLoading = 100
-	Version                   = "0.1.7"
 )
+
+// Version is set at build time via -ldflags
+var Version = "dev"
 
 // Global variables
 var (
@@ -2790,7 +2792,7 @@ func main() {
 
 	// Handle version flag immediately after parsing
 	if *versionFlag {
-		fmt.Printf("v%s\n", Version)
+		fmt.Printf("%s\n", Version)
 		os.Exit(0)
 	}
 

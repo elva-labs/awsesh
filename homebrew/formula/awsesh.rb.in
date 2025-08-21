@@ -6,20 +6,20 @@ class Awsesh < Formula
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-darwin-amd64"
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/awsesh-darwin-amd64"
       sha256 "__SHA_DARWIN_AMD64__"
     elsif Hardware::CPU.arm?
-      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-darwin-arm64"
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/awsesh-darwin-arm64"
       sha256 "__SHA_DARWIN_ARM64__"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-linux-amd64"
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/awsesh-linux-amd64"
       sha256 "__SHA_LINUX_AMD64__"
     elsif Hardware::CPU.arm?
-      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/sesh-linux-arm64"
+      url "https://github.com/elva-labs/awsesh/releases/download/__VERSION__/awsesh-linux-arm64"
       sha256 "__SHA_LINUX_ARM64__"
     end
   end
@@ -27,7 +27,7 @@ class Awsesh < Formula
   def install
     os     = OS.mac? ? "darwin" : "linux"
     arch   = Hardware::CPU.intel? ? "amd64" : "arm64"
-    binary = "sesh-#{os}-#{arch}"
+    binary = "awsesh-#{os}-#{arch}"
 
     bin.install binary => "sesh"
   end

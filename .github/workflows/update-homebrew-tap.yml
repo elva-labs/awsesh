@@ -42,7 +42,7 @@ jobs:
 
           # Download and calculate SHAs
           for TARGET in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
-            FILE="sesh-${TARGET}"
+            FILE="awsesh-${TARGET}"
             curl -sL -o "${FILE}" "${BASE_URL}/${FILE}"
             echo "::set-output name=SHA_${TARGET^^}::$(shasum -a 256 "${FILE}" | awk '{print $1}')"
           done
