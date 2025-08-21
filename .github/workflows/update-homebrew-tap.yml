@@ -2,7 +2,7 @@ name: Update Homebrew Tap
 
 on:
   release:
-    types: [released]
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
