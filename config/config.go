@@ -189,47 +189,128 @@ func (m *Manager) SaveProfiles(profiles []SSOProfile) error {
 	return nil
 }
 
-// LoadProfiles loads SSO profiles from configuration
-func (m *Manager) LoadProfiles() ([]SSOProfile, error) {
-	cfg, err := ini.Load(m.configPath)
+// LoadSSOProfilesFromAWSConfig reads SSO profiles from the AWS config file
+func LoadSSOProfilesFromAWSConfig() ([]SSOProfile, error) {
+	awsConfigPath, err := GetAWSConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get AWS config path: %w", err)
+	}
+
+	cfg, err := ini.Load(awsConfigPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []SSOProfile{}, nil
 		}
-		return nil, fmt.Errorf(errLoadAwseshConfig, err)
+		return nil, fmt.Errorf("failed to load AWS config file: %w", err)
 	}
 
 	var profiles []SSOProfile
 
 	for _, section := range cfg.Sections() {
-		if section.Name() == ini.DefaultSection || section.Name() == "metadata" {
+		sectionName := section.Name()
+
+		// Skip default section
+		if sectionName == ini.DefaultSection {
 			continue
 		}
 
-		profile := SSOProfile{
-			Name:          section.Name(),
-			StartURL:      section.Key("start_url").String(),
-			SSORegion:     section.Key("sso_region").String(),
-			DefaultRegion: section.Key("default_region").String(),
+		// Handle both "profile name" and "name" formats
+		var profileName string
+		if strings.HasPrefix(sectionName, "profile ") {
+			profileName = strings.TrimPrefix(sectionName, "profile ")
+		} else {
+			profileName = sectionName
 		}
 
-		// Backwards compatibility: If sso_region is empty, try reading the old 'region' key
-		// Remove in the future
-		if profile.SSORegion == "" {
-			oldRegion := section.Key("region").String()
-			if oldRegion != "" {
-				profile.SSORegion = oldRegion
-				// If default_region is also empty, use the old region value for it too
-				if profile.DefaultRegion == "" {
-					profile.DefaultRegion = oldRegion
-				}
-			}
+		// Check if this is an SSO profile by looking for sso_start_url
+		startURL := section.Key("sso_start_url").String()
+		if startURL == "" {
+			continue
+		}
+
+		ssoRegion := section.Key("sso_region").String()
+		defaultRegion := section.Key("region").String()
+
+		// If no explicit region is set, use sso_region as default
+		if defaultRegion == "" {
+			defaultRegion = ssoRegion
+		}
+
+		profile := SSOProfile{
+			Name:          profileName,
+			StartURL:      startURL,
+			SSORegion:     ssoRegion,
+			DefaultRegion: defaultRegion,
 		}
 
 		profiles = append(profiles, profile)
 	}
 
 	return profiles, nil
+}
+
+// LoadProfiles loads SSO profiles from both AWS config and awsesh config
+func (m *Manager) LoadProfiles() ([]SSOProfile, error) {
+	var allProfiles []SSOProfile
+	profileMap := make(map[string]SSOProfile) // Use map to avoid duplicates
+
+	// First, load profiles from AWS config file
+	awsProfiles, err := LoadSSOProfilesFromAWSConfig()
+	if err != nil {
+		// Log warning but continue - AWS config might not exist or be malformed
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load SSO profiles from AWS config: %v\n", err)
+	} else {
+		for _, profile := range awsProfiles {
+			profileMap[profile.Name] = profile
+		}
+	}
+
+	// Then load profiles from awsesh config (these take precedence)
+	cfg, err := ini.Load(m.configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf(errLoadAwseshConfig, err)
+		}
+		// awsesh config doesn't exist, that's fine - use only AWS config profiles
+	} else {
+		for _, section := range cfg.Sections() {
+			if section.Name() == ini.DefaultSection || section.Name() == "metadata" {
+				continue
+			}
+
+			profile := SSOProfile{
+				Name:          section.Name(),
+				StartURL:      section.Key("start_url").String(),
+				SSORegion:     section.Key("sso_region").String(),
+				DefaultRegion: section.Key("default_region").String(),
+			}
+
+			// Backwards compatibility: If sso_region is empty, try reading the old 'region' key
+			// Remove in the future
+			if profile.SSORegion == "" {
+				oldRegion := section.Key("region").String()
+				if oldRegion != "" {
+					profile.SSORegion = oldRegion
+					// If default_region is also empty, use the old region value for it too
+					if profile.DefaultRegion == "" {
+						profile.DefaultRegion = oldRegion
+					}
+				}
+			}
+
+			// Only add if it has a start_url (valid profile)
+			if profile.StartURL != "" {
+				profileMap[profile.Name] = profile
+			}
+		}
+	}
+
+	// Convert map back to slice
+	for _, profile := range profileMap {
+		allProfiles = append(allProfiles, profile)
+	}
+
+	return allProfiles, nil
 }
 
 // SaveToken saves an SSO token to cache
