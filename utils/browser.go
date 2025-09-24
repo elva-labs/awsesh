@@ -28,21 +28,7 @@ func OpenBrowser(url string) error {
 	switch runtime.GOOS {
 	case "linux":
 		if isWSL() {
-			// Try common Windows browsers via WSL
-			browsers := []string{
-				"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
-				"/mnt/c/Program Files/Mozilla Firefox/firefox.exe",
-				"/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-				"/mnt/c/Program Files (x86)/Mozilla Firefox/firefox.exe",
-			}
-
-			for _, browser := range browsers {
-				if _, err := os.Stat(browser); err == nil {
-					return exec.Command(browser, url).Start()
-				}
-			}
-
-			// Fallback to cmd.exe start
+			// Use Windows default browser via cmd.exe start
 			return exec.Command("cmd.exe", "/c", "start", url).Start()
 		}
 
