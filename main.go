@@ -346,6 +346,10 @@ func initialModel() model {
 				key.WithHelp("p", "custom profile"),
 			),
 			key.NewBinding(
+				key.WithKeys("r"),
+				key.WithHelp("r", "refresh roles"),
+			),
+			key.NewBinding(
 				key.WithKeys("o"),
 				key.WithHelp("o", "open browser"),
 			),
@@ -360,6 +364,10 @@ func initialModel() model {
 			key.NewBinding(
 				key.WithKeys("enter"),
 				key.WithHelp("enter", "select role and set session"),
+			),
+			key.NewBinding(
+				key.WithKeys("r"),
+				key.WithHelp("r", "refresh roles from AWS"),
 			),
 			key.NewBinding(
 				key.WithKeys("o"),
@@ -1055,6 +1063,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
+			} else if m.state == stateSelectRole && m.roleList.FilterState() != list.Filtering {
+				// Force refresh roles for the current account
+				if m.selectedAcc != nil {
+					// Reset RolesLoaded flag to force a fresh fetch
+					for idx := range m.accounts {
+						if m.accounts[idx].AccountID == m.selectedAcc.AccountID {
+							m.accounts[idx].RolesLoaded = false
+							m.loadingText = fmt.Sprintf("Refreshing roles for %s...", m.selectedAcc.Name)
+							return m, loadAccountRoles(m.awsClient, m.accessToken, m.selectedAcc.AccountID, idx)
+						}
+					}
+				}
 			}
 
 		// Add check for 'c' key press to copy verification code
@@ -1196,13 +1216,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									}
 
 									// Load cached accounts if they exist
-									cachedAccounts, lastUpdated, err := m.configMgr.LoadCachedAccounts(profile.StartURL)
+									cachedAccounts, lastUpdated, isStale, err := m.configMgr.LoadCachedAccounts(profile.StartURL)
 									if err != nil {
 										fmt.Fprintf(os.Stderr, "Warning: Failed to load cached accounts: %v\n", err)
 									}
 
 									// If we have cached accounts, use them
 									if len(cachedAccounts) > 0 {
+										// If cache is stale (>24h), reset RolesLoaded flags to trigger background refresh
+										if isStale {
+											for i := range cachedAccounts {
+												cachedAccounts[i].RolesLoaded = false
+											}
+										}
+
 										m.accounts = cachedAccounts
 										m.accountsLastUpdated = lastUpdated
 										m.usingCachedAccounts = true
