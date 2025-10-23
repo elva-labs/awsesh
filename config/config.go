@@ -105,32 +105,35 @@ func (m *Manager) SaveCachedAccounts(profileName, startURL string, accounts []aw
 }
 
 // LoadCachedAccounts loads cached accounts for a specific SSO profile
-func (m *Manager) LoadCachedAccounts(startURL string) ([]awsclient.Account, time.Time, error) {
+// Returns accounts, lastUpdated time, isStale boolean (true if older than 24h), and error
+func (m *Manager) LoadCachedAccounts(startURL string) ([]awsclient.Account, time.Time, bool, error) {
 	cachePath, err := getAwseshAccountsCachePath()
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, time.Time{}, false, err
 	}
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, time.Time{}, nil
+			return nil, time.Time{}, false, nil
 		}
-		return nil, time.Time{}, fmt.Errorf("failed to read accounts cache: %w", err)
+		return nil, time.Time{}, false, fmt.Errorf("failed to read accounts cache: %w", err)
 	}
 
 	var allCaches []CachedAccounts
 	if err = json.Unmarshal(data, &allCaches); err != nil {
-		return nil, time.Time{}, fmt.Errorf("failed to parse accounts cache: %w", err)
+		return nil, time.Time{}, false, fmt.Errorf("failed to parse accounts cache: %w", err)
 	}
 
 	for _, cache := range allCaches {
 		if cache.StartURL == startURL {
-			return cache.Accounts, cache.LastUpdated, nil
+			// Check if cache is stale (older than 24 hours)
+			isStale := time.Since(cache.LastUpdated) > 24*time.Hour
+			return cache.Accounts, cache.LastUpdated, isStale, nil
 		}
 	}
 
-	return nil, time.Time{}, nil
+	return nil, time.Time{}, false, nil
 }
 
 // Helper function to get the accounts cache file path
