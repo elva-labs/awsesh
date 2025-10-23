@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -105,13 +106,17 @@ func (c *Client) ListAccounts(ctx context.Context, accessToken string, existingA
 		// Create account objects, preserving existing roles if available
 		for _, acc := range resp.AccountList {
 			accountID := *acc.AccountId
+			accountName := *acc.AccountName
+
 			if existingAcc, exists := existingMap[accountID]; exists {
-				// Preserve existing account data
-				accounts = append(accounts, existingAcc)
+				// Update account name in case it changed, but preserve roles and region
+				updatedAcc := existingAcc
+				updatedAcc.Name = accountName
+				accounts = append(accounts, updatedAcc)
 			} else {
 				// Create new account with empty roles
 				accounts = append(accounts, Account{
-					Name:        *acc.AccountName,
+					Name:        accountName,
 					AccountID:   accountID,
 					Roles:       []string{},
 					RolesLoaded: false,
@@ -124,6 +129,11 @@ func (c *Client) ListAccounts(ctx context.Context, accessToken string, existingA
 			break
 		}
 	}
+
+	// Sort accounts by name to ensure consistent order
+	slices.SortFunc(accounts, func(a, b Account) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
 	return accounts, nil
 }

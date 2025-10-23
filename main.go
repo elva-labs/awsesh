@@ -311,6 +311,10 @@ func initialModel() model {
 				key.WithHelp("r", "set region"),
 			),
 			key.NewBinding(
+				key.WithKeys("R"),
+				key.WithHelp("R", "refresh accounts"),
+			),
+			key.NewBinding(
 				key.WithKeys("o"),
 				key.WithHelp("o", "open in browser"),
 			),
@@ -321,6 +325,10 @@ func initialModel() model {
 			key.NewBinding(
 				key.WithKeys("r"),
 				key.WithHelp("r", "set region for selected account"),
+			),
+			key.NewBinding(
+				key.WithKeys("R"),
+				key.WithHelp("R", "refresh accounts from AWS"),
 			),
 			key.NewBinding(
 				key.WithKeys("o"),
@@ -544,7 +552,7 @@ func makeAccountItems(accounts []aws.Account, ssoDefaultRegion string, configMgr
 		}
 	}
 
-	sortItems(accountItems)
+	// Accounts are already sorted in ListAccounts, no need to sort items again
 	return accountItems
 }
 
@@ -1050,6 +1058,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "r":
 			if m.state == stateSelectAccount && m.accountList.FilterState() != list.Filtering {
+				// r: Set region for selected account
 				if i, ok := m.accountList.SelectedItem().(item); ok {
 					for idx, acc := range m.accounts {
 						if acc.Name == i.Title() {
@@ -1064,7 +1073,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			} else if m.state == stateSelectRole && m.roleList.FilterState() != list.Filtering {
-				// Force refresh roles for the current account
+				// r: Refresh roles for the current account
 				if m.selectedAcc != nil {
 					// Reset RolesLoaded flag to force a fresh fetch
 					for idx := range m.accounts {
@@ -1074,6 +1083,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return m, loadAccountRoles(m.awsClient, m.accessToken, m.selectedAcc.AccountID, idx)
 						}
 					}
+				}
+			}
+
+		case "R":
+			if m.state == stateSelectAccount && m.accountList.FilterState() != list.Filtering {
+				// R (Shift+r): Refresh account list
+				if m.selectedSSO != nil && m.accessToken != "" {
+					newRequestID := fmt.Sprintf("%s-refresh-%d", m.selectedSSO.Name, time.Now().UnixNano())
+					m.currentRequestID = newRequestID
+					m.loadingText = "Refreshing accounts..."
+					return m, tea.Batch(
+						fetchAccounts(m.awsClient, m.accessToken, newRequestID, nil),
+						m.spinner.Tick,
+					)
 				}
 			}
 
@@ -1528,6 +1551,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingText = "SSO login successful! Fetching accounts..."
 		m.errorMessage = ""
 		m.isAuthenticating = false // Reset authentication flag
+		// Pass existing accounts to preserve roles during background refresh
 		return m, fetchAccounts(m.awsClient, m.accessToken, m.currentRequestID, m.accounts)
 
 	case ssoLoginErrMsg:
@@ -1555,36 +1579,68 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}()
 		}
 
-		// If we're using cached accounts, just update the accounts in memory
-		// but don't change the view or state
-		if m.usingCachedAccounts {
-			m.accounts = msg.accounts
-			m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
-			return m, nil
-		}
-
-		// For non-cached accounts, proceed with normal flow
+		// Update accounts in memory
 		m.accounts = msg.accounts
-		m.state = stateSelectAccount
-		m.errorMessage = ""
-		m.usingCachedAccounts = false
-		m.loadingText = ""
 
-		// Create account list items
+		// Create account list items with updated data
 		accountItems := makeAccountItems(m.accounts, m.selectedSSO.DefaultRegion, m.configMgr, m.selectedSSO.Name)
 
-		// Update account list title with breadcrumb and role loading status
-		title := fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
-		m.accountList.Title = title
+		// If we're using cached accounts, preserve the user's current selection
+		var currentlySelectedAccountName string
+		if m.usingCachedAccounts {
+			if selectedItem, ok := m.accountList.SelectedItem().(item); ok {
+				currentlySelectedAccountName = selectedItem.Title()
+			}
+		}
+
 		m.accountList.SetItems(accountItems)
 
-		// Try to select the previously selected account if it exists
-		m.selectLastUsedAccount(m.selectedSSO.Name)
+		// Update account list title
+		m.accountList.Title = fmt.Sprintf("Select AWS Account for %s", m.selectedSSO.Name)
 
-		// Start sequential role loading only if we're under the limit
-		if len(m.accounts) <= maxAccountsForRoleLoading {
-			return m, startLoadingRoles(m.accessToken, m.accounts)
+		// Only change state if we weren't showing cached accounts
+		if !m.usingCachedAccounts {
+			m.state = stateSelectAccount
+			m.errorMessage = ""
+			m.loadingText = ""
+
+			// Try to select the previously selected account
+			m.selectLastUsedAccount(m.selectedSSO.Name)
+
+			// Start sequential role loading only if we're under the limit
+			if len(m.accounts) <= maxAccountsForRoleLoading {
+				return m, startLoadingRoles(m.accessToken, m.accounts)
+			}
+		} else {
+			// Background refresh complete - preserve user's selection
+			if currentlySelectedAccountName != "" {
+				for i, listItem := range m.accountList.Items() {
+					if listItem.(item).Title() == currentlySelectedAccountName {
+						m.accountList.Select(i)
+						break
+					}
+				}
+			}
+
+			m.usingCachedAccounts = false
+			m.loadingText = ""
+
+			// Only start loading roles for accounts that don't have them yet
+			if len(m.accounts) <= maxAccountsForRoleLoading {
+				// Check if there are any accounts without roles loaded
+				needsRoleLoading := false
+				for _, acc := range m.accounts {
+					if !acc.RolesLoaded {
+						needsRoleLoading = true
+						break
+					}
+				}
+				if needsRoleLoading {
+					return m, startLoadingRoles(m.accessToken, m.accounts)
+				}
+			}
 		}
+
 		return m, nil
 
 	case fetchAccountsErrMsg:
