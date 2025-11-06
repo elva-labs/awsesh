@@ -1,7 +1,24 @@
 import { useKeyboard } from "@opentui/solid";
-import { createSignal, For, Show, onMount } from "solid-js";
+import { createSignal, For, Show, onMount, createMemo } from "solid-js";
 import { useAWS } from "../context/aws";
 import { useRoute, useRouteData } from "../context/route";
+
+/**
+ * Simple fuzzy match - checks if all characters in query appear in order in target
+ */
+function fuzzyMatch(query: string, target: string): boolean {
+  if (!query) return true;
+  const lowerQuery = query.toLowerCase();
+  const lowerTarget = target.toLowerCase();
+  
+  let queryIndex = 0;
+  for (let i = 0; i < lowerTarget.length && queryIndex < lowerQuery.length; i++) {
+    if (lowerTarget[i] === lowerQuery[queryIndex]) {
+      queryIndex++;
+    }
+  }
+  return queryIndex === lowerQuery.length;
+}
 
 /**
  * Account Selector Component
@@ -13,6 +30,7 @@ export function AccountSelector() {
   const routeData = useRouteData("account-select");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [loadingAccounts, setLoadingAccounts] = createSignal(true);
+  const [filterQuery, setFilterQuery] = createSignal("");
 
   // Load accounts on mount
   onMount(async () => {
@@ -23,14 +41,37 @@ export function AccountSelector() {
     setLoadingAccounts(false);
   });
 
+  // Filtered list based on query
+  const filteredAccounts = createMemo(() => {
+    const query = filterQuery();
+    if (!query) return aws.accounts;
+    
+    return aws.accounts.filter((account) => 
+      fuzzyMatch(query, account.name) || fuzzyMatch(query, account.accountId)
+    );
+  });
+
+  // Reset selected index when filter changes
+  const handleFilterChange = (newQuery: string) => {
+    setFilterQuery(newQuery);
+    setSelectedIndex(0);
+  };
+
   // Keyboard navigation
   useKeyboard((key) => {
-    if (key.name === "up" && selectedIndex() > 0) {
+    const filtered = filteredAccounts();
+    
+    // Handle typing for filter
+    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
+      handleFilterChange(filterQuery() + key.sequence);
+    } else if (key.name === "backspace" && filterQuery()) {
+      handleFilterChange(filterQuery().slice(0, -1));
+    } else if (key.name === "up" && selectedIndex() > 0) {
       setSelectedIndex(selectedIndex() - 1);
-    } else if (key.name === "down" && selectedIndex() < aws.accounts.length - 1) {
+    } else if (key.name === "down" && selectedIndex() < filtered.length - 1) {
       setSelectedIndex(selectedIndex() + 1);
     } else if (key.name === "enter" || key.name === "return") {
-      const account = aws.accounts[selectedIndex()];
+      const account = filtered[selectedIndex()];
       if (account) {
         // Navigate to role selection
         route.navigate({
@@ -40,10 +81,15 @@ export function AccountSelector() {
           accountName: account.name,
         });
       }
-    } else if (key.name === "escape" || key.name === "backspace") {
-      // Go back to SSO selection
-      route.navigate({ type: "sso-select" });
-    } else if (key.name === "q") {
+    } else if (key.name === "escape") {
+      if (filterQuery()) {
+        // Clear filter on first escape
+        handleFilterChange("");
+      } else {
+        // Go back to SSO selection
+        route.navigate({ type: "sso-select" });
+      }
+    } else if (key.name === "q" && !filterQuery()) {
       process.exit(0);
     }
   });
@@ -61,6 +107,15 @@ export function AccountSelector() {
           Profile: <text fg="green">{routeData.profileName}</text>
         </text>
       </box>
+
+      {/* Filter input */}
+      <Show when={filterQuery() || aws.accounts.length > 5}>
+        <box marginBottom={1}>
+          <text>Filter: </text>
+          <text fg="yellow">{filterQuery() || "_"}</text>
+          <text fg="gray"> ({filteredAccounts().length}/{aws.accounts.length})</text>
+        </box>
+      </Show>
 
       <Show
         when={!loadingAccounts() && !aws.loading}
@@ -80,22 +135,33 @@ export function AccountSelector() {
             </box>
           }
         >
-          <For each={aws.accounts}>
-            {(account, index) => (
-              <box marginBottom={0}>
-                <text fg={index() === selectedIndex() ? "green" : undefined}>
-                  {index() === selectedIndex() ? "▶ " : "  "}
-                  {account.name} ({account.accountId})
+          <Show
+            when={filteredAccounts().length > 0}
+            fallback={
+              <box>
+                <text fg="yellow">
+                  No accounts match filter "{filterQuery()}"
                 </text>
               </box>
-            )}
-          </For>
+            }
+          >
+            <For each={filteredAccounts()}>
+              {(account, index) => (
+                <box marginBottom={0}>
+                  <text fg={index() === selectedIndex() ? "green" : undefined}>
+                    {index() === selectedIndex() ? "▶ " : "  "}
+                    {account.name} ({account.accountId})
+                  </text>
+                </box>
+              )}
+            </For>
+          </Show>
         </Show>
       </Show>
 
       <box marginTop={1}>
         <text fg="gray">
-          ↑↓ Navigate • Enter Select • Esc/Backspace Back • Q Quit
+          Type to filter • ↑↓ Navigate • Enter Select • Esc Clear/Back • Q Quit
         </text>
       </box>
 

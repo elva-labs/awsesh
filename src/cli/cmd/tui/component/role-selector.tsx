@@ -1,7 +1,24 @@
 import { useKeyboard } from "@opentui/solid";
-import { createSignal, For, Show, onMount } from "solid-js";
+import { createSignal, For, Show, onMount, createMemo } from "solid-js";
 import { useAWS } from "../context/aws";
 import { useRoute, useRouteData } from "../context/route";
+
+/**
+ * Simple fuzzy match - checks if all characters in query appear in order in target
+ */
+function fuzzyMatch(query: string, target: string): boolean {
+  if (!query) return true;
+  const lowerQuery = query.toLowerCase();
+  const lowerTarget = target.toLowerCase();
+  
+  let queryIndex = 0;
+  for (let i = 0; i < lowerTarget.length && queryIndex < lowerQuery.length; i++) {
+    if (lowerTarget[i] === lowerQuery[queryIndex]) {
+      queryIndex++;
+    }
+  }
+  return queryIndex === lowerQuery.length;
+}
 
 /**
  * Role Selector Component
@@ -14,6 +31,7 @@ export function RoleSelector() {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [roles, setRoles] = createSignal<string[]>([]);
   const [loadingRoles, setLoadingRoles] = createSignal(true);
+  const [filterQuery, setFilterQuery] = createSignal("");
 
   // Load roles on mount
   onMount(async () => {
@@ -25,24 +43,50 @@ export function RoleSelector() {
     setLoadingRoles(false);
   });
 
+  // Filtered list based on query
+  const filteredRoles = createMemo(() => {
+    const query = filterQuery();
+    if (!query) return roles();
+    
+    return roles().filter((role) => fuzzyMatch(query, role));
+  });
+
+  // Reset selected index when filter changes
+  const handleFilterChange = (newQuery: string) => {
+    setFilterQuery(newQuery);
+    setSelectedIndex(0);
+  };
+
   // Keyboard navigation
   useKeyboard((key) => {
-    if (key.name === "up" && selectedIndex() > 0) {
+    const filtered = filteredRoles();
+    
+    // Handle typing for filter
+    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
+      handleFilterChange(filterQuery() + key.sequence);
+    } else if (key.name === "backspace" && filterQuery()) {
+      handleFilterChange(filterQuery().slice(0, -1));
+    } else if (key.name === "up" && selectedIndex() > 0) {
       setSelectedIndex(selectedIndex() - 1);
-    } else if (key.name === "down" && selectedIndex() < roles().length - 1) {
+    } else if (key.name === "down" && selectedIndex() < filtered.length - 1) {
       setSelectedIndex(selectedIndex() + 1);
     } else if (key.name === "enter" || key.name === "return") {
-      const roleName = roles()[selectedIndex()];
+      const roleName = filtered[selectedIndex()];
       if (roleName) {
         handleRoleSelection(roleName);
       }
-    } else if (key.name === "escape" || key.name === "backspace") {
-      // Go back to account selection
-      route.navigate({
-        type: "account-select",
-        profileName: routeData.profileName,
-      });
-    } else if (key.name === "q") {
+    } else if (key.name === "escape") {
+      if (filterQuery()) {
+        // Clear filter on first escape
+        handleFilterChange("");
+      } else {
+        // Go back to account selection
+        route.navigate({
+          type: "account-select",
+          profileName: routeData.profileName,
+        });
+      }
+    } else if (key.name === "q" && !filterQuery()) {
       process.exit(0);
     }
   });
@@ -90,6 +134,15 @@ export function RoleSelector() {
         </text>
       </box>
 
+      {/* Filter input */}
+      <Show when={filterQuery() || roles().length > 5}>
+        <box marginBottom={1}>
+          <text>Filter: </text>
+          <text fg="yellow">{filterQuery() || "_"}</text>
+          <text fg="gray"> ({filteredRoles().length}/{roles().length})</text>
+        </box>
+      </Show>
+
       <Show
         when={!loadingRoles() && !aws.loading}
         fallback={
@@ -108,22 +161,33 @@ export function RoleSelector() {
             </box>
           }
         >
-          <For each={roles()}>
-            {(role, index) => (
-              <box marginBottom={0}>
-                <text fg={index() === selectedIndex() ? "green" : undefined}>
-                  {index() === selectedIndex() ? "▶ " : "  "}
-                  {role}
+          <Show
+            when={filteredRoles().length > 0}
+            fallback={
+              <box>
+                <text fg="yellow">
+                  No roles match filter "{filterQuery()}"
                 </text>
               </box>
-            )}
-          </For>
+            }
+          >
+            <For each={filteredRoles()}>
+              {(role, index) => (
+                <box marginBottom={0}>
+                  <text fg={index() === selectedIndex() ? "green" : undefined}>
+                    {index() === selectedIndex() ? "▶ " : "  "}
+                    {role}
+                  </text>
+                </box>
+              )}
+            </For>
+          </Show>
         </Show>
       </Show>
 
       <box marginTop={1}>
         <text fg="gray">
-          ↑↓ Navigate • Enter Select • Esc/Backspace Back • Q Quit
+          Type to filter • ↑↓ Navigate • Enter Select • Esc Clear/Back • Q Quit
         </text>
       </box>
 
