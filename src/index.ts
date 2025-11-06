@@ -6,6 +6,7 @@ import { UI } from "./cli/ui"
 
 import { auth } from "./cli/cmd/auth.js";
 import { whoami } from "./cli/cmd/whoami.js";
+import { TuiCommand } from "./cli/cmd/tui/thread.js";
 
 const VERSION = "0.1.0"
 
@@ -36,6 +37,7 @@ const cli = yargs(hideBin(process.argv))
     })
   })
   .usage("\n" + UI.logo())
+  .command(TuiCommand)
   .command(auth)
   .command(whoami)
   .demandCommand(0, 1, "")
@@ -52,11 +54,6 @@ const cli = yargs(hideBin(process.argv))
 
 try {
   await cli.parse()
-  
-  // If no command specified, show help
-  if (process.argv.length <= 2) {
-    cli.showHelp()
-  }
 } catch (e) {
   const error = e as Error
   Log.Default.error("Fatal error", { error: error.message, stack: error.stack })
