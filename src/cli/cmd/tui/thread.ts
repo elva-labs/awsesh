@@ -1,5 +1,4 @@
 import { cmd } from "../cmd.js";
-import { tui } from "./app";
 import { withInstance } from "@/instance/instance";
 
 /**
@@ -10,6 +9,8 @@ export const TuiCommand = cmd({
   describe: "Interactive AWS Session Manager",
   builder: (yargs) => yargs,
   handler: async () => {
+    // Dynamic import to avoid loading JSX until needed
+    const { tui } = await import("./app.js");
     await withInstance(async () => {
       await tui();
     });
