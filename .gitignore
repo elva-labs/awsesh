@@ -1,1 +1,35 @@
+# Dependencies
+node_modules/
+bun.lockb
+
+# Build output
+dist/
 build/
+*.js.map
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/

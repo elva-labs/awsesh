@@ -1,9 +1,10 @@
-# (AW)Sesh 🔐
+# AWSESH - AWS Session Manager (TypeScript Rewrite)
 
-Sesh is a simple to use AWS session manager with charm! ✨💕
+> 🚧 **Work in Progress** - This is a ground-up rewrite of awsesh in TypeScript using OpenTUI.
 
-Sesh is made to easily manage your AWS SSO sessions and accounts.
-Filter your accounts by name, and quickly switch between them.
+## About
+
+Awsesh is an interactive AWS SSO session manager built with OpenTUI and SolidJS. This rewrite follows the proven architectural patterns from OpenCode while maintaining all the functionality of the original Go version.
 
 ![sesh demo](tapes/demo2.gif)
 _Basic demo_

@@ -1,0 +1,65 @@
+#!/usr/bin/env bun
+import yargs from "yargs"
+import { hideBin } from "yargs/helpers"
+import { Log } from "./util/log"
+import { UI } from "./cli/ui"
+
+import { auth } from "./cli/cmd/auth.js";
+import { whoami } from "./cli/cmd/whoami.js";
+
+const VERSION = "0.1.0"
+
+const cli = yargs(hideBin(process.argv))
+  .scriptName("awsesh")
+  .help("help", "show help")
+  .alias("help", "h")
+  .version("version", VERSION)
+  .alias("version", "v")
+  .option("print-logs", {
+    describe: "print logs to stderr",
+    type: "boolean",
+  })
+  .option("log-level", {
+    describe: "log level",
+    type: "string",
+    choices: ["DEBUG", "INFO", "WARN", "ERROR"],
+  })
+  .middleware(async (opts) => {
+    await Log.init({
+      level: (opts.logLevel as Log.Level) || "INFO",
+      print: opts.printLogs || false,
+    })
+    
+    Log.Default.info("awsesh started", {
+      version: VERSION,
+      args: process.argv.slice(2),
+    })
+  })
+  .usage("\n" + UI.logo())
+  .command(auth)
+  .command(whoami)
+  .demandCommand(0, 1, "")
+  .fail((msg, err) => {
+    if (msg) {
+      UI.error(msg)
+    }
+    if (err) {
+      UI.error(err.message)
+    }
+    process.exit(1)
+  })
+  .strict()
+
+try {
+  await cli.parse()
+  
+  // If no command specified, show help
+  if (process.argv.length <= 2) {
+    cli.showHelp()
+  }
+} catch (e) {
+  const error = e as Error
+  Log.Default.error("Fatal error", { error: error.message, stack: error.stack })
+  UI.error(error.message)
+  process.exit(1)
+}

@@ -1,0 +1,5 @@
+[install]
+optional = true
+
+[test]
+preload = ["./src/util/test-helpers.ts"]
