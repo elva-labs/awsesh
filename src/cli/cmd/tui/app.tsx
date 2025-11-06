@@ -3,6 +3,8 @@ import { Switch, Match } from "solid-js";
 import { RouteProvider, useRoute } from "./context/route";
 import { AWSProvider } from "./context/aws";
 import { SSOSelector } from "./component/sso-selector";
+import { ProfileForm } from "./component/profile-form";
+import { ProfileDeleteConfirm } from "./component/profile-delete-confirm";
 import { AccountSelector } from "./component/account-selector";
 import { RegionSelector } from "./component/region-selector";
 import { RoleSelector } from "./component/role-selector";
@@ -19,6 +21,12 @@ function App() {
     <Switch>
       <Match when={route.data.type === "sso-select"}>
         <SSOSelector />
+      </Match>
+      <Match when={route.data.type === "profile-form"}>
+        <ProfileForm />
+      </Match>
+      <Match when={route.data.type === "profile-delete-confirm"}>
+        <ProfileDeleteConfirm />
       </Match>
       <Match when={route.data.type === "account-select"}>
         <AccountSelector />

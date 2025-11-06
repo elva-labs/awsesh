@@ -1,11 +1,23 @@
 import { createStore } from "solid-js/store";
 import { createSimpleContext } from "./helper";
+import type { SSOProfile } from "@/types";
 
 /**
  * Route types for awsesh TUI navigation
  */
 export type SSOSelectRoute = {
   type: "sso-select";
+};
+
+export type ProfileFormRoute = {
+  type: "profile-form";
+  mode: "create" | "edit";
+  profile?: SSOProfile;
+};
+
+export type ProfileDeleteConfirmRoute = {
+  type: "profile-delete-confirm";
+  profileName: string;
 };
 
 export type AccountSelectRoute = {
@@ -46,6 +58,8 @@ export type SuccessRoute = {
 
 export type Route =
   | SSOSelectRoute
+  | ProfileFormRoute
+  | ProfileDeleteConfirmRoute
   | AccountSelectRoute
   | RegionSelectRoute
   | RoleSelectRoute

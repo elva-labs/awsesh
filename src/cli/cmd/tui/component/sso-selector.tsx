@@ -66,9 +66,36 @@ export function SSOSelector() {
     
     // Handle typing for filter
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      // Skip 'o' key for browser opening
-      if (key.sequence.toLowerCase() === 'o') {
+      const lowerKey = key.sequence.toLowerCase();
+      
+      // Handle special keybindings
+      if (lowerKey === 'o') {
         handleOpenBrowser();
+      } else if (lowerKey === 'n') {
+        // Create new profile
+        route.navigate({
+          type: "profile-form",
+          mode: "create",
+        });
+      } else if (lowerKey === 'e') {
+        // Edit selected profile
+        const profile = filtered[selectedIndex()];
+        if (profile) {
+          route.navigate({
+            type: "profile-form",
+            mode: "edit",
+            profile,
+          });
+        }
+      } else if (lowerKey === 'd') {
+        // Delete selected profile
+        const profile = filtered[selectedIndex()];
+        if (profile) {
+          route.navigate({
+            type: "profile-delete-confirm",
+            profileName: profile.name,
+          });
+        }
       } else {
         handleFilterChange(filterQuery() + key.sequence);
       }
@@ -152,7 +179,7 @@ export function SSOSelector() {
 
       <box marginTop={1}>
         <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • O Open in browser • Esc Clear/Quit • Q Quit
+          Type to filter • ↑↓ Navigate • Enter Select • N New • E Edit • D Delete • O Open • Esc Clear/Quit
         </text>
       </box>
 
