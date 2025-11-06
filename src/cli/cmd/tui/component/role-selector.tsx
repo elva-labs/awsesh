@@ -98,6 +98,7 @@ export function RoleSelector() {
             accountId: routeData.accountId,
             accountName: routeData.accountName,
             roleName,
+            region: routeData.region,
           });
         }
       } else {
@@ -135,12 +136,13 @@ export function RoleSelector() {
     if (!profile) return;
 
     try {
-      // Get credentials and write to file
+      // Get credentials and write to file with optional custom region
       await aws.getRoleCredentials(
         profile,
         routeData.accountId,
         routeData.accountName,
-        roleName
+        roleName,
+        routeData.region
       );
 
       // Navigate to success screen
@@ -163,7 +165,7 @@ export function RoleSelector() {
         </text>
       </box>
 
-      <box marginBottom={1}>
+      <box marginBottom={1} flexDirection="column">
         <text>
           Profile: <text fg="green">{routeData.profileName}</text>
         </text>
@@ -171,6 +173,11 @@ export function RoleSelector() {
           Account: <text fg="green">{routeData.accountName}</text> (
           {routeData.accountId})
         </text>
+        <Show when={routeData.region}>
+          <text>
+            Region: <text fg="green">{routeData.region}</text>
+          </text>
+        </Show>
       </box>
 
       {/* Filter input */}

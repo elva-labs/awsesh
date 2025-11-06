@@ -159,7 +159,8 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         profile: SSOProfile,
         accountId: string,
         accountName: string,
-        roleName: string
+        roleName: string,
+        region?: string
       ): Promise<void> {
         setLoading(true);
         setError(undefined);
@@ -177,13 +178,16 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
             roleName
           );
 
+          // Use custom region if provided, otherwise fall back to profile default
+          const targetRegion = region || profile.defaultRegion;
+
           // Write credentials to file
           await config.writeCredentials(
             `${accountName}-${roleName}`,
             credentials.accessKeyId,
             credentials.secretAccessKey,
             credentials.sessionToken,
-            profile.defaultRegion
+            targetRegion
           );
 
           // Save last selected

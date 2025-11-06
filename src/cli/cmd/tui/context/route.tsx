@@ -13,11 +13,19 @@ export type AccountSelectRoute = {
   profileName: string;
 };
 
+export type RegionSelectRoute = {
+  type: "region-select";
+  profileName: string;
+  accountId: string;
+  accountName: string;
+};
+
 export type RoleSelectRoute = {
   type: "role-select";
   profileName: string;
   accountId: string;
   accountName: string;
+  region?: string;
 };
 
 export type ProfileNameInputRoute = {
@@ -26,6 +34,7 @@ export type ProfileNameInputRoute = {
   accountId: string;
   accountName: string;
   roleName: string;
+  region?: string;
 };
 
 export type SuccessRoute = {
@@ -38,6 +47,7 @@ export type SuccessRoute = {
 export type Route =
   | SSOSelectRoute
   | AccountSelectRoute
+  | RegionSelectRoute
   | RoleSelectRoute
   | ProfileNameInputRoute
   | SuccessRoute;

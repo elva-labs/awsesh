@@ -26,12 +26,13 @@ export function ProfileNameInput() {
     if (!profile) return;
 
     try {
-      // Get credentials and write to file with custom profile name
+      // Get credentials and write to file with custom profile name and optional region
       await aws.getRoleCredentials(
         profile,
         routeData.accountId,
         name,
-        routeData.roleName
+        routeData.roleName,
+        routeData.region
       );
 
       // Navigate to success screen

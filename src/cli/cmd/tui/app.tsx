@@ -4,6 +4,7 @@ import { RouteProvider, useRoute } from "./context/route";
 import { AWSProvider } from "./context/aws";
 import { SSOSelector } from "./component/sso-selector";
 import { AccountSelector } from "./component/account-selector";
+import { RegionSelector } from "./component/region-selector";
 import { RoleSelector } from "./component/role-selector";
 import { ProfileNameInput } from "./component/profile-name-input";
 import { Success } from "./component/success";
@@ -21,6 +22,9 @@ function App() {
       </Match>
       <Match when={route.data.type === "account-select"}>
         <AccountSelector />
+      </Match>
+      <Match when={route.data.type === "region-select"}>
+        <RegionSelector />
       </Match>
       <Match when={route.data.type === "role-select"}>
         <RoleSelector />

@@ -84,9 +84,22 @@ export function AccountSelector() {
     
     // Handle typing for filter
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      // Skip 'o' key for browser opening
-      if (key.sequence.toLowerCase() === 'o') {
+      const lowerKey = key.sequence.toLowerCase();
+      
+      // Handle special keybindings
+      if (lowerKey === 'o') {
         handleOpenBrowser();
+      } else if (lowerKey === 'r') {
+        // Navigate to region selection
+        const account = filtered[selectedIndex()];
+        if (account) {
+          route.navigate({
+            type: "region-select",
+            profileName: routeData.profileName,
+            accountId: account.accountId,
+            accountName: account.name,
+          });
+        }
       } else {
         handleFilterChange(filterQuery() + key.sequence);
       }
@@ -187,7 +200,7 @@ export function AccountSelector() {
 
       <box marginTop={1}>
         <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • O Open in browser • Esc Clear/Back • Q Quit
+          Type to filter • ↑↓ Navigate • Enter Select • R Region • O Open • Esc Clear/Back • Q Quit
         </text>
       </box>
 
