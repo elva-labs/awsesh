@@ -20,6 +20,14 @@ export type RoleSelectRoute = {
   accountName: string;
 };
 
+export type ProfileNameInputRoute = {
+  type: "profile-name-input";
+  profileName: string;
+  accountId: string;
+  accountName: string;
+  roleName: string;
+};
+
 export type SuccessRoute = {
   type: "success";
   profileName: string;
@@ -31,6 +39,7 @@ export type Route =
   | SSOSelectRoute
   | AccountSelectRoute
   | RoleSelectRoute
+  | ProfileNameInputRoute
   | SuccessRoute;
 
 /**

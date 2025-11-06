@@ -5,6 +5,7 @@ import { AWSProvider } from "./context/aws";
 import { SSOSelector } from "./component/sso-selector";
 import { AccountSelector } from "./component/account-selector";
 import { RoleSelector } from "./component/role-selector";
+import { ProfileNameInput } from "./component/profile-name-input";
 import { Success } from "./component/success";
 
 /**
@@ -23,6 +24,9 @@ function App() {
       </Match>
       <Match when={route.data.type === "role-select"}>
         <RoleSelector />
+      </Match>
+      <Match when={route.data.type === "profile-name-input"}>
+        <ProfileNameInput />
       </Match>
       <Match when={route.data.type === "success"}>
         <Success />
