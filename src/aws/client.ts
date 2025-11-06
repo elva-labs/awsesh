@@ -216,4 +216,25 @@ export class AWSClient {
   getRegion(): string {
     return this.region
   }
+
+  /**
+   * Get AWS console dashboard URL for SSO
+   */
+  getDashboardURL(startUrl: string): string {
+    return startUrl
+  }
+
+  /**
+   * Get AWS console URL for a specific account and role
+   */
+  getAccountURL(
+    accountId: string,
+    accessToken: string,
+    startUrl: string,
+    roleName: string
+  ): string {
+    // AWS SSO portal URL format
+    const baseUrl = startUrl.replace(/\/$/, "")
+    return `${baseUrl}#/console?account_id=${accountId}&role_name=${roleName}`
+  }
 }
