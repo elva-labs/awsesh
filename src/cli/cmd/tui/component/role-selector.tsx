@@ -57,13 +57,38 @@ export function RoleSelector() {
     setSelectedIndex(0);
   };
 
+  // Handle opening AWS console with role in browser
+  const handleOpenBrowser = async () => {
+    const roleName = filteredRoles()[selectedIndex()];
+    if (!roleName) return;
+    
+    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
+    if (!profile) return;
+    
+    try {
+      // For roles, construct SSO portal URL with account and role context
+      const baseUrl = profile.startUrl.replace(/\/$/, "");
+      const url = `${baseUrl}#/console?account_id=${routeData.accountId}&role_name=${roleName}`;
+      
+      const { openBrowser } = await import("@/util/browser.js");
+      await openBrowser(url);
+    } catch (error) {
+      console.error("Failed to open browser:", error);
+    }
+  };
+
   // Keyboard navigation
   useKeyboard((key) => {
     const filtered = filteredRoles();
     
     // Handle typing for filter
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      handleFilterChange(filterQuery() + key.sequence);
+      // Skip 'o' key for browser opening
+      if (key.sequence.toLowerCase() === 'o') {
+        handleOpenBrowser();
+      } else {
+        handleFilterChange(filterQuery() + key.sequence);
+      }
     } else if (key.name === "backspace" && filterQuery()) {
       handleFilterChange(filterQuery().slice(0, -1));
     } else if (key.name === "up" && selectedIndex() > 0) {
@@ -187,7 +212,7 @@ export function RoleSelector() {
 
       <box marginTop={1}>
         <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • Esc Clear/Back • Q Quit
+          Type to filter • ↑↓ Navigate • Enter Select • O Open in browser • Esc Clear/Back • Q Quit
         </text>
       </box>
 

@@ -57,13 +57,39 @@ export function AccountSelector() {
     setSelectedIndex(0);
   };
 
+  // Handle opening AWS console for account in browser
+  const handleOpenBrowser = async () => {
+    const account = filteredAccounts()[selectedIndex()];
+    if (!account) return;
+    
+    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
+    if (!profile) return;
+    
+    try {
+      // For accounts, we open the general account console
+      // The URL format is: https://console.aws.amazon.com/console/home?region=<region>#
+      const region = "us-east-1"; // Default region
+      const url = `https://${account.accountId}.signin.aws.amazon.com/console/home?region=${region}`;
+      
+      const { openBrowser } = await import("@/util/browser.js");
+      await openBrowser(url);
+    } catch (error) {
+      console.error("Failed to open browser:", error);
+    }
+  };
+
   // Keyboard navigation
   useKeyboard((key) => {
     const filtered = filteredAccounts();
     
     // Handle typing for filter
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      handleFilterChange(filterQuery() + key.sequence);
+      // Skip 'o' key for browser opening
+      if (key.sequence.toLowerCase() === 'o') {
+        handleOpenBrowser();
+      } else {
+        handleFilterChange(filterQuery() + key.sequence);
+      }
     } else if (key.name === "backspace" && filterQuery()) {
       handleFilterChange(filterQuery().slice(0, -1));
     } else if (key.name === "up" && selectedIndex() > 0) {
@@ -161,7 +187,7 @@ export function AccountSelector() {
 
       <box marginTop={1}>
         <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • Esc Clear/Back • Q Quit
+          Type to filter • ↑↓ Navigate • Enter Select • O Open in browser • Esc Clear/Back • Q Quit
         </text>
       </box>
 

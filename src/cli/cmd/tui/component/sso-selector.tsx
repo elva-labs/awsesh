@@ -46,13 +46,32 @@ export function SSOSelector() {
     setSelectedIndex(0);
   };
 
+  // Handle opening SSO portal in browser
+  const handleOpenBrowser = async () => {
+    const profile = filteredProfiles()[selectedIndex()];
+    if (!profile) return;
+    
+    try {
+      const { openBrowser } = await import("@/util/browser.js");
+      await openBrowser(profile.startUrl);
+    } catch (error) {
+      // Error will be logged but won't crash the TUI
+      console.error("Failed to open browser:", error);
+    }
+  };
+
   // Keyboard navigation
   useKeyboard((key) => {
     const filtered = filteredProfiles();
     
     // Handle typing for filter
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      handleFilterChange(filterQuery() + key.sequence);
+      // Skip 'o' key for browser opening
+      if (key.sequence.toLowerCase() === 'o') {
+        handleOpenBrowser();
+      } else {
+        handleFilterChange(filterQuery() + key.sequence);
+      }
     } else if (key.name === "backspace" && filterQuery()) {
       handleFilterChange(filterQuery().slice(0, -1));
     } else if (key.name === "up" && selectedIndex() > 0) {
@@ -133,7 +152,7 @@ export function SSOSelector() {
 
       <box marginTop={1}>
         <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • Esc Clear/Quit • Q Quit
+          Type to filter • ↑↓ Navigate • Enter Select • O Open in browser • Esc Clear/Quit • Q Quit
         </text>
       </box>
 
