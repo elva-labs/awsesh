@@ -1,7 +1,11 @@
 import { createSignal } from "solid-js";
 import { createSimpleContext } from "./helper";
 import { useInstance } from "@/instance/instance";
+import { Global } from "@/global";
+import { Log } from "@/util/log";
 import type { SSOProfile, Account, SSOLoginInfo } from "@/types";
+
+const log = Log.create({ service: "aws-context" });
 
 /**
  * AWS context provider for TUI
@@ -17,7 +21,10 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
     const [profiles, setProfiles] = createSignal<SSOProfile[]>([]);
     const [accounts, setAccounts] = createSignal<Account[]>([]);
     const [loading, setLoading] = createSignal(false);
+    const [refreshing, setRefreshing] = createSignal(false);
+    const [refreshingRoles, setRefreshingRoles] = createSignal(false);
     const [error, setError] = createSignal<string | undefined>();
+    const [currentProfile, setCurrentProfile] = createSignal<SSOProfile | undefined>();
 
     // Load profiles on init
     (async () => {
@@ -39,6 +46,12 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       get loading() {
         return loading();
       },
+      get refreshing() {
+        return refreshing();
+      },
+      get refreshingRoles() {
+        return refreshingRoles();
+      },
       get error() {
         return error();
       },
@@ -49,6 +62,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       async loadAccounts(profile: SSOProfile): Promise<void> {
         setLoading(true);
         setError(undefined);
+        setCurrentProfile(profile);
 
         try {
           // Try to get cached accounts first
@@ -56,6 +70,12 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           if (cached) {
             setAccounts(cached.accounts);
             setLoading(false);
+            
+            // Pre-load roles if under threshold and not stale
+            if (!cached.isStale && cached.accounts.length <= Global.Limits.maxAccountsForRoleLoading) {
+              this.preloadRoles(profile, cached.accounts);
+            }
+            
             return;
           }
 
@@ -72,10 +92,83 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           // Cache accounts
           await config.saveAccounts(profile.name, accountsList);
           setAccounts(accountsList);
+          
+          // Pre-load roles if under threshold
+          if (accountsList.length <= Global.Limits.maxAccountsForRoleLoading) {
+            this.preloadRoles(profile, accountsList);
+          }
         } catch (e) {
           setError(`Failed to load accounts: ${e}`);
         } finally {
           setLoading(false);
+        }
+      },
+
+      /**
+       * Refresh accounts for the current profile
+       */
+      async refreshAccounts(): Promise<void> {
+        const profile = currentProfile();
+        if (!profile) return;
+
+        setRefreshing(true);
+        setError(undefined);
+
+        try {
+          const token = await config.loadToken(profile.startUrl);
+          if (!token) {
+            throw new Error("No valid token found. Please authenticate first.");
+          }
+
+          const awsClient = new aws(profile.ssoRegion);
+          const accountsList = await awsClient.listAccounts(token.token);
+
+          setAccounts(accountsList);
+          await config.saveAccounts(profile.name, accountsList);
+          
+          // Pre-load roles if under threshold
+          if (accountsList.length <= Global.Limits.maxAccountsForRoleLoading) {
+            this.preloadRoles(profile, accountsList);
+          }
+        } catch (e) {
+          setError(`Failed to refresh accounts: ${e}`);
+        } finally {
+          setRefreshing(false);
+        }
+      },
+
+      /**
+       * Pre-load roles for accounts sequentially
+       */
+      async preloadRoles(profile: SSOProfile, accountsList: Account[]): Promise<void> {
+        const token = await config.loadToken(profile.startUrl);
+        if (!token) return;
+
+        const awsClient = new aws(profile.ssoRegion);
+
+        for (const account of accountsList) {
+          if (account.rolesLoaded) continue;
+
+          try {
+            const roles = await awsClient.listAccountRoles(token.token, account.accountId);
+            
+            // Update account with roles
+            setAccounts((current) =>
+              current.map((a) =>
+                a.accountId === account.accountId
+                  ? { ...a, roles, rolesLoaded: true }
+                  : a
+              )
+            );
+
+            // Update cache
+            await config.saveAccounts(profile.name, accounts());
+          } catch (e) {
+            log.error("Failed to pre-load roles", { error: e, accountName: account.name, accountId: account.accountId });
+          }
+
+          // Small delay to avoid rate limiting
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       },
 
@@ -97,12 +190,59 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
           const awsClient = new aws(profile.ssoRegion);
           const roles = await awsClient.listAccountRoles(token.token, accountId);
+          
+          // Update account with roles in state
+          setAccounts((current) =>
+            current.map((a) =>
+              a.accountId === accountId
+                ? { ...a, roles, rolesLoaded: true }
+                : a
+            )
+          );
+
+          // Update cache
+          await config.saveAccounts(profile.name, accounts());
+          
           return roles;
         } catch (e) {
           setError(`Failed to load roles: ${e}`);
           return [];
         } finally {
           setLoading(false);
+        }
+      },
+
+      /**
+       * Refresh roles for a specific account
+       */
+      async refreshRoles(profile: SSOProfile, accountId: string): Promise<void> {
+        setRefreshingRoles(true);
+        setError(undefined);
+
+        try {
+          const token = await config.loadToken(profile.startUrl);
+          if (!token) {
+            throw new Error("No valid token found. Please authenticate first.");
+          }
+
+          const awsClient = new aws(profile.ssoRegion);
+          const roles = await awsClient.listAccountRoles(token.token, accountId);
+
+          // Update account with roles
+          setAccounts((current) =>
+            current.map((a) =>
+              a.accountId === accountId
+                ? { ...a, roles, rolesLoaded: true }
+                : a
+            )
+          );
+
+          // Update cache
+          await config.saveAccounts(profile.name, accounts());
+        } catch (e) {
+          setError(`Failed to refresh roles: ${e}`);
+        } finally {
+          setRefreshingRoles(false);
         }
       },
 
@@ -154,14 +294,23 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
       /**
        * Get role credentials and write to ~/.aws/credentials
+       * Returns the expiration date of the credentials
+       * 
+       * @param profile - SSO profile
+       * @param accountId - AWS account ID
+       * @param accountName - AWS account name (used for default profile name)
+       * @param roleName - IAM role name
+       * @param region - Optional custom region
+       * @param customProfileName - Optional custom profile name (overrides default)
        */
       async getRoleCredentials(
         profile: SSOProfile,
         accountId: string,
         accountName: string,
         roleName: string,
-        region?: string
-      ): Promise<void> {
+        region?: string,
+        customProfileName?: string
+      ): Promise<Date> {
         setLoading(true);
         setError(undefined);
 
@@ -181,9 +330,20 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           // Use custom region if provided, otherwise fall back to profile default
           const targetRegion = region || profile.defaultRegion;
 
+          // Check if there's a remembered profile name
+          let profileNameToUse = customProfileName;
+          if (!profileNameToUse) {
+            const remembered = await config.loadProfileName(
+              profile.name,
+              accountName,
+              roleName
+            );
+            profileNameToUse = remembered || `${accountName}-${roleName}`;
+          }
+
           // Write credentials to file
           await config.writeCredentials(
-            `${accountName}-${roleName}`,
+            profileNameToUse,
             credentials.accessKeyId,
             credentials.secretAccessKey,
             credentials.sessionToken,
@@ -196,6 +356,8 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
             account: accountName,
             role: roleName,
           });
+
+          return credentials.expiration;
         } catch (e) {
           setError(`Failed to get credentials: ${e}`);
           throw e;

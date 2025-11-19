@@ -155,6 +155,77 @@ Download the latest release executables directly from the [Releases page](https:
    # Add to user PATH (see Pre-built Binaries section for command)
    ```
 
+## 🔄 Migrating from Old Version
+
+If you're upgrading from the Go version of awsesh, the new TypeScript version uses a different storage format (JSON-based instead of INI files). Don't worry - migration is automatic and easy!
+
+### Automatic Migration
+
+When you first run any awsesh command, it will automatically detect if you have old config files (`~/.aws/awsesh`, `~/.aws/awsesh-tokens`, `~/.aws/awsesh-accounts`) and ask if you'd like to migrate:
+
+```sh
+awsesh
+```
+
+You'll see:
+
+```
+🔍 Old awsesh configuration detected!
+
+Found the following old config files:
+  • ~/.aws/awsesh
+  • ~/.aws/awsesh-tokens
+  • ~/.aws/awsesh-accounts
+
+Would you like to migrate your configuration to the new format?
+This will preserve all your profiles, tokens, and cached accounts.
+
+Run migration now? [Y/n]
+```
+
+Answer `Y` (or just press Enter) to automatically migrate all your:
+- SSO profiles
+- Cached authentication tokens
+- Account lists
+- Last selected preferences
+
+### Manual Migration
+
+You can also run migration manually at any time:
+
+```sh
+awsesh migrate
+```
+
+Options:
+- `--dry-run`: Preview what will be migrated without making changes
+- `--force`: Force migration even if new config already exists
+- `--no-backup`: Skip creating backup files (not recommended)
+
+### What Gets Migrated?
+
+- ✅ All SSO profiles (name, start URL, SSO region, default region)
+- ✅ Valid authentication tokens (expired tokens are skipped)
+- ✅ Cached account lists
+- ✅ Last selected account/role preferences
+- ✅ Custom profile name mappings
+
+### Migration Safety
+
+- Old config files are backed up with `.bak` extension by default
+- Migration can be run multiple times safely
+- New and old config formats can coexist temporarily
+- If migration fails, your old config is untouched
+
+### After Migration
+
+Once migrated, your configs will be stored in XDG-compliant locations:
+- Profiles: `~/.local/share/awsesh/storage/profile/`
+- Tokens: `~/.local/share/awsesh/storage/token/`
+- Preferences: `~/.local/share/awsesh/storage/preference/`
+
+The old backup files in `~/.aws/` can be safely deleted after you've confirmed everything works.
+
 ## 🚀 Usage
 
 ### Interactive TUI

@@ -5,6 +5,7 @@ export interface SSOProfile {
   startUrl: string
   ssoRegion: string
   defaultRegion: string
+  isChina?: boolean  // Indicates China AWS region (awsapps.cn)
 }
 
 export interface Account {

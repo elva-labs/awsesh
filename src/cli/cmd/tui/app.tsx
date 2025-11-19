@@ -2,6 +2,8 @@ import { render } from "@opentui/solid";
 import { Switch, Match } from "solid-js";
 import { RouteProvider, useRoute } from "./context/route";
 import { AWSProvider } from "./context/aws";
+import { ExitProvider } from "./context/exit";
+import { ThemeProvider, useTheme } from "./context/theme";
 import { SSOSelector } from "./component/sso-selector";
 import { ProfileForm } from "./component/profile-form";
 import { ProfileDeleteConfirm } from "./component/profile-delete-confirm";
@@ -16,9 +18,10 @@ import { Success } from "./component/success";
  */
 function App() {
   const route = useRoute();
+  const { theme } = useTheme();
 
   return (
-    <Switch>
+    <Switch fallback={<box><text fg={theme.error}>Unknown route: {route.data.type}</text></box>}>
       <Match when={route.data.type === "sso-select"}>
         <SSOSelector />
       </Match>
@@ -53,11 +56,15 @@ function App() {
 export function tui(): Promise<void> {
   return new Promise<void>((resolve) => {
     render(() => (
-      <RouteProvider>
-        <AWSProvider>
-          <App />
-        </AWSProvider>
-      </RouteProvider>
+      <ExitProvider onExit={async () => resolve()}>
+        <ThemeProvider>
+          <RouteProvider>
+            <AWSProvider>
+              <App />
+            </AWSProvider>
+          </RouteProvider>
+        </ThemeProvider>
+      </ExitProvider>
     ));
 
     // Handle exit

@@ -2,6 +2,9 @@ import { useKeyboard } from "@opentui/solid";
 import { createSignal, For, Show, createMemo } from "solid-js";
 import { useAWS } from "../context/aws";
 import { useRoute } from "../context/route";
+import { useExit } from "../context/exit";
+import { useTheme } from "../context/theme";
+import type { InputRenderable } from "@opentui/core";
 
 /**
  * Simple fuzzy match - checks if all characters in query appear in order in target
@@ -27,8 +30,13 @@ function fuzzyMatch(query: string, target: string): boolean {
 export function SSOSelector() {
   const aws = useAWS();
   const route = useRoute();
+  const exit = useExit();
+  const { theme } = useTheme();
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [filterQuery, setFilterQuery] = createSignal("");
+  const [filterMode, setFilterMode] = createSignal(false);
+  
+  let inputRef: InputRenderable | undefined;
 
   // Filtered list based on query
   const filteredProfiles = createMemo(() => {
@@ -46,61 +54,104 @@ export function SSOSelector() {
     setSelectedIndex(0);
   };
 
-  // Handle opening SSO portal in browser
   const handleOpenBrowser = async () => {
     const profile = filteredProfiles()[selectedIndex()];
     if (!profile) return;
     
-    try {
-      const { openBrowser } = await import("@/util/browser.js");
-      await openBrowser(profile.startUrl);
-    } catch (error) {
-      // Error will be logged but won't crash the TUI
-      console.error("Failed to open browser:", error);
-    }
+    const { openBrowser } = await import("@/util/browser.js");
+    await openBrowser(profile.startUrl);
   };
 
-  // Keyboard navigation
   useKeyboard((key) => {
     const filtered = filteredProfiles();
     
-    // Handle typing for filter
+    // If in filter mode, handle filter-specific keys
+    if (filterMode()) {
+      if (key.name === "escape") {
+        // Exit filter mode
+        setFilterMode(false);
+        handleFilterChange("");
+        inputRef?.blur();
+      } else if (key.name === "up" || (key.sequence?.toLowerCase() === 'k' && !key.ctrl)) {
+        // Navigate up in filtered results
+        if (selectedIndex() > 0) {
+          setSelectedIndex(selectedIndex() - 1);
+        }
+      } else if (key.name === "down" || (key.sequence?.toLowerCase() === 'j' && !key.ctrl)) {
+        // Navigate down in filtered results
+        if (selectedIndex() < filtered.length - 1) {
+          setSelectedIndex(selectedIndex() + 1);
+        }
+      } else if (key.name === "enter" || key.name === "return") {
+        // Select current item
+        const profile = filtered[selectedIndex()];
+        if (profile) {
+          // Clear filter and exit filter mode
+          setFilterMode(false);
+          handleFilterChange("");
+          inputRef?.blur();
+          // Navigate to account selection
+          route.navigate({
+            type: "account-select",
+            profileName: profile.name,
+          });
+        }
+      }
+      // Let input handle other keys
+      return;
+    }
+    
+    // Navigation mode - handle special keybindings
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
       const lowerKey = key.sequence.toLowerCase();
       
-      // Handle special keybindings
-      if (lowerKey === 'o') {
+      if (lowerKey === '/') {
+        // Enter filter mode
+        setFilterMode(true);
+        setTimeout(() => inputRef?.focus(), 0);
+      } else if (lowerKey === 'o') {
         handleOpenBrowser();
       } else if (lowerKey === 'n') {
-        // Create new profile
         route.navigate({
           type: "profile-form",
           mode: "create",
         });
       } else if (lowerKey === 'e') {
-        // Edit selected profile
         const profile = filtered[selectedIndex()];
-        if (profile) {
-          route.navigate({
-            type: "profile-form",
-            mode: "edit",
-            profile,
-          });
-        }
+        if (!profile) return;
+        
+        route.navigate({
+          type: "profile-form",
+          mode: "edit",
+          profile: {
+            name: profile.name,
+            startUrl: profile.startUrl,
+            ssoRegion: profile.ssoRegion,
+            defaultRegion: profile.defaultRegion,
+            isChina: profile.isChina,
+          },
+        });
       } else if (lowerKey === 'd') {
-        // Delete selected profile
         const profile = filtered[selectedIndex()];
-        if (profile) {
-          route.navigate({
-            type: "profile-delete-confirm",
-            profileName: profile.name,
-          });
+        if (!profile) return;
+        
+        route.navigate({
+          type: "profile-delete-confirm",
+          profileName: profile.name,
+        });
+      } else if (lowerKey === 'q') {
+        exit();
+      } else if (lowerKey === 'k') {
+        // Vim up
+        if (selectedIndex() > 0) {
+          setSelectedIndex(selectedIndex() - 1);
         }
-      } else {
-        handleFilterChange(filterQuery() + key.sequence);
+      } else if (lowerKey === 'j') {
+        // Vim down
+        if (selectedIndex() < filtered.length - 1) {
+          setSelectedIndex(selectedIndex() + 1);
+        }
       }
-    } else if (key.name === "backspace" && filterQuery()) {
-      handleFilterChange(filterQuery().slice(0, -1));
     } else if (key.name === "up" && selectedIndex() > 0) {
       setSelectedIndex(selectedIndex() - 1);
     } else if (key.name === "down" && selectedIndex() < filtered.length - 1) {
@@ -115,15 +166,7 @@ export function SSOSelector() {
         });
       }
     } else if (key.name === "escape") {
-      if (filterQuery()) {
-        // Clear filter on first escape
-        handleFilterChange("");
-      } else {
-        // Exit on second escape
-        process.exit(0);
-      }
-    } else if (key.name === "q" && !filterQuery()) {
-      process.exit(0);
+      exit();
     }
   });
 
@@ -131,16 +174,27 @@ export function SSOSelector() {
     <box flexDirection="column" padding={1}>
       <box marginBottom={1}>
         <text>
-          <b style={{ fg: "cyan" }}>AWS Session Manager - Select SSO Profile</b>
+          <b style={{ fg: theme.accent }}>AWS Session Manager - Select SSO Profile</b>
         </text>
       </box>
 
       {/* Filter input */}
-      <Show when={filterQuery() || aws.profiles.length > 5}>
-        <box marginBottom={1}>
-          <text>Filter: </text>
-          <text fg="yellow">{filterQuery() || "_"}</text>
-          <text fg="gray"> ({filteredProfiles().length}/{aws.profiles.length})</text>
+      <Show when={filterMode()}>
+        <box marginBottom={1} flexDirection="column">
+          <box>
+            <text>Filter: </text>
+            <input
+              ref={(r) => (inputRef = r)}
+              onInput={(value) => handleFilterChange(value)}
+              placeholder="Type to filter..."
+              focusedBackgroundColor={theme.inputBg}
+              cursorColor={theme.inputCursor}
+              focusedTextColor={theme.inputFocusText}
+            />
+          </box>
+          <box marginLeft={8}>
+            <text fg={theme.textMuted}>Matches: {filteredProfiles().length}/{aws.profiles.length}</text>
+          </box>
         </box>
       </Show>
 
@@ -148,7 +202,7 @@ export function SSOSelector() {
         when={aws.profiles.length > 0}
         fallback={
           <box>
-            <text fg="yellow">
+            <text fg={theme.warning}>
               No SSO profiles found. Create one with: awsesh auth &lt;profile-name&gt;
             </text>
           </box>
@@ -158,7 +212,7 @@ export function SSOSelector() {
           when={filteredProfiles().length > 0}
           fallback={
             <box>
-              <text fg="yellow">
+              <text fg={theme.warning}>
                 No profiles match filter "{filterQuery()}"
               </text>
             </box>
@@ -167,7 +221,7 @@ export function SSOSelector() {
           <For each={filteredProfiles()}>
             {(profile, index) => (
               <box marginBottom={0}>
-                <text fg={index() === selectedIndex() ? "green" : undefined}>
+                <text fg={index() === selectedIndex() ? theme.success : undefined}>
                   {index() === selectedIndex() ? "▶ " : "  "}
                   {profile.name} ({profile.startUrl})
                 </text>
@@ -178,14 +232,14 @@ export function SSOSelector() {
       </Show>
 
       <box marginTop={1}>
-        <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • N New • E Edit • D Delete • O Open • Esc Clear/Quit
+        <text fg={theme.textMuted}>
+          / Filter • ↑↓/jk Navigate • Enter Select • N New • E Edit • D Delete • O Open • Q/Esc Quit
         </text>
       </box>
 
       <Show when={aws.error}>
         <box marginTop={1}>
-          <text fg="red">Error: {aws.error}</text>
+          <text fg={theme.error}>Error: {aws.error}</text>
         </box>
       </Show>
     </box>

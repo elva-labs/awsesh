@@ -2,6 +2,7 @@ import { cmd } from "./cmd.js";
 import { UI } from "../ui.js";
 import { withInstance } from "../../instance/instance.js";
 import { openBrowser } from "../../util/browser.js";
+import { copyToClipboard } from "../../util/clipboard.js";
 import type { SSOProfile } from "../../types/index.js";
 
 interface AuthArgs {
@@ -103,6 +104,12 @@ export const auth = cmd({
       UI.info("Please visit the following URL and enter the code:\n");
       console.log(`  URL:  ${loginInfo.verificationUriComplete}`);
       console.log(`  Code: ${loginInfo.userCode}\n`);
+
+      // Try to copy verification code to clipboard
+      const copied = await copyToClipboard(loginInfo.userCode);
+      if (copied) {
+        UI.info("✓ Verification code copied to clipboard!\n");
+      }
 
       // Open browser
       await openBrowser(loginInfo.verificationUriComplete);

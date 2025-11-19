@@ -49,11 +49,25 @@ export type ProfileNameInputRoute = {
   region?: string;
 };
 
+export type SSOLoginRoute = {
+  type: "sso-login";
+  profileName: string;
+  startUrl: string;
+  ssoRegion: string;
+};
+
 export type SuccessRoute = {
   type: "success";
   profileName: string;
   accountName: string;
+  accountId: string;
   roleName: string;
+  expiration?: string; // ISO 8601 string
+  region?: string;
+};
+
+export type SettingsRoute = {
+  type: "settings";
 };
 
 export type Route =
@@ -61,10 +75,12 @@ export type Route =
   | ProfileFormRoute
   | ProfileDeleteConfirmRoute
   | AccountSelectRoute
+  | SSOLoginRoute
   | RegionSelectRoute
   | RoleSelectRoute
   | ProfileNameInputRoute
-  | SuccessRoute;
+  | SuccessRoute
+  | SettingsRoute;
 
 /**
  * Route context provider for TUI navigation

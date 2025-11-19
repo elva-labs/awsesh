@@ -147,13 +147,93 @@ export namespace ConfigManager {
     }
   }
   
+  // Profile Name Memory
+  export async function saveProfileName(
+    ssoProfile: string,
+    accountName: string,
+    roleName: string,
+    profileName: string
+  ): Promise<void> {
+    log.info("Saving profile name memory", { 
+      ssoProfile, 
+      accountName, 
+      roleName, 
+      profileName 
+    })
+    
+    await Storage.update<Record<string, any>>(
+      ["preference", "profile-names"],
+      (draft) => {
+        if (!draft[ssoProfile]) {
+          draft[ssoProfile] = {}
+        }
+        if (!draft[ssoProfile][accountName]) {
+          draft[ssoProfile][accountName] = {}
+        }
+        draft[ssoProfile][accountName][roleName] = profileName
+      }
+    )
+  }
+  
+  export async function loadProfileName(
+    ssoProfile: string,
+    accountName: string,
+    roleName: string
+  ): Promise<string | null> {
+    try {
+      const data = await Storage.read<Record<string, any>>(
+        ["preference", "profile-names"]
+      )
+      
+      return data[ssoProfile]?.[accountName]?.[roleName] || null
+    } catch {
+      return null
+    }
+  }
+
+  // Old Config Detection
+  export async function detectOldConfig(): Promise<{
+    hasOldConfig: boolean
+    foundFiles: string[]
+  }> {
+    const oldConfigDir = process.env.AWS_CONFIG_FILE
+      ? Global.Path.awsConfig.split("/").slice(0, -1).join("/")
+      : Global.Path.awsConfig.split("/").slice(0, -1).join("/")
+
+    const oldProfilesPath = `${oldConfigDir}/awsesh`
+    const oldTokensPath = `${oldConfigDir}/awsesh-tokens`
+    const oldAccountsPath = `${oldConfigDir}/awsesh-accounts`
+
+    const foundFiles: string[] = []
+
+    try {
+      await fs.access(oldProfilesPath)
+      foundFiles.push(oldProfilesPath)
+    } catch {}
+
+    try {
+      await fs.access(oldTokensPath)
+      foundFiles.push(oldTokensPath)
+    } catch {}
+
+    try {
+      await fs.access(oldAccountsPath)
+      foundFiles.push(oldAccountsPath)
+    } catch {}
+
+    return {
+      hasOldConfig: foundFiles.length > 0,
+      foundFiles,
+    }
+  }
+
   // AWS Credentials File Management
   export async function writeCredentials(
+    profileName: string,
     accessKeyId: string,
     secretAccessKey: string,
     sessionToken: string,
-    region: string,
-    profileName: string = "default"
+    region: string
   ): Promise<void> {
     log.info("Writing credentials", { profileName, region })
     

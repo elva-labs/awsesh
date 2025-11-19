@@ -1,14 +1,22 @@
+import { useTheme } from "../context/theme";
 import { useKeyboard } from "@opentui/solid";
 import { createSignal, Show } from "solid-js";
 import { useAWS } from "../context/aws";
 import { useRoute, useRouteData } from "../context/route";
+import { useExit } from "../context/exit";
+import { URLHelper } from "@/util/url";
 import type { SSOProfile } from "@/types";
 
-type Field = "name" | "startUrl" | "ssoRegion" | "defaultRegion";
+type Field = "name" | "company" | "ssoRegion" | "defaultRegion";
 
-const FIELDS: { key: Field; label: string; placeholder: string }[] = [
+const FIELDS: { key: Field; label: string; placeholder: string; hint?: string }[] = [
   { key: "name", label: "Profile Name", placeholder: "my-sso-profile" },
-  { key: "startUrl", label: "SSO Start URL", placeholder: "https://d-xxxxxxxxxx.awsapps.com/start" },
+  { 
+    key: "company", 
+    label: "Company Name", 
+    placeholder: "d-xxxxxxxxxx",
+    hint: "The unique identifier from your SSO portal URL"
+  },
   { key: "ssoRegion", label: "SSO Region", placeholder: "us-east-1" },
   { key: "defaultRegion", label: "Default Region", placeholder: "us-east-1" },
 ];
@@ -18,20 +26,40 @@ const FIELDS: { key: Field; label: string; placeholder: string }[] = [
  * Create or edit an SSO profile
  */
 export function ProfileForm() {
+  const { theme } = useTheme();
   const aws = useAWS();
   const route = useRoute();
+  const exit = useExit();
+  
   const routeData = useRouteData("profile-form");
   
-  // Initialize form fields
   const isEdit = routeData.mode === "edit" && routeData.profile;
+  
+  let initialName = "";
+  let initialCompany = "";
+  let initialSsoRegion = "";
+  let initialDefaultRegion = "";
+  let initialIsChina = false;
+  
+  if (isEdit) {
+    initialName = routeData.profile!.name || "";
+    initialSsoRegion = routeData.profile!.ssoRegion || "";
+    initialDefaultRegion = routeData.profile!.defaultRegion || "";
+    initialIsChina = routeData.profile!.isChina || false;
+    
+    const extracted = URLHelper.extractCompanyName(routeData.profile!.startUrl);
+    initialCompany = extracted || "";
+  }
+  
   const [formData, setFormData] = createSignal<Record<Field, string>>({
-    name: isEdit ? routeData.profile!.name : "",
-    startUrl: isEdit ? routeData.profile!.startUrl : "",
-    ssoRegion: isEdit ? routeData.profile!.ssoRegion : "",
-    defaultRegion: isEdit ? routeData.profile!.defaultRegion : "",
+    name: initialName,
+    company: initialCompany,
+    ssoRegion: initialSsoRegion,
+    defaultRegion: initialDefaultRegion,
   });
   
   const [currentField, setCurrentField] = createSignal(0);
+  const [isChina, setIsChina] = createSignal(initialIsChina);
   const [error, setError] = createSignal<string | undefined>();
 
   // Handle form submission
@@ -43,8 +71,8 @@ export function ProfileForm() {
       setError("Profile name is required");
       return;
     }
-    if (!data.startUrl.trim()) {
-      setError("SSO Start URL is required");
+    if (!data.company.trim()) {
+      setError("Company name is required");
       return;
     }
     if (!data.ssoRegion.trim()) {
@@ -66,11 +94,19 @@ export function ProfileForm() {
     }
 
     try {
+      // Build the SSO URL from company name
+      const startUrl = URLHelper.buildSSOUrl(
+        data.company.trim(),
+        isChina(),
+        isChina() ? data.ssoRegion : undefined
+      );
+      
       const profile: SSOProfile = {
         name: data.name,
-        startUrl: data.startUrl,
+        startUrl,
         ssoRegion: data.ssoRegion,
         defaultRegion: data.defaultRegion,
+        isChina: isChina(),
       };
 
       if (routeData.mode === "create") {
@@ -121,11 +157,15 @@ export function ProfileForm() {
       route.navigate({ type: "sso-select" });
     } else if (key.name === "backspace" && value) {
       updateField(field, value.slice(0, -1));
+    } else if (key.sequence?.toLowerCase() === "c" && key.ctrl) {
+      // Toggle China mode with Ctrl+C
+      setIsChina(!isChina());
+      setError(undefined);
     } else if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
       // Allow all characters for URLs and names
       updateField(field, value + key.sequence);
-    } else if (key.name === "q" && key.ctrl) {
-      process.exit(0);
+    } else if (key.sequence?.toLowerCase() === "q" && key.ctrl) {
+      exit();
     }
   });
 
@@ -133,9 +173,19 @@ export function ProfileForm() {
     <box flexDirection="column" padding={1}>
       <box marginBottom={1}>
         <text>
-          <b style={{ fg: "cyan" }}>
+          <b style={{ fg: theme.accent }}>
             {routeData.mode === "create" ? "Create New SSO Profile" : "Edit SSO Profile"}
           </b>
+        </text>
+      </box>
+
+      {/* China mode indicator */}
+      <box marginBottom={1}>
+        <text>
+          Region Type: <text fg={isChina() ? "yellow" : "green"}>
+            {isChina() ? "China (CN)" : "Standard (Global)"}
+          </text>
+          <text fg={theme.textMuted}> (Ctrl+C to toggle)</text>
         </text>
       </box>
 
@@ -152,25 +202,48 @@ export function ProfileForm() {
                 <b>{fieldDef.label}:</b>
               </text>
               <box marginLeft={3}>
-                <text fg="yellow">{value || fieldDef.placeholder}</text>
+                <text fg={theme.warning}>{value || fieldDef.placeholder}</text>
                 <Show when={isCurrent}>
-                  <text fg="gray">_</text>
+                  <text fg={theme.textMuted}>_</text>
                 </Show>
               </box>
+              <Show when={fieldDef.hint}>
+                <box marginLeft={3}>
+                  <text fg={theme.textMuted}>{fieldDef.hint}</text>
+                </box>
+              </Show>
             </box>
           );
         })}
       </box>
 
+      {/* Show constructed URL */}
+      <box marginBottom={1} flexDirection="column">
+        <text fg={theme.textMuted}>Generated URL:</text>
+        <text fg={theme.accent} marginLeft={1}>
+          {(() => {
+            try {
+              return URLHelper.buildSSOUrl(
+                formData().company || "company",
+                isChina(),
+                isChina() ? formData().ssoRegion || "cn-north-1" : undefined
+              );
+            } catch (e) {
+              return "Error generating URL";
+            }
+          })()}
+        </text>
+      </box>
+
       <Show when={error()}>
         <box marginBottom={1}>
-          <text fg="red">Error: {error()}</text>
+          <text fg={theme.error}>Error: {error()}</text>
         </box>
       </Show>
 
       <box marginTop={1}>
-        <text fg="gray">
-          Tab/↑↓ Navigate • Enter Next/Save • Esc Cancel • Ctrl+Q Quit
+        <text fg={theme.textMuted}>
+          Tab/↑↓ Navigate • Enter Next/Save • Ctrl+C Toggle China • Esc Cancel • Ctrl+Q Quit
         </text>
       </box>
     </box>

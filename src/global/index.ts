@@ -14,4 +14,9 @@ export namespace Global {
     awsConfig: process.env.AWS_CONFIG_FILE || path.join(homedir(), ".aws", "config"),
     awsCredentials: process.env.AWS_SHARED_CREDENTIALS_FILE || path.join(homedir(), ".aws", "credentials"),
   }
+
+  export const Limits = {
+    // Don't auto-load roles if more than this many accounts
+    maxAccountsForRoleLoading: 100,
+  }
 }

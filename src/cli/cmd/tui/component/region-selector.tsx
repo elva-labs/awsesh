@@ -1,6 +1,9 @@
+import { useTheme } from "../context/theme";
 import { useKeyboard } from "@opentui/solid";
-import { createSignal, For, createMemo } from "solid-js";
+import { createSignal, For, Show, createMemo } from "solid-js";
 import { useRoute, useRouteData } from "../context/route";
+import { useExit } from "../context/exit";
+import type { InputRenderable } from "@opentui/core";
 
 /**
  * Common AWS regions
@@ -57,10 +60,15 @@ function fuzzyMatch(query: string, target: string): boolean {
  * Allows user to select an AWS region for the current account
  */
 export function RegionSelector() {
+  const { theme } = useTheme();
   const route = useRoute();
+  const exit = useExit();
   const routeData = useRouteData("region-select");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [filterQuery, setFilterQuery] = createSignal("");
+  const [filterMode, setFilterMode] = createSignal(false);
+  
+  let inputRef: InputRenderable | undefined;
 
   // Find default region index (us-east-1)
   const defaultIndex = AWS_REGIONS.findIndex(r => r.code === "us-east-1");
@@ -103,11 +111,61 @@ export function RegionSelector() {
   useKeyboard((key) => {
     const filtered = filteredRegions();
     
-    // Handle typing for filter
+    // If in filter mode, handle filter-specific keys
+    if (filterMode()) {
+      if (key.name === "escape") {
+        // Exit filter mode
+        setFilterMode(false);
+        handleFilterChange("");
+        inputRef?.blur();
+      } else if (key.name === "up" || (key.sequence?.toLowerCase() === 'k' && !key.ctrl)) {
+        // Navigate up in filtered results
+        if (selectedIndex() > 0) {
+          setSelectedIndex(selectedIndex() - 1);
+        }
+      } else if (key.name === "down" || (key.sequence?.toLowerCase() === 'j' && !key.ctrl)) {
+        // Navigate down in filtered results
+        if (selectedIndex() < filtered.length - 1) {
+          setSelectedIndex(selectedIndex() + 1);
+        }
+      } else if (key.name === "enter" || key.name === "return") {
+        // Select current item
+        setFilterMode(false);
+        handleFilterChange("");
+        inputRef?.blur();
+        handleSelect();
+      }
+      // Let input handle other keys
+      return;
+    }
+    
+    // Navigation mode - handle special keybindings
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      handleFilterChange(filterQuery() + key.sequence);
-    } else if (key.name === "backspace" && filterQuery()) {
-      handleFilterChange(filterQuery().slice(0, -1));
+      const lowerKey = key.sequence.toLowerCase();
+      
+      if (lowerKey === '/') {
+        // Enter filter mode
+        setFilterMode(true);
+        setTimeout(() => inputRef?.focus(), 0);
+      } else if (lowerKey === 'q') {
+        exit();
+      } else if (lowerKey === 'k') {
+        // Vim up
+        if (selectedIndex() > 0) {
+          setSelectedIndex(selectedIndex() - 1);
+        }
+      } else if (lowerKey === 'j') {
+        // Vim down
+        if (selectedIndex() < filtered.length - 1) {
+          setSelectedIndex(selectedIndex() + 1);
+        }
+      } else if (lowerKey === 'h') {
+        // Vim left - go back
+        route.navigate({
+          type: "account-select",
+          profileName: routeData.profileName,
+        });
+      }
     } else if (key.name === "up" && selectedIndex() > 0) {
       setSelectedIndex(selectedIndex() - 1);
     } else if (key.name === "down" && selectedIndex() < filtered.length - 1) {
@@ -115,18 +173,11 @@ export function RegionSelector() {
     } else if (key.name === "enter" || key.name === "return") {
       handleSelect();
     } else if (key.name === "escape") {
-      if (filterQuery()) {
-        // Clear filter on first escape
-        handleFilterChange("");
-      } else {
-        // Go back to account selection
-        route.navigate({
-          type: "account-select",
-          profileName: routeData.profileName,
-        });
-      }
-    } else if (key.name === "q" && !filterQuery()) {
-      process.exit(0);
+      // Go back to account selection
+      route.navigate({
+        type: "account-select",
+        profileName: routeData.profileName,
+      });
     }
   });
 
@@ -134,25 +185,38 @@ export function RegionSelector() {
     <box flexDirection="column" padding={1}>
       <box marginBottom={1}>
         <text>
-          <b style={{ fg: "cyan" }}>AWS Session Manager - Select Region</b>
+          <b style={{ fg: theme.accent }}>AWS Session Manager - Select Region</b>
         </text>
       </box>
 
       <box marginBottom={1} flexDirection="column">
         <text>
-          Profile: <text fg="green">{routeData.profileName}</text>
+          Profile: <text fg={theme.success}>{routeData.profileName}</text>
         </text>
         <text>
-          Account: <text fg="green">{routeData.accountName}</text> ({routeData.accountId})
+          Account: <text fg={theme.success}>{routeData.accountName}</text> ({routeData.accountId})
         </text>
       </box>
 
       {/* Filter input */}
-      <box marginBottom={1}>
-        <text>Filter: </text>
-        <text fg="yellow">{filterQuery() || "_"}</text>
-        <text fg="gray"> ({filteredRegions().length}/{AWS_REGIONS.length})</text>
-      </box>
+      <Show when={filterMode()}>
+        <box marginBottom={1} flexDirection="column">
+          <box>
+            <text>Filter: </text>
+            <input
+              ref={(r) => (inputRef = r)}
+              onInput={(value) => handleFilterChange(value)}
+              placeholder="Type to filter..."
+              focusedBackgroundColor={theme.inputBg}
+              cursorColor={theme.inputCursor}
+              focusedTextColor={theme.inputFocusText}
+            />
+          </box>
+          <box marginLeft={8}>
+            <text fg={theme.textMuted}>Matches: {filteredRegions().length}/{AWS_REGIONS.length}</text>
+          </box>
+        </box>
+      </Show>
 
       <box flexDirection="column" height={15} style={{ overflow: "scroll" }}>
         <For each={filteredRegions()}>
@@ -168,8 +232,8 @@ export function RegionSelector() {
       </box>
 
       <box marginTop={1}>
-        <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • Esc Clear/Back • Q Quit
+        <text fg={theme.textMuted}>
+          / Filter • ↑↓/jk Navigate • h Back • Enter Select • Esc Back • Q Quit
         </text>
       </box>
     </box>

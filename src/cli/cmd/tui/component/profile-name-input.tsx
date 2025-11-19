@@ -1,21 +1,42 @@
+import { useTheme } from "../context/theme";
 import { useKeyboard } from "@opentui/solid";
-import { createSignal } from "solid-js";
+import { createSignal, onMount } from "solid-js";
 import { useAWS } from "../context/aws";
 import { useRoute, useRouteData } from "../context/route";
+import { useExit } from "../context/exit";
+import { useInstance } from "@/instance/instance";
 
 /**
  * Profile Name Input Component
  * Allows user to enter a custom profile name before setting credentials
  */
 export function ProfileNameInput() {
+  const { theme } = useTheme();
   const aws = useAWS();
   const route = useRoute();
+  const exit = useExit();
   const routeData = useRouteData("profile-name-input");
+  const instance = useInstance();
+  const { config } = instance;
   
   // Default profile name
   const defaultName = `${routeData.accountName}-${routeData.roleName}`;
   const [profileName, setProfileName] = createSignal(defaultName);
   const [cursorPos, setCursorPos] = createSignal(defaultName.length);
+
+  // Load remembered profile name on mount
+  onMount(async () => {
+    const remembered = await config.loadProfileName(
+      routeData.profileName,
+      routeData.accountName,
+      routeData.roleName
+    );
+    
+    if (remembered) {
+      setProfileName(remembered);
+      setCursorPos(remembered.length);
+    }
+  });
 
   // Handle profile name submission
   const handleSubmit = async () => {
@@ -26,21 +47,32 @@ export function ProfileNameInput() {
     if (!profile) return;
 
     try {
+      // Save profile name to memory
+      await config.saveProfileName(
+        routeData.profileName,
+        routeData.accountName,
+        routeData.roleName,
+        name
+      );
+
       // Get credentials and write to file with custom profile name and optional region
-      await aws.getRoleCredentials(
+      const expiration = await aws.getRoleCredentials(
         profile,
         routeData.accountId,
-        name,
+        routeData.accountName,
         routeData.roleName,
-        routeData.region
+        routeData.region,
+        name // custom profile name
       );
 
       // Navigate to success screen
       route.navigate({
         type: "success",
-        profileName: routeData.profileName,
-        accountName: name,
+        profileName: name,
+        accountName: routeData.accountName,
         roleName: routeData.roleName,
+        expiration: expiration.toISOString(),
+        region: routeData.region || profile.defaultRegion,
       });
     } catch (e) {
       // Error will be shown via aws.error
@@ -83,8 +115,8 @@ export function ProfileNameInput() {
         setProfileName(current.slice(0, pos) + key.sequence + current.slice(pos));
         setCursorPos(pos + 1);
       }
-    } else if (key.name === "q" && key.ctrl) {
-      process.exit(0);
+    } else if (key.sequence?.toLowerCase() === "q" && key.ctrl) {
+      exit();
     }
   });
 
@@ -92,19 +124,19 @@ export function ProfileNameInput() {
     <box flexDirection="column" padding={1}>
       <box marginBottom={1}>
         <text>
-          <b style={{ fg: "cyan" }}>Enter Custom Profile Name</b>
+          <b style={{ fg: theme.accent }}>Enter Custom Profile Name</b>
         </text>
       </box>
 
       <box marginBottom={1} flexDirection="column">
         <text>
-          SSO Profile: <text fg="green">{routeData.profileName}</text>
+          SSO Profile: <text fg={theme.success}>{routeData.profileName}</text>
         </text>
         <text>
-          Account: <text fg="green">{routeData.accountName}</text> ({routeData.accountId})
+          Account: <text fg={theme.success}>{routeData.accountName}</text> ({routeData.accountId})
         </text>
         <text>
-          Role: <text fg="green">{routeData.roleName}</text>
+          Role: <text fg={theme.success}>{routeData.roleName}</text>
         </text>
       </box>
 
@@ -113,16 +145,19 @@ export function ProfileNameInput() {
           <b>Profile name:</b>
         </text>
         <box>
-          <text fg="yellow">{profileName()}</text>
-          <text fg="gray">_</text>
+          <text fg={theme.warning}>{profileName()}</text>
+          <text fg={theme.textMuted}>_</text>
         </box>
-        <text fg="gray" marginTop={0}>
+        <text fg={theme.textMuted} marginTop={0}>
           (alphanumeric, dash, underscore only)
+        </text>
+        <text fg={theme.textMuted} marginTop={0}>
+          This name will be remembered for future sessions
         </text>
       </box>
 
       <box marginTop={1}>
-        <text fg="gray">
+        <text fg={theme.textMuted}>
           Enter Confirm • Esc/Backspace Back • Ctrl+Q Quit
         </text>
       </box>

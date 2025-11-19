@@ -1,3 +1,5 @@
+preload = ["@opentui/solid/preload"]
+
 [install]
 optional = true
 

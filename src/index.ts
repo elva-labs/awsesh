@@ -7,6 +7,7 @@ import { UI } from "./cli/ui"
 import { auth } from "./cli/cmd/auth.js";
 import { whoami } from "./cli/cmd/whoami.js";
 import { session } from "./cli/cmd/session.js";
+import { migrate } from "./cli/cmd/migrate.js";
 import { TuiCommand } from "./cli/cmd/tui/thread.js";
 
 const VERSION = "0.1.0"
@@ -42,6 +43,7 @@ const cli = yargs(hideBin(process.argv))
   .command(session)
   .command(auth)
   .command(whoami)
+  .command(migrate)
   .demandCommand(0, 1, "")
   .fail((msg, err) => {
     if (msg) {

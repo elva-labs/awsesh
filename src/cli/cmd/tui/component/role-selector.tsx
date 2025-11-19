@@ -1,7 +1,13 @@
+import { useTheme } from "../context/theme";
 import { useKeyboard } from "@opentui/solid";
 import { createSignal, For, Show, onMount, createMemo } from "solid-js";
 import { useAWS } from "../context/aws";
 import { useRoute, useRouteData } from "../context/route";
+import { useExit } from "../context/exit";
+import { Log } from "@/util/log";
+import type { InputRenderable } from "@opentui/core";
+
+const log = Log.create({ service: "role-selector" });
 
 /**
  * Simple fuzzy match - checks if all characters in query appear in order in target
@@ -25,22 +31,34 @@ function fuzzyMatch(query: string, target: string): boolean {
  * Allows user to select an IAM role for an account
  */
 export function RoleSelector() {
+  const { theme } = useTheme();
   const aws = useAWS();
   const route = useRoute();
+  const exit = useExit();
   const routeData = useRouteData("role-select");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [roles, setRoles] = createSignal<string[]>([]);
   const [loadingRoles, setLoadingRoles] = createSignal(true);
   const [filterQuery, setFilterQuery] = createSignal("");
+  const [filterMode, setFilterMode] = createSignal(false);
+  
+  let inputRef: InputRenderable | undefined;
 
   // Load roles on mount
   onMount(async () => {
     const profile = aws.profiles.find((p) => p.name === routeData.profileName);
     if (profile) {
-      const loadedRoles = await aws.loadRoles(profile, routeData.accountId);
-      setRoles(loadedRoles);
+      // Check if roles are already loaded
+      const account = aws.accounts.find(a => a.accountId === routeData.accountId);
+      if (account && account.rolesLoaded) {
+        setRoles(account.roles);
+        setLoadingRoles(false);
+      } else {
+        const loadedRoles = await aws.loadRoles(profile, routeData.accountId);
+        setRoles(loadedRoles);
+        setLoadingRoles(false);
+      }
     }
-    setLoadingRoles(false);
   });
 
   // Filtered list based on query
@@ -73,7 +91,21 @@ export function RoleSelector() {
       const { openBrowser } = await import("@/util/browser.js");
       await openBrowser(url);
     } catch (error) {
-      console.error("Failed to open browser:", error);
+      log.error("Failed to open browser", { error, role: roleName, accountId: routeData.accountId });
+    }
+  };
+
+  // Handle refresh roles
+  const handleRefreshRoles = async () => {
+    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
+    if (!profile) return;
+    
+    await aws.refreshRoles(profile, routeData.accountId);
+    
+    // Update local roles
+    const account = aws.accounts.find(a => a.accountId === routeData.accountId);
+    if (account && account.rolesLoaded) {
+      setRoles(account.roles);
     }
   };
 
@@ -81,31 +113,82 @@ export function RoleSelector() {
   useKeyboard((key) => {
     const filtered = filteredRoles();
     
-    // Handle typing for filter
+    // If in filter mode, handle filter-specific keys
+    if (filterMode()) {
+      if (key.name === "escape") {
+        // Exit filter mode
+        setFilterMode(false);
+        handleFilterChange("");
+        inputRef?.blur();
+      } else if (key.name === "up" || (key.sequence?.toLowerCase() === 'k' && !key.ctrl)) {
+        // Navigate up in filtered results
+        if (selectedIndex() > 0) {
+          setSelectedIndex(selectedIndex() - 1);
+        }
+      } else if (key.name === "down" || (key.sequence?.toLowerCase() === 'j' && !key.ctrl)) {
+        // Navigate down in filtered results
+        if (selectedIndex() < filtered.length - 1) {
+          setSelectedIndex(selectedIndex() + 1);
+        }
+      } else if (key.name === "enter" || key.name === "return") {
+        // Select current item
+        const roleName = filtered[selectedIndex()];
+        if (roleName) {
+          setFilterMode(false);
+          handleFilterChange("");
+          inputRef?.blur();
+          handleRoleSelection(roleName);
+        }
+      }
+      // Let input handle other keys
+      return;
+    }
+    
+    // Navigation mode - handle special keybindings
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
       const lowerKey = key.sequence.toLowerCase();
       
-      // Handle special keybindings
-      if (lowerKey === 'o') {
+      if (lowerKey === '/') {
+        // Enter filter mode
+        setFilterMode(true);
+        setTimeout(() => inputRef?.focus(), 0);
+      } else if (lowerKey === 'o') {
         handleOpenBrowser();
       } else if (lowerKey === 'p') {
         // Navigate to custom profile name input
         const roleName = filtered[selectedIndex()];
-        if (roleName) {
-          route.navigate({
-            type: "profile-name-input",
-            profileName: routeData.profileName,
-            accountId: routeData.accountId,
-            accountName: routeData.accountName,
-            roleName,
-            region: routeData.region,
-          });
+        if (!roleName) return;
+        
+        route.navigate({
+          type: "profile-name-input",
+          profileName: routeData.profileName,
+          accountId: routeData.accountId,
+          accountName: routeData.accountName,
+          roleName,
+          region: routeData.region,
+        });
+      } else if (lowerKey === 'r') {
+        // Refresh roles
+        handleRefreshRoles();
+      } else if (lowerKey === 'q') {
+        exit();
+      } else if (lowerKey === 'k') {
+        // Vim up
+        if (selectedIndex() > 0) {
+          setSelectedIndex(selectedIndex() - 1);
         }
-      } else {
-        handleFilterChange(filterQuery() + key.sequence);
+      } else if (lowerKey === 'j') {
+        // Vim down
+        if (selectedIndex() < filtered.length - 1) {
+          setSelectedIndex(selectedIndex() + 1);
+        }
+      } else if (lowerKey === 'h') {
+        // Vim left - go back
+        route.navigate({
+          type: "account-select",
+          profileName: routeData.profileName,
+        });
       }
-    } else if (key.name === "backspace" && filterQuery()) {
-      handleFilterChange(filterQuery().slice(0, -1));
     } else if (key.name === "up" && selectedIndex() > 0) {
       setSelectedIndex(selectedIndex() - 1);
     } else if (key.name === "down" && selectedIndex() < filtered.length - 1) {
@@ -116,18 +199,11 @@ export function RoleSelector() {
         handleRoleSelection(roleName);
       }
     } else if (key.name === "escape") {
-      if (filterQuery()) {
-        // Clear filter on first escape
-        handleFilterChange("");
-      } else {
-        // Go back to account selection
-        route.navigate({
-          type: "account-select",
-          profileName: routeData.profileName,
-        });
-      }
-    } else if (key.name === "q" && !filterQuery()) {
-      process.exit(0);
+      // Go back to account selection
+      route.navigate({
+        type: "account-select",
+        profileName: routeData.profileName,
+      });
     }
   });
 
@@ -137,7 +213,7 @@ export function RoleSelector() {
 
     try {
       // Get credentials and write to file with optional custom region
-      await aws.getRoleCredentials(
+      const expiration = await aws.getRoleCredentials(
         profile,
         routeData.accountId,
         routeData.accountName,
@@ -145,12 +221,14 @@ export function RoleSelector() {
         routeData.region
       );
 
-      // Navigate to success screen
+      // Navigate to success screen with expiration
       route.navigate({
         type: "success",
         profileName: routeData.profileName,
         accountName: routeData.accountName,
         roleName,
+        expiration: expiration.toISOString(),
+        region: routeData.region || profile.defaultRegion,
       });
     } catch (e) {
       // Error will be shown via aws.error
@@ -161,39 +239,57 @@ export function RoleSelector() {
     <box flexDirection="column" padding={1}>
       <box marginBottom={1}>
         <text>
-          <b style={{ fg: "cyan" }}>AWS Session Manager - Select Role</b>
+          <b style={{ fg: theme.accent }}>AWS Session Manager - Select Role</b>
         </text>
       </box>
 
       <box marginBottom={1} flexDirection="column">
         <text>
-          Profile: <text fg="green">{routeData.profileName}</text>
+          Profile: <text fg={theme.success}>{routeData.profileName}</text>
         </text>
         <text>
-          Account: <text fg="green">{routeData.accountName}</text> (
+          Account: <text fg={theme.success}>{routeData.accountName}</text> (
           {routeData.accountId})
         </text>
         <Show when={routeData.region}>
           <text>
-            Region: <text fg="green">{routeData.region}</text>
+            Region: <text fg={theme.success}>{routeData.region}</text>
           </text>
         </Show>
       </box>
 
-      {/* Filter input */}
-      <Show when={filterQuery() || roles().length > 5}>
+      {/* Refresh indicator */}
+      <Show when={aws.refreshingRoles}>
         <box marginBottom={1}>
-          <text>Filter: </text>
-          <text fg="yellow">{filterQuery() || "_"}</text>
-          <text fg="gray"> ({filteredRoles().length}/{roles().length})</text>
+          <text fg={theme.info}>⟳ Refreshing roles...</text>
+        </box>
+      </Show>
+
+      {/* Filter input */}
+      <Show when={filterMode()}>
+        <box marginBottom={1} flexDirection="column">
+          <box>
+            <text>Filter: </text>
+            <input
+              ref={(r) => (inputRef = r)}
+              onInput={(value) => handleFilterChange(value)}
+              placeholder="Type to filter..."
+              focusedBackgroundColor={theme.inputBg}
+              cursorColor={theme.inputCursor}
+              focusedTextColor={theme.inputFocusText}
+            />
+          </box>
+          <box marginLeft={8}>
+            <text fg={theme.textMuted}>Matches: {filteredRoles().length}/{roles().length}</text>
+          </box>
         </box>
       </Show>
 
       <Show
-        when={!loadingRoles() && !aws.loading}
+        when={!loadingRoles() && !aws.loading && !aws.refreshingRoles}
         fallback={
           <box>
-            <text fg="yellow">Loading roles...</text>
+            <text fg={theme.warning}>Loading roles...</text>
           </box>
         }
       >
@@ -201,7 +297,7 @@ export function RoleSelector() {
           when={roles().length > 0}
           fallback={
             <box>
-              <text fg="yellow">
+              <text fg={theme.warning}>
                 No roles found for this account. Check your IAM permissions.
               </text>
             </box>
@@ -211,7 +307,7 @@ export function RoleSelector() {
             when={filteredRoles().length > 0}
             fallback={
               <box>
-                <text fg="yellow">
+                <text fg={theme.warning}>
                   No roles match filter "{filterQuery()}"
                 </text>
               </box>
@@ -232,14 +328,14 @@ export function RoleSelector() {
       </Show>
 
       <box marginTop={1}>
-        <text fg="gray">
-          Type to filter • ↑↓ Navigate • Enter Select • P Custom name • O Open • Esc Clear/Back • Q Quit
+        <text fg={theme.textMuted}>
+          / Filter • ↑↓/jk Navigate • h Back • Enter Select • R Refresh • P Custom name • O Open • Esc Back • Q Quit
         </text>
       </box>
 
       <Show when={aws.error}>
         <box marginTop={1}>
-          <text fg="red">Error: {aws.error}</text>
+          <text fg={theme.error}>Error: {aws.error}</text>
         </box>
       </Show>
     </box>
