@@ -1,4 +1,4 @@
-import { Show } from "solid-js"
+import { Show, createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute } from "../context/route"
 import { useAWS } from "../context/aws"
@@ -6,7 +6,6 @@ import { useDialog } from "../ui/dialog"
 import { useKeybind } from "../context/keybind"
 import { useKeyboard } from "@opentui/solid"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
-import { DialogConfirm } from "../ui/dialog-confirm"
 import { TextAttributes } from "@opentui/core"
 import { useExit } from "../context/exit"
 import type { SSOProfile } from "@/types"
@@ -19,6 +18,8 @@ export function ProfileListScreen() {
   const keybind = useKeybind()
   const exit = useExit()
 
+  const [selectedProfile, setSelectedProfile] = createSignal<SSOProfile | null>(null)
+
   const items = (): FilterableListItem<SSOProfile>[] => {
     return aws.profiles.map((profile) => ({
       id: profile.name,
@@ -26,6 +27,10 @@ export function ProfileListScreen() {
       value: profile,
       description: profile.startUrl,
     }))
+  }
+
+  const handleItemMove = (item: FilterableListItem<SSOProfile>) => {
+    setSelectedProfile(item.value)
   }
 
   useKeyboard((evt) => {
@@ -39,7 +44,7 @@ export function ProfileListScreen() {
 
     if (keybind.match("profile_edit", evt)) {
       evt.preventDefault()
-      const selected = items()[0]?.value
+      const selected = selectedProfile()
       if (selected) {
         route.navigate({
           type: "profile-form",
@@ -51,7 +56,7 @@ export function ProfileListScreen() {
 
     if (keybind.match("profile_delete", evt)) {
       evt.preventDefault()
-      const selected = items()[0]?.value
+      const selected = selectedProfile()
       if (selected) {
         route.navigate({
           type: "profile-delete-confirm",
@@ -112,6 +117,7 @@ export function ProfileListScreen() {
         <FilterableList
           items={items()}
           onSelect={handleSelect}
+          onMove={handleItemMove}
           showFilter={false}
           footer={
             <box paddingLeft={1} paddingBottom={1} flexDirection="row" gap={2}>

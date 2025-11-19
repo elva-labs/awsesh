@@ -9,6 +9,7 @@ export interface FilterableListProps<T> {
   title?: string
   items: FilterableListItem<T>[]
   onSelect?: (item: FilterableListItem<T>) => void
+  onMove?: (item: FilterableListItem<T>) => void
   onFilter?: (query: string) => void
   filterPlaceholder?: string
   emptyMessage?: string
@@ -88,6 +89,8 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
   function moveTo(next: number) {
     setStore("selected", next)
+    const item = flat()[next]
+    if (item) props.onMove?.(item)
     const target = scroll?.getChildren().find((child: any) => {
       return child.id === selected()?.id
     })

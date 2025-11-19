@@ -11,6 +11,7 @@ import { DialogProvider } from "./ui/dialog"
 import { ToastProvider } from "./ui/toast"
 import { ProfileListScreen } from "./routes/profile-list"
 import { ProfileFormScreen } from "./routes/profile-form"
+import { ProfileDeleteConfirmScreen } from "./routes/profile-delete-confirm"
 import { SSOLoginScreen } from "./routes/sso-login"
 import { AccountListScreen } from "./routes/account-list"
 import { SuccessScreen } from "./routes/success"
@@ -28,6 +29,9 @@ function App() {
         </Match>
         <Match when={route.data.type === "profile-form"}>
           <ProfileFormScreen />
+        </Match>
+        <Match when={route.data.type === "profile-delete-confirm"}>
+          <ProfileDeleteConfirmScreen />
         </Match>
         <Match when={route.data.type === "sso-login"}>
           <SSOLoginScreen />

@@ -40,9 +40,9 @@ export function SSOLoginScreen() {
       const remaining = Math.floor((expiresAt - now) / 1000)
       setTimeRemaining(remaining)
 
-      // Open browser to device authorization URL - placeholder for now
-      // TODO: Implement browser opening
-      console.log("Open in browser:", info.verificationUriComplete)
+      // Open browser to device authorization URL
+      const { openBrowser } = await import("@/util/browser")
+      await openBrowser(info.verificationUriComplete)
 
       // Start countdown timer
       countdownInterval = setInterval(() => {

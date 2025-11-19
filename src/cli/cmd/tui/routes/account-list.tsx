@@ -10,6 +10,7 @@ import { Spinner } from "../ui/spinner"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
 import { useDialog } from "../ui/dialog"
+import { useExit } from "../context/exit"
 import type { Account } from "@/types"
 
 export function AccountListScreen() {
@@ -20,6 +21,7 @@ export function AccountListScreen() {
   const keybind = useKeybind()
   const toast = useToast()
   const dialog = useDialog()
+  const exit = useExit()
 
   const profile = createMemo(() => aws.profiles.find((p) => p.name === routeData.profileName))
 
@@ -52,10 +54,34 @@ export function AccountListScreen() {
     if (!p) return
 
     try {
-      // TODO: Generate console URL with role credentials and open in browser
+      const roleName = account.roles[0]
+      if (!roleName) {
+        toast.show({
+          variant: "error",
+          message: "No role available for this account",
+        })
+        return
+      }
+
+      // Get credentials to generate console URL
+      await aws.getRoleCredentials(
+        p,
+        account.accountId,
+        account.name,
+        roleName,
+        account.region ?? p.defaultRegion
+      )
+
+      // Generate console URL
+      const region = account.region ?? p.defaultRegion
+      const url = `https://${account.accountId}.signin.aws.amazon.com/console/home?region=${region}`
+
+      const { openBrowser } = await import("@/util/browser")
+      await openBrowser(url)
+
       toast.show({
-        variant: "info",
-        message: "Opening in browser... (Not implemented yet)",
+        variant: "success",
+        message: "Opening AWS Console in browser...",
       })
     } catch (e) {
       toast.error(e)
@@ -167,7 +193,10 @@ export function AccountListScreen() {
       handleRefresh()
     }
 
-    // TODO: Add other keybind handlers (o, p, r, l)
+    if (keybind.match("quit", evt)) {
+      evt.preventDefault()
+      exit()
+    }
   })
 
   return (
