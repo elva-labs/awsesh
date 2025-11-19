@@ -68,6 +68,7 @@ export function ProfileNameInput() {
       // Navigate to success screen
       route.navigate({
         type: "success",
+        accountId: routeData.accountId,
         profileName: name,
         accountName: routeData.accountName,
         roleName: routeData.roleName,

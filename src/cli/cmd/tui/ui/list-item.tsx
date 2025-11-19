@@ -27,7 +27,6 @@ export function ListItem(props: ListItemProps) {
       paddingLeft={1}
       paddingRight={1}
       gap={1}
-      opacity={props.disabled ? 0.5 : 1}
     >
       <Show when={props.current}>
         <text

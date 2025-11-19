@@ -224,6 +224,7 @@ export function RoleSelector() {
       // Navigate to success screen with expiration
       route.navigate({
         type: "success",
+        accountId: routeData.accountId,
         profileName: routeData.profileName,
         accountName: routeData.accountName,
         roleName,

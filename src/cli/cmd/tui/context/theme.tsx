@@ -29,7 +29,7 @@ type ThemeJson = {
   theme: Record<keyof Theme, HexColor>
 }
 
-const DEFAULT_THEMES: Record<string, ThemeJson> = {
+const DEFAULT_THEMES: Record<string, any> = {
   opencode,
   dracula,
   nord,

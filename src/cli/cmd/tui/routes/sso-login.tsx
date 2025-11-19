@@ -26,8 +26,12 @@ export function SSOLoginScreen() {
 
   onMount(async () => {
     try {
+      // Get the profile
+      const profile = aws.profiles.find((p) => p.name === routeData.profileName)
+      if (!profile) throw new Error("Profile not found")
+
       // Start SSO login flow
-      const info = await aws.startSSOLogin(routeData.startUrl, routeData.ssoRegion)
+      const info = await aws.startLogin(profile)
       setLoginInfo(info)
 
       // Calculate initial time remaining
@@ -36,9 +40,9 @@ export function SSOLoginScreen() {
       const remaining = Math.floor((expiresAt - now) / 1000)
       setTimeRemaining(remaining)
 
-      // Open browser to device authorization URL
-      const { openInBrowser } = await import("@/util/browser")
-      await openInBrowser(info.verificationUriComplete)
+      // Open browser to device authorization URL - placeholder for now
+      // TODO: Implement browser opening
+      console.log("Open in browser:", info.verificationUriComplete)
 
       // Start countdown timer
       countdownInterval = setInterval(() => {
@@ -69,15 +73,12 @@ export function SSOLoginScreen() {
   const pollForAuthorization = async (info: any) => {
     pollInterval = setInterval(async () => {
       try {
-        const success = await aws.pollSSOAuthorization(
-          routeData.ssoRegion,
-          info.clientId,
-          info.clientSecret,
-          info.deviceCode,
-          routeData.startUrl
-        )
+        const profile = aws.profiles.find((p) => p.name === routeData.profileName)
+        if (!profile) return
 
-        if (success) {
+        const token = await aws.pollForToken(profile, info)
+
+        if (token) {
           clearInterval(pollInterval)
           clearInterval(countdownInterval)
           setPolling(false)

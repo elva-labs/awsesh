@@ -225,7 +225,6 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                         paddingLeft={1}
                         paddingRight={1}
                         gap={1}
-                        opacity={item.disabled ? 0.5 : 1}
                       >
                         <Show when={current()}>
                           <text

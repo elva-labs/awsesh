@@ -52,11 +52,10 @@ export function AccountListScreen() {
     if (!p) return
 
     try {
-      const { openInBrowser } = await import("@/util/browser")
-      // TODO: Generate console URL with role credentials
+      // TODO: Generate console URL with role credentials and open in browser
       toast.show({
         variant: "info",
-        message: "Opening in browser...",
+        message: "Opening in browser... (Not implemented yet)",
       })
     } catch (e) {
       toast.error(e)
@@ -120,10 +119,12 @@ export function AccountListScreen() {
 
     try {
       // Get credentials for the role
-      const credentials = await aws.getRoleCredentials(
+      const expiration = await aws.getRoleCredentials(
         p,
         account.accountId,
-        roleName
+        account.name,
+        roleName,
+        account.region ?? p.defaultRegion
       )
 
       // Navigate to success screen
@@ -134,7 +135,7 @@ export function AccountListScreen() {
         accountId: account.accountId,
         roleName,
         region: account.region ?? p.defaultRegion,
-        expiration: credentials.expiration.toISOString(),
+        expiration: expiration.toISOString(),
       })
     } catch (e) {
       toast.error(e)

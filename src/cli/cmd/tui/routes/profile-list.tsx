@@ -74,10 +74,14 @@ export function ProfileListScreen() {
   const handleSelect = async (item: FilterableListItem<SSOProfile>) => {
     const profile = item.value
 
-    // Check if we have a valid token
-    const token = await aws.checkToken(profile.startUrl)
-    
-    if (!token) {
+    try {
+      // Try to load accounts - if token is invalid, it will throw
+      await aws.loadAccounts(profile)
+      route.navigate({
+        type: "account-select",
+        profileName: profile.name,
+      })
+    } catch (e) {
       // Need to authenticate
       route.navigate({
         type: "sso-login",
@@ -85,15 +89,7 @@ export function ProfileListScreen() {
         startUrl: profile.startUrl,
         ssoRegion: profile.ssoRegion,
       })
-      return
     }
-
-    // Load accounts
-    await aws.loadAccounts(profile)
-    route.navigate({
-      type: "account-select",
-      profileName: profile.name,
-    })
   }
 
   return (

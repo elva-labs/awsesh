@@ -13,7 +13,7 @@ export const { use: useKeybind, provider: KeybindProvider } = createSimpleContex
     const keybinds = createMemo(() => {
       const result: Record<string, Keybind.Info[]> = {}
       for (const [key, values] of Object.entries(config.data.keybinds)) {
-        result[key] = values.map((v) => Keybind.parse(v))
+        result[key] = values.map((v: string) => Keybind.parse(v))
       }
       return result
     })
