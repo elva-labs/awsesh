@@ -1,76 +1,78 @@
-import { render } from "@opentui/solid";
-import { Switch, Match } from "solid-js";
-import { RouteProvider, useRoute } from "./context/route";
-import { AWSProvider } from "./context/aws";
-import { ExitProvider } from "./context/exit";
-import { ThemeProvider, useTheme } from "./context/theme";
-import { SSOSelector } from "./component/sso-selector";
-import { ProfileForm } from "./component/profile-form";
-import { ProfileDeleteConfirm } from "./component/profile-delete-confirm";
-import { AccountSelector } from "./component/account-selector";
-import { RegionSelector } from "./component/region-selector";
-import { RoleSelector } from "./component/role-selector";
-import { ProfileNameInput } from "./component/profile-name-input";
-import { Success } from "./component/success";
+import { render, useTerminalDimensions } from "@opentui/solid"
+import { Switch, Match } from "solid-js"
+import { RouteProvider, useRoute } from "./context/route"
+import { AWSProvider } from "./context/aws"
+import { ExitProvider } from "./context/exit"
+import { ThemeProvider, useTheme } from "./context/theme"
+import { KVProvider } from "./context/kv"
+import { ConfigProvider } from "./context/config"
+import { KeybindProvider } from "./context/keybind"
+import { DialogProvider } from "./ui/dialog"
+import { ToastProvider } from "./ui/toast"
+import { ProfileListScreen } from "./routes/profile-list"
+import { ProfileFormScreen } from "./routes/profile-form"
+import { SSOLoginScreen } from "./routes/sso-login"
+import { AccountListScreen } from "./routes/account-list"
+import { SuccessScreen } from "./routes/success"
 
-/**
- * Main TUI application component
- */
 function App() {
-  const route = useRoute();
-  const { theme } = useTheme();
+  const route = useRoute()
+  const { theme } = useTheme()
+  const dimensions = useTerminalDimensions()
 
   return (
-    <Switch fallback={<box><text fg={theme.error}>Unknown route: {route.data.type}</text></box>}>
-      <Match when={route.data.type === "sso-select"}>
-        <SSOSelector />
-      </Match>
-      <Match when={route.data.type === "profile-form"}>
-        <ProfileForm />
-      </Match>
-      <Match when={route.data.type === "profile-delete-confirm"}>
-        <ProfileDeleteConfirm />
-      </Match>
-      <Match when={route.data.type === "account-select"}>
-        <AccountSelector />
-      </Match>
-      <Match when={route.data.type === "region-select"}>
-        <RegionSelector />
-      </Match>
-      <Match when={route.data.type === "role-select"}>
-        <RoleSelector />
-      </Match>
-      <Match when={route.data.type === "profile-name-input"}>
-        <ProfileNameInput />
-      </Match>
-      <Match when={route.data.type === "success"}>
-        <Success />
-      </Match>
-    </Switch>
-  );
+    <box width={dimensions().width} height={dimensions().height} backgroundColor={theme.background}>
+      <Switch fallback={<box><text fg={theme.error}>Unknown route: {route.data.type}</text></box>}>
+        <Match when={route.data.type === "sso-select"}>
+          <ProfileListScreen />
+        </Match>
+        <Match when={route.data.type === "profile-form"}>
+          <ProfileFormScreen />
+        </Match>
+        <Match when={route.data.type === "sso-login"}>
+          <SSOLoginScreen />
+        </Match>
+        <Match when={route.data.type === "account-select"}>
+          <AccountListScreen />
+        </Match>
+        <Match when={route.data.type === "success"}>
+          <SuccessScreen />
+        </Match>
+      </Switch>
+    </box>
+  )
 }
 
-/**
- * Start the TUI application
- */
 export function tui(): Promise<void> {
   return new Promise<void>((resolve) => {
-    render(() => (
-      <ExitProvider onExit={async () => resolve()}>
-        <ThemeProvider>
-          <RouteProvider>
-            <AWSProvider>
-              <App />
-            </AWSProvider>
-          </RouteProvider>
-        </ThemeProvider>
-      </ExitProvider>
-    ));
-
-    // Handle exit
-    process.on("SIGINT", () => {
-      resolve();
-      process.exit(0);
-    });
-  });
+    render(
+      () => (
+        <ExitProvider onExit={async () => resolve()}>
+          <KVProvider>
+            <ConfigProvider>
+              <RouteProvider>
+                <ThemeProvider>
+                  <KeybindProvider>
+                    <DialogProvider>
+                      <ToastProvider>
+                        <AWSProvider>
+                          <App />
+                        </AWSProvider>
+                      </ToastProvider>
+                    </DialogProvider>
+                  </KeybindProvider>
+                </ThemeProvider>
+              </RouteProvider>
+            </ConfigProvider>
+          </KVProvider>
+        </ExitProvider>
+      ),
+      {
+        targetFps: 60,
+        gatherStats: false,
+        exitOnCtrlC: false,
+        useKittyKeyboard: true,
+      }
+    )
+  })
 }
