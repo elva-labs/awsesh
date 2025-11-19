@@ -6,9 +6,9 @@ export const TuiCommand = cmd({
   describe: "Interactive AWS Session Manager",
   builder: (yargs) => yargs,
   handler: async () => {
-    const { start } = await import("@/app/app.js");
+    const { tui } = await import("./app.js");
     await withInstance(async () => {
-      await start();
+      await tui();
     });
   },
 });

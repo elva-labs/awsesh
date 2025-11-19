@@ -9,12 +9,12 @@
   "scripts": {
     "dev": "bun run --conditions=browser src/index.ts",
     "dev:watch": "bun --watch --conditions=browser src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target node --conditions=browser",
     "start": "bun run --conditions=browser src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "bin": {
-    "awsesh": "./dist/index.js"
+    "awsesh": "./src/index.ts"
   },
   "dependencies": {
     "@opentui/core": "0.1.46",
