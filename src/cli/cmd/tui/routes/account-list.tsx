@@ -193,6 +193,11 @@ export function AccountListScreen() {
       handleRefresh()
     }
 
+    if (keybind.match("settings", evt)) {
+      evt.preventDefault()
+      route.navigate({ type: "settings" })
+    }
+
     if (keybind.match("quit", evt)) {
       evt.preventDefault()
       exit()

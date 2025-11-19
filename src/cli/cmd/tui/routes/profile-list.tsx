@@ -70,6 +70,11 @@ export function ProfileListScreen() {
       exit()
     }
 
+    if (keybind.match("settings", evt)) {
+      evt.preventDefault()
+      route.navigate({ type: "settings" })
+    }
+
     if (keybind.match("help", evt)) {
       evt.preventDefault()
       // TODO: Show help dialog

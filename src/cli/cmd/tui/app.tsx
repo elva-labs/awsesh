@@ -15,6 +15,7 @@ import { ProfileDeleteConfirmScreen } from "./routes/profile-delete-confirm"
 import { SSOLoginScreen } from "./routes/sso-login"
 import { AccountListScreen } from "./routes/account-list"
 import { SuccessScreen } from "./routes/success"
+import { SettingsScreen } from "./routes/settings"
 
 function App() {
   const route = useRoute()
@@ -41,6 +42,9 @@ function App() {
         </Match>
         <Match when={route.data.type === "success"}>
           <SuccessScreen />
+        </Match>
+        <Match when={route.data.type === "settings"}>
+          <SettingsScreen />
         </Match>
       </Switch>
     </box>
