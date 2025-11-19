@@ -1,6 +1,11 @@
 import { RGBA } from "@opentui/core"
 import { createSignal, createMemo } from "solid-js"
 import { createSimpleContext } from "./helper"
+import { useKV } from "./kv"
+import { createStore } from "solid-js/store"
+import opencode from "./theme/opencode.json"
+import dracula from "./theme/dracula.json"
+import nord from "./theme/nord.json"
 
 type Theme = {
   primary: RGBA
@@ -24,23 +29,10 @@ type ThemeJson = {
   theme: Record<keyof Theme, HexColor>
 }
 
-const defaultTheme: ThemeJson = {
-  theme: {
-    primary: "#fab283",
-    secondary: "#5c9cf5",
-    accent: "#9d7cd8",
-    error: "#e06c75",
-    warning: "#f5a742",
-    success: "#7fd88f",
-    info: "#56b6c2",
-    text: "#eeeeee",
-    textMuted: "#808080",
-    background: "#0a0a0a",
-    border: "#484848",
-    inputBg: "#1a1a1a",
-    inputCursor: "#00ff00",
-    inputFocusText: "#ffff00",
-  }
+const DEFAULT_THEMES: Record<string, ThemeJson> = {
+  opencode,
+  dracula,
+  nord,
 }
 
 function resolveTheme(themeJson: ThemeJson): Theme {
@@ -52,9 +44,15 @@ function resolveTheme(themeJson: ThemeJson): Theme {
 export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   name: "Theme",
   init: () => {
-    const [themeName] = createSignal("default")
-    
-    const values = createMemo(() => resolveTheme(defaultTheme))
+    const kv = useKV()
+    const [store, setStore] = createStore({
+      themes: DEFAULT_THEMES,
+      active: kv.get("theme", "opencode") as string,
+    })
+
+    const values = createMemo(() => {
+      return resolveTheme(store.themes[store.active] ?? store.themes.opencode)
+    })
 
     return {
       theme: new Proxy(values(), {
@@ -63,7 +61,14 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         },
       }),
       get selected() {
-        return themeName()
+        return store.active
+      },
+      all() {
+        return store.themes
+      },
+      set(theme: string) {
+        setStore("active", theme)
+        kv.set("theme", theme)
       },
     }
   },

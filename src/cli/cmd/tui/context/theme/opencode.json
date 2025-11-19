@@ -1,0 +1,19 @@
+{
+  "$schema": "../theme-schema.json",
+  "theme": {
+    "primary": "#fab283",
+    "secondary": "#5c9cf5",
+    "accent": "#9d7cd8",
+    "error": "#e06c75",
+    "warning": "#f5a742",
+    "success": "#7fd88f",
+    "info": "#56b6c2",
+    "text": "#eeeeee",
+    "textMuted": "#808080",
+    "background": "#0a0a0a",
+    "border": "#484848",
+    "inputBg": "#1a1a1a",
+    "inputCursor": "#fab283",
+    "inputFocusText": "#eeeeee"
+  }
+}
