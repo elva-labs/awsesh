@@ -33,6 +33,7 @@ type ThemeJson = {
 }
 
 const DEFAULT_THEMES: Record<string, ThemeJson> = {
+  system: opencode as any,
   opencode: opencode as any,
   dracula: dracula as any,
   nord: nord as any,
@@ -173,11 +174,12 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     })
 
     renderer.getPalette({ size: 16 }).then((colors) => {
-      if (!colors.palette[0]) return
-      setStore(produce((draft) => {
-        draft.themes.system = generateSystem(colors)
-        draft.ready = true
-      }))
+      if (colors.palette[0]) {
+        setStore(produce((draft) => {
+          draft.themes.system = generateSystem(colors)
+        }))
+      }
+      setStore("ready", true)
     })
 
     const values = createMemo(() => {

@@ -1,5 +1,5 @@
-import { useTerminalDimensions, useKeyboard } from "@opentui/solid"
-import { For, createSignal } from "solid-js"
+import { useKeyboard } from "@opentui/solid"
+import { For, createSignal, createMemo } from "solid-js"
 import { useRoute } from "../context/route"
 import { useTheme } from "../context/theme"
 import { useKeybind } from "../context/keybind"
@@ -7,13 +7,12 @@ import { TextAttributes } from "@opentui/core"
 import { useToast } from "../ui/toast"
 
 export function SettingsScreen() {
-  const dimensions = useTerminalDimensions()
   const route = useRoute()
   const { theme, all, set, selected: activeTheme } = useTheme()
   const keybind = useKeybind()
   const toast = useToast()
 
-  const themes = () => all()
+  const themes = createMemo(() => all())
   const [selectedIndex, setSelectedIndex] = createSignal(0)
 
   useKeyboard((evt) => {
@@ -39,9 +38,6 @@ export function SettingsScreen() {
       route.navigate({ type: "sso-select" })
     }
   })
-
-  const width = dimensions().width
-  const height = dimensions().height
 
   return (
     <box flexDirection="column" width="100%" height="100%">
@@ -74,12 +70,14 @@ export function SettingsScreen() {
       </box>
 
       <box paddingLeft={1} paddingBottom={1} flexDirection="row" gap={2}>
-        <text fg={theme.textMuted}>
-          <text fg={theme.text}>enter</text> Select
-        </text>
-        <text fg={theme.textMuted}>
-          <text fg={theme.text}>esc</text> Back
-        </text>
+        <box flexDirection="row">
+          <text fg={theme.text}>enter</text>
+          <text fg={theme.textMuted}> Select</text>
+        </box>
+        <box flexDirection="row">
+          <text fg={theme.text}>esc</text>
+          <text fg={theme.textMuted}> Back</text>
+        </box>
       </box>
     </box>
   )
