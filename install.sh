@@ -32,15 +32,16 @@ if [ -z "$LATEST_VERSION" ]; then
 fi
 
 # Construct the binary name
-BINARY_NAME="sesh-${OS}-${ARCH}"
-if [ "$OS" = "darwin" ]; then
-    BINARY_NAME="sesh-darwin-${ARCH}"
-elif [ "$OS" = "linux" ]; then
-    BINARY_NAME="sesh-linux-${ARCH}"
-else
-    echo "Unsupported operating system: $OS"
-    exit 1
-fi
+BINARY_PREFIX="awsesh"
+case "$OS" in
+    darwin|linux)
+        BINARY_NAME="${BINARY_PREFIX}-${OS}-${ARCH}"
+        ;;
+    *)
+        echo "Unsupported operating system: $OS"
+        exit 1
+        ;;
+esac
 
 # Download URL
 DOWNLOAD_URL="https://github.com/elva-labs/awsesh/releases/download/${LATEST_VERSION}/${BINARY_NAME}"
@@ -78,4 +79,4 @@ fi
 cd - > /dev/null
 rm -rf "$TMP_DIR"
 
-echo "Installation complete! You can now use 'sesh' from the command line." 
+echo "Installation complete! You can now use 'sesh' from the command line."
