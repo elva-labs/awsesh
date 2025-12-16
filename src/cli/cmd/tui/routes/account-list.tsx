@@ -225,6 +225,7 @@ export function AccountListScreen() {
   }
 
   useKeyboard((evt) => {
+    if (dialog.stack.length > 0) return
     if (keybind.match("filter", evt)) {
       evt.preventDefault()
     }

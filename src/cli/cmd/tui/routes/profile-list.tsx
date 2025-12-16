@@ -7,6 +7,7 @@ import { useCommand } from "../context/command"
 import { useKeyboard } from "@opentui/solid"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
 import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
+import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
 import type { SSOProfile } from "@/types"
 
@@ -16,6 +17,7 @@ export function ProfileListScreen() {
   const aws = useAWS()
   const keybind = useKeybind()
   const command = useCommand()
+  const dialog = useDialog()
   const exit = useExit()
 
   const [selectedProfile, setSelectedProfile] = createSignal<SSOProfile | null>(null)
@@ -105,6 +107,7 @@ export function ProfileListScreen() {
   }
 
   useKeyboard((evt) => {
+    if (dialog.stack.length > 0) return
     if (keybind.match("help", evt)) {
       evt.preventDefault()
     }

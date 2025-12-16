@@ -2,6 +2,7 @@ import { batch, createEffect, createMemo, For, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { useTheme } from "../context/theme"
+import { useDialog } from "./dialog"
 import { TextAttributes, RGBA } from "@opentui/core"
 import { Locale } from "../util/locale"
 
@@ -31,6 +32,7 @@ export interface FilterableListItem<T = any> {
 
 export function FilterableList<T>(props: FilterableListProps<T>) {
   const { theme } = useTheme()
+  const dialog = useDialog()
   const [store, setStore] = createStore({
     selected: 0,
     filter: "",
@@ -106,6 +108,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
   useKeyboard((evt) => {
     if (store.filterActive) return
+    if (dialog.stack.length > 0) return
 
     if (evt.name === "up" || (evt.ctrl && evt.name === "p") || evt.name === "k") {
       evt.preventDefault()

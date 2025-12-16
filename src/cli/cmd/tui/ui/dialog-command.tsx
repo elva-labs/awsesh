@@ -73,16 +73,34 @@ export function DialogCommand(props: DialogCommandProps) {
   }
 
   useKeyboard((evt) => {
-    if (evt.name === "up" || (evt.ctrl && evt.name === "p")) move(-1)
-    if (evt.name === "down" || (evt.ctrl && evt.name === "n")) move(1)
-    if (evt.name === "pageup") move(-10)
-    if (evt.name === "pagedown") move(10)
+    if (evt.name === "up" || (evt.ctrl && evt.name === "p") || evt.name === "k") {
+      evt.preventDefault()
+      move(-1)
+      return
+    }
+    if (evt.name === "down" || (evt.ctrl && evt.name === "n") || evt.name === "j") {
+      evt.preventDefault()
+      move(1)
+      return
+    }
+    if (evt.name === "pageup" || (evt.ctrl && evt.name === "u")) {
+      evt.preventDefault()
+      move(-10)
+      return
+    }
+    if (evt.name === "pagedown" || (evt.ctrl && evt.name === "d")) {
+      evt.preventDefault()
+      move(10)
+      return
+    }
     if (evt.name === "return") {
+      evt.preventDefault()
       const option = selected()
       if (option) {
         dialog.clear()
         option.onSelect?.(dialog)
       }
+      return
     }
   })
 

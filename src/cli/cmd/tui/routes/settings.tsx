@@ -4,6 +4,7 @@ import { useRoute } from "../context/route"
 import { useTheme } from "../context/theme"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
+import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 
@@ -12,6 +13,7 @@ export function SettingsScreen() {
   const { theme, all, set, selected: activeTheme } = useTheme()
   const keybind = useKeybind()
   const command = useCommand()
+  const dialog = useDialog()
   const toast = useToast()
 
   const themes = createMemo(() => all())
@@ -31,6 +33,8 @@ export function SettingsScreen() {
   ])
 
   useKeyboard((evt) => {
+    if (dialog.stack.length > 0) return
+
     if (keybind.match("nav_up", evt)) {
       evt.preventDefault()
       setSelectedIndex((prev) => Math.max(0, prev - 1))

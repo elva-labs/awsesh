@@ -3,6 +3,7 @@ import { useRoute, useRouteData } from "../context/route"
 import { useInstance } from "@/instance/instance"
 import { useKeyboard } from "@opentui/solid"
 import { useKeybind } from "../context/keybind"
+import { useDialog } from "../ui/dialog"
 import { TextAttributes } from "@opentui/core"
 import { useToast } from "../ui/toast"
 import { createStore } from "solid-js/store"
@@ -15,6 +16,7 @@ export function ProfileDeleteConfirmScreen() {
   const routeData = useRouteData("profile-delete-confirm")
   const instance = useInstance()
   const keybind = useKeybind()
+  const dialog = useDialog()
   const toast = useToast()
 
   const [store, setStore] = createStore({
@@ -39,6 +41,8 @@ export function ProfileDeleteConfirmScreen() {
   }
 
   useKeyboard((evt) => {
+    if (dialog.stack.length > 0) return
+
     if (keybind.match("select", evt)) {
       evt.preventDefault()
       if (store.active === "delete") {

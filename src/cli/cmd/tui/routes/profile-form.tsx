@@ -4,6 +4,7 @@ import { useRoute, useRouteData } from "../context/route"
 import { useInstance } from "@/instance/instance"
 import { useKeyboard } from "@opentui/solid"
 import { useKeybind } from "../context/keybind"
+import { useDialog } from "../ui/dialog"
 import { FormField } from "../ui/form-field"
 import { TextAttributes } from "@opentui/core"
 import { useToast } from "../ui/toast"
@@ -15,6 +16,7 @@ export function ProfileFormScreen() {
   const routeData = useRouteData("profile-form")
   const instance = useInstance()
   const keybind = useKeybind()
+  const dialog = useDialog()
   const toast = useToast()
 
   const isEdit = routeData.mode === "edit"
@@ -88,6 +90,8 @@ export function ProfileFormScreen() {
   }
 
   useKeyboard((evt) => {
+    if (dialog.stack.length > 0) return
+
     if (evt.name === "tab") {
       evt.preventDefault()
       const nextIndex = (focusIndex() + 1) % inputs().length
