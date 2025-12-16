@@ -2,11 +2,11 @@ import { Show, createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute } from "../context/route"
 import { useAWS } from "../context/aws"
-import { useDialog } from "../ui/dialog"
 import { useKeybind } from "../context/keybind"
+import { useCommand } from "../context/command"
 import { useKeyboard } from "@opentui/solid"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
-import { TextAttributes } from "@opentui/core"
+import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 import { useExit } from "../context/exit"
 import type { SSOProfile } from "@/types"
 
@@ -14,11 +14,82 @@ export function ProfileListScreen() {
   const { theme } = useTheme()
   const route = useRoute()
   const aws = useAWS()
-  const dialog = useDialog()
   const keybind = useKeybind()
+  const command = useCommand()
   const exit = useExit()
 
   const [selectedProfile, setSelectedProfile] = createSignal<SSOProfile | null>(null)
+
+  command.register(() => [
+    {
+      id: "profile.add",
+      title: "Add Profile",
+      description: "Create a new SSO profile",
+      category: "Profile",
+      keybind: "profile_add",
+      onSelect: () => {
+        route.navigate({
+          type: "profile-form",
+          mode: "create",
+        })
+      },
+    },
+    {
+      id: "profile.edit",
+      title: "Edit Profile",
+      description: "Edit the selected profile",
+      category: "Profile",
+      keybind: "profile_edit",
+      disabled: !selectedProfile(),
+      onSelect: () => {
+        const selected = selectedProfile()
+        if (selected) {
+          route.navigate({
+            type: "profile-form",
+            mode: "edit",
+            profile: selected,
+          })
+        }
+      },
+    },
+    {
+      id: "profile.delete",
+      title: "Delete Profile",
+      description: "Delete the selected profile",
+      category: "Profile",
+      keybind: "profile_delete",
+      disabled: !selectedProfile(),
+      onSelect: () => {
+        const selected = selectedProfile()
+        if (selected) {
+          route.navigate({
+            type: "profile-delete-confirm",
+            profileName: selected.name,
+          })
+        }
+      },
+    },
+    {
+      id: "app.settings",
+      title: "Settings",
+      description: "Open application settings",
+      category: "Application",
+      keybind: "settings",
+      onSelect: () => {
+        route.navigate({ type: "settings" })
+      },
+    },
+    {
+      id: "app.quit",
+      title: "Quit",
+      description: "Exit the application",
+      category: "Application",
+      keybind: "quit",
+      onSelect: () => {
+        exit()
+      },
+    },
+  ])
 
   const items = (): FilterableListItem<SSOProfile>[] => {
     return aws.profiles.map((profile) => ({
@@ -34,50 +105,8 @@ export function ProfileListScreen() {
   }
 
   useKeyboard((evt) => {
-    if (keybind.match("profile_add", evt)) {
-      evt.preventDefault()
-      route.navigate({
-        type: "profile-form",
-        mode: "create",
-      })
-    }
-
-    if (keybind.match("profile_edit", evt)) {
-      evt.preventDefault()
-      const selected = selectedProfile()
-      if (selected) {
-        route.navigate({
-          type: "profile-form",
-          mode: "edit",
-          profile: selected,
-        })
-      }
-    }
-
-    if (keybind.match("profile_delete", evt)) {
-      evt.preventDefault()
-      const selected = selectedProfile()
-      if (selected) {
-        route.navigate({
-          type: "profile-delete-confirm",
-          profileName: selected.name,
-        })
-      }
-    }
-
-    if (keybind.match("quit", evt)) {
-      evt.preventDefault()
-      exit()
-    }
-
-    if (keybind.match("settings", evt)) {
-      evt.preventDefault()
-      route.navigate({ type: "settings" })
-    }
-
     if (keybind.match("help", evt)) {
       evt.preventDefault()
-      // TODO: Show help dialog
     }
   })
 
@@ -85,14 +114,12 @@ export function ProfileListScreen() {
     const profile = item.value
 
     try {
-      // Try to load accounts - if token is invalid, it will throw
       await aws.loadAccounts(profile)
       route.navigate({
         type: "account-select",
         profileName: profile.name,
       })
-    } catch (e) {
-      // Need to authenticate
+    } catch {
       route.navigate({
         type: "sso-login",
         profileName: profile.name,
@@ -103,19 +130,30 @@ export function ProfileListScreen() {
   }
 
   return (
-    <box flexDirection="column" width="100%" height="100%">
-      <box paddingLeft={1} paddingTop={1} paddingBottom={1}>
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
-          AWS SSO Profiles
-        </text>
-      </box>
-
+    <Layout
+      header={<Header title="AWS SSO Profiles" subtitle={`${aws.profiles.length} profiles`} />}
+      footer={
+        <Footer
+          right={
+            <KeybindHint keybind={keybind.print("command_list")} label="Commands" />
+          }
+        >
+          <KeybindHint keybind={keybind.print("profile_add")} label="Add" />
+          <KeybindHint keybind={keybind.print("profile_edit")} label="Edit" />
+          <KeybindHint keybind={keybind.print("profile_delete")} label="Delete" />
+          <KeybindHint keybind={keybind.print("select")} label="Select" />
+          <KeybindHint keybind={keybind.print("quit")} label="Quit" />
+        </Footer>
+      }
+    >
       <Show
         when={items().length > 0}
         fallback={
           <box flexDirection="column" paddingLeft={2} paddingTop={2} gap={1}>
             <text fg={theme.textMuted}>No SSO profiles configured</text>
-            <text fg={theme.textMuted}>Press 'a' to add your first profile</text>
+            <text fg={theme.textMuted}>
+              Press '{keybind.print("profile_add")}' to add your first profile
+            </text>
           </box>
         }
       >
@@ -124,42 +162,14 @@ export function ProfileListScreen() {
           onSelect={handleSelect}
           onMove={handleItemMove}
           showFilter={false}
-          footer={
-            <box paddingLeft={1} paddingBottom={1} flexDirection="row" gap={2}>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("profile_add")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Add</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("profile_edit")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Edit</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("profile_delete")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Delete</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("select")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Select</span>
-              </text>
-            </box>
-          }
         />
       </Show>
 
       <Show when={aws.error}>
-        <box paddingLeft={1} paddingTop={1}>
+        <box paddingLeft={2} paddingTop={1}>
           <text fg={theme.error}>{aws.error}</text>
         </box>
       </Show>
-    </box>
+    </Layout>
   )
 }

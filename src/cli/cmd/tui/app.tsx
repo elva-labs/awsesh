@@ -7,6 +7,7 @@ import { ThemeProvider, useTheme } from "./context/theme"
 import { KVProvider } from "./context/kv"
 import { ConfigProvider } from "./context/config"
 import { KeybindProvider } from "./context/keybind"
+import { CommandProvider } from "./context/command"
 import { DialogProvider } from "./ui/dialog"
 import { ToastProvider } from "./ui/toast"
 import { ProfileListScreen } from "./routes/profile-list"
@@ -63,9 +64,11 @@ export function tui(): Promise<void> {
                   <KeybindProvider>
                     <DialogProvider>
                       <ToastProvider>
-                        <AWSProvider>
-                          <App />
-                        </AWSProvider>
+                        <CommandProvider>
+                          <AWSProvider>
+                            <App />
+                          </AWSProvider>
+                        </CommandProvider>
                       </ToastProvider>
                     </DialogProvider>
                   </KeybindProvider>

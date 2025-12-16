@@ -1,0 +1,172 @@
+import { RGBA, TextAttributes } from "@opentui/core"
+import { useTheme } from "../context/theme"
+import { batch, createEffect, createMemo, For, Show } from "solid-js"
+import { createStore } from "solid-js/store"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { useDialog } from "./dialog"
+import { useKeybind } from "../context/keybind"
+import { Locale } from "../util/locale"
+import type { CommandOption } from "../context/command"
+
+export interface DialogCommandProps {
+  options: CommandOption[]
+}
+
+export function DialogCommand(props: DialogCommandProps) {
+  const dialog = useDialog()
+  const { theme } = useTheme()
+  const keybind = useKeybind()
+  const [store, setStore] = createStore({
+    selected: 0,
+    filter: "",
+  })
+
+  let input: { focus: () => void }
+
+  const filtered = createMemo(() => {
+    const needle = store.filter.toLowerCase()
+    const options = props.options.filter((x) => x.disabled !== true)
+    if (!needle) return options
+    return options.filter(
+      (x) =>
+        x.title.toLowerCase().includes(needle) ||
+        x.category?.toLowerCase().includes(needle) ||
+        x.description?.toLowerCase().includes(needle)
+    )
+  })
+
+  const grouped = createMemo(() => {
+    const result = new Map<string, (CommandOption & { footer?: string })[]>()
+    for (const option of filtered()) {
+      const category = option.category ?? ""
+      const list = result.get(category) ?? []
+      list.push({
+        ...option,
+        footer: option.keybind ? keybind.print(option.keybind) : undefined,
+      })
+      result.set(category, list)
+    }
+    return Array.from(result.entries())
+  })
+
+  const flat = createMemo(() => {
+    return filtered()
+  })
+
+  const dimensions = useTerminalDimensions()
+  const height = createMemo(() =>
+    Math.min(flat().length + grouped().length * 2 - 1, Math.floor(dimensions().height / 2) - 6)
+  )
+
+  const selected = createMemo(() => flat()[store.selected])
+
+  createEffect(() => {
+    store.filter
+    setStore("selected", 0)
+  })
+
+  function move(direction: number) {
+    let next = store.selected + direction
+    if (next < 0) next = flat().length - 1
+    if (next >= flat().length) next = 0
+    setStore("selected", next)
+  }
+
+  useKeyboard((evt) => {
+    if (evt.name === "up" || (evt.ctrl && evt.name === "p")) move(-1)
+    if (evt.name === "down" || (evt.ctrl && evt.name === "n")) move(1)
+    if (evt.name === "pageup") move(-10)
+    if (evt.name === "pagedown") move(10)
+    if (evt.name === "return") {
+      const option = selected()
+      if (option) {
+        dialog.clear()
+        option.onSelect?.(dialog)
+      }
+    }
+  })
+
+  return (
+    <box gap={1}>
+      <box paddingLeft={3} paddingRight={2}>
+        <box flexDirection="row" justifyContent="space-between">
+          <text fg={theme.text} attributes={TextAttributes.BOLD}>
+            Commands
+          </text>
+          <text fg={theme.textMuted}>esc</text>
+        </box>
+        <box paddingTop={1} paddingBottom={1}>
+          <input
+            onInput={(e) => {
+              batch(() => {
+                setStore("filter", e)
+              })
+            }}
+            focusedBackgroundColor={theme.inputBg}
+            cursorColor={theme.inputCursor}
+            focusedTextColor={theme.inputFocusText}
+            ref={(r) => {
+              input = r
+              setTimeout(() => input.focus(), 1)
+            }}
+            placeholder="Type to search commands..."
+          />
+        </box>
+      </box>
+      <scrollbox paddingLeft={2} paddingRight={2} scrollbarOptions={{ visible: false }} maxHeight={height()}>
+        <For each={grouped()}>
+          {([category, options], index) => (
+            <>
+              <Show when={category}>
+                <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={1}>
+                  <text fg={theme.accent} attributes={TextAttributes.BOLD}>
+                    {category}
+                  </text>
+                </box>
+              </Show>
+              <For each={options}>
+                {(option) => {
+                  const active = createMemo(() => option.id === selected()?.id)
+                  return (
+                    <box
+                      flexDirection="row"
+                      onMouseUp={() => {
+                        dialog.clear()
+                        option.onSelect?.(dialog)
+                      }}
+                      backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
+                      paddingLeft={1}
+                      paddingRight={1}
+                      gap={1}
+                    >
+                      <text
+                        flexGrow={1}
+                        fg={active() ? theme.background : theme.text}
+                        attributes={active() ? TextAttributes.BOLD : undefined}
+                        overflow="hidden"
+                        wrapMode="none"
+                      >
+                        {Locale.truncate(option.title, 50)}
+                        <Show when={option.description}>
+                          <span style={{ fg: active() ? theme.background : theme.textMuted }}>
+                            {" "}
+                            {option.description}
+                          </span>
+                        </Show>
+                      </text>
+                      <Show when={option.footer}>
+                        <text flexShrink={0} fg={active() ? theme.background : theme.textMuted}>
+                          {option.footer}
+                        </text>
+                      </Show>
+                    </box>
+                  )
+                }}
+              </For>
+            </>
+          )}
+        </For>
+      </scrollbox>
+    </box>
+  )
+}

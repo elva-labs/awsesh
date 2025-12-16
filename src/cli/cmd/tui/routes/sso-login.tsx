@@ -2,12 +2,14 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
-import { useKeyboard } from "@opentui/solid"
 import { useKeybind } from "../context/keybind"
+import { useCommand } from "../context/command"
 import { TextAttributes } from "@opentui/core"
 import { Locale } from "../util/locale"
 import { useToast } from "../ui/toast"
 import { Spinner } from "../ui/spinner"
+import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
+import type { SSOLoginInfo } from "@/types"
 
 export function SSOLoginScreen() {
   const { theme } = useTheme()
@@ -15,36 +17,47 @@ export function SSOLoginScreen() {
   const routeData = useRouteData("sso-login")
   const aws = useAWS()
   const keybind = useKeybind()
+  const command = useCommand()
   const toast = useToast()
 
-  const [loginInfo, setLoginInfo] = createSignal<any>(null)
+  const [loginInfo, setLoginInfo] = createSignal<SSOLoginInfo | null>(null)
   const [timeRemaining, setTimeRemaining] = createSignal(0)
   const [polling, setPolling] = createSignal(false)
 
   let pollInterval: NodeJS.Timeout
   let countdownInterval: NodeJS.Timeout
 
+  command.register(() => [
+    {
+      id: "nav.back",
+      title: "Cancel",
+      description: "Cancel authentication and go back",
+      category: "Navigation",
+      keybind: "back",
+      onSelect: () => {
+        if (pollInterval) clearInterval(pollInterval)
+        if (countdownInterval) clearInterval(countdownInterval)
+        route.navigate({ type: "sso-select" })
+      },
+    },
+  ])
+
   onMount(async () => {
     try {
-      // Get the profile
       const profile = aws.profiles.find((p) => p.name === routeData.profileName)
       if (!profile) throw new Error("Profile not found")
 
-      // Start SSO login flow
       const info = await aws.startLogin(profile)
       setLoginInfo(info)
 
-      // Calculate initial time remaining
-      const expiresAt = new Date(info.expiresAt).getTime()
+      const expiresAt = info.expiresAt.getTime()
       const now = Date.now()
       const remaining = Math.floor((expiresAt - now) / 1000)
       setTimeRemaining(remaining)
 
-      // Open browser to device authorization URL
       const { openBrowser } = await import("@/util/browser")
       await openBrowser(info.verificationUriComplete)
 
-      // Start countdown timer
       countdownInterval = setInterval(() => {
         setTimeRemaining((t) => {
           if (t <= 0) {
@@ -56,7 +69,6 @@ export function SSOLoginScreen() {
         })
       }, 1000)
 
-      // Start polling for authorization
       setPolling(true)
       pollForAuthorization(info)
     } catch (e) {
@@ -70,7 +82,7 @@ export function SSOLoginScreen() {
     if (countdownInterval) clearInterval(countdownInterval)
   })
 
-  const pollForAuthorization = async (info: any) => {
+  const pollForAuthorization = async (info: SSOLoginInfo) => {
     pollInterval = setInterval(async () => {
       try {
         const profile = aws.profiles.find((p) => p.name === routeData.profileName)
@@ -88,19 +100,17 @@ export function SSOLoginScreen() {
             message: "Authentication successful!",
           })
 
-          // Load accounts and navigate
-          const profile = aws.profiles.find((p) => p.name === routeData.profileName)
-          if (profile) {
-            await aws.loadAccounts(profile)
+          const p = aws.profiles.find((p) => p.name === routeData.profileName)
+          if (p) {
+            await aws.loadAccounts(p)
             route.navigate({
               type: "account-select",
               profileName: routeData.profileName,
             })
           }
         }
-      } catch (e) {
-        // Authorization pending or other error
-        // Keep polling
+      } catch {
+        // continue polling
       }
     }, info.interval * 1000)
   }
@@ -118,28 +128,19 @@ export function SSOLoginScreen() {
     }, 2000)
   }
 
-  useKeyboard((evt) => {
-    if (keybind.match("back", evt)) {
-      evt.preventDefault()
-      if (pollInterval) clearInterval(pollInterval)
-      if (countdownInterval) clearInterval(countdownInterval)
-      route.navigate({ type: "sso-select" })
-    }
-  })
-
   return (
-    <box flexDirection="column" width="100%" height="100%" gap={2}>
-      <box paddingLeft={1} paddingTop={1} flexDirection="row" justifyContent="space-between" paddingRight={1}>
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
-          AWS SSO Login - {routeData.profileName}
-        </text>
-        <text fg={theme.textMuted}>esc</text>
-      </box>
-
+    <Layout
+      header={<Header title="AWS SSO Login" subtitle={routeData.profileName} />}
+      footer={
+        <Footer right={<KeybindHint keybind={keybind.print("command_list")} label="Commands" />}>
+          <KeybindHint keybind={keybind.print("back")} label="Cancel" />
+        </Footer>
+      }
+    >
       <Show when={loginInfo()}>
         <box flexDirection="column" alignItems="center" gap={2} paddingTop={2}>
           <text fg={theme.info} attributes={TextAttributes.BOLD}>
-            🔐 Authenticate with AWS SSO
+            Authenticate with AWS SSO
           </text>
 
           <box flexDirection="column" alignItems="center" gap={1}>
@@ -167,15 +168,11 @@ export function SSOLoginScreen() {
             <Show when={polling()}>
               <Spinner />
             </Show>
-            <text fg={theme.text}>
-              {polling() ? "Waiting for authentication..." : "Authentication complete!"}
-            </text>
+            <text fg={theme.text}>{polling() ? "Waiting for authentication..." : "Authentication complete!"}</text>
           </box>
 
           <Show when={timeRemaining() > 0}>
-            <text fg={theme.textMuted}>
-              ⏱️  Time remaining: {Locale.formatDuration(timeRemaining())}
-            </text>
+            <text fg={theme.textMuted}>Time remaining: {Locale.formatDuration(timeRemaining())}</text>
           </Show>
 
           <Show when={timeRemaining() === 0}>
@@ -183,15 +180,6 @@ export function SSOLoginScreen() {
           </Show>
         </box>
       </Show>
-
-      <box paddingLeft={1} flexDirection="row" gap={2}>
-        <text>
-          <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-            {keybind.print("back")}
-          </span>
-          <span style={{ fg: theme.textMuted }}> Cancel</span>
-        </text>
-      </box>
-    </box>
+    </Layout>
   )
 }

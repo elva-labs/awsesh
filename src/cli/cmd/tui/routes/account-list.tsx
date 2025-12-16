@@ -1,11 +1,12 @@
-import { Show, createMemo } from "solid-js"
+import { Show, createMemo, createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
 import { useKeyboard } from "@opentui/solid"
 import { useKeybind } from "../context/keybind"
+import { useCommand } from "../context/command"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
-import { TextAttributes } from "@opentui/core"
+import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 import { Spinner } from "../ui/spinner"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
@@ -19,25 +20,95 @@ export function AccountListScreen() {
   const routeData = useRouteData("account-select")
   const aws = useAWS()
   const keybind = useKeybind()
+  const command = useCommand()
   const toast = useToast()
   const dialog = useDialog()
   const exit = useExit()
 
+  const [selectedAccount, setSelectedAccount] = createSignal<Account | null>(null)
+
   const profile = createMemo(() => aws.profiles.find((p) => p.name === routeData.profileName))
+
+  command.register(() => [
+    {
+      id: "account.refresh",
+      title: "Refresh Accounts",
+      description: "Reload the account list",
+      category: "Account",
+      keybind: "refresh",
+      onSelect: () => {
+        handleRefresh()
+      },
+    },
+    {
+      id: "account.browser",
+      title: "Open in Browser",
+      description: "Open AWS Console in browser",
+      category: "Account",
+      keybind: "browser_open",
+      disabled: !selectedAccount(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleOpenInBrowser(account)
+      },
+    },
+    {
+      id: "account.roles",
+      title: "View Roles",
+      description: "List available roles for account",
+      category: "Account",
+      keybind: "role_list",
+      disabled: !selectedAccount(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleViewRoles(account)
+      },
+    },
+    {
+      id: "nav.back",
+      title: "Back to Profiles",
+      description: "Return to profile selection",
+      category: "Navigation",
+      keybind: "back",
+      onSelect: () => {
+        route.navigate({ type: "sso-select" })
+      },
+    },
+    {
+      id: "app.settings",
+      title: "Settings",
+      description: "Open application settings",
+      category: "Application",
+      keybind: "settings",
+      onSelect: () => {
+        route.navigate({ type: "settings" })
+      },
+    },
+    {
+      id: "app.quit",
+      title: "Quit",
+      description: "Exit the application",
+      category: "Application",
+      keybind: "quit",
+      onSelect: () => {
+        exit()
+      },
+    },
+  ])
 
   const items = (): FilterableListItem<Account>[] => {
     return aws.accounts.map((account) => ({
       id: account.accountId,
       title: `${account.name} (${account.accountId})`,
       value: account,
-      description: `Role: ${account.roles[0] ?? "Loading..."} │ Region: ${account.region ?? profile()?.defaultRegion ?? "us-east-1"}`,
+      description: `Role: ${account.roles[0] ?? "Loading..."} | Region: ${account.region ?? profile()?.defaultRegion ?? "us-east-1"}`,
     }))
   }
 
   const handleRefresh = async () => {
     const p = profile()
     if (!p) return
-    
+
     try {
       await aws.refreshAccounts()
       toast.show({
@@ -63,16 +134,8 @@ export function AccountListScreen() {
         return
       }
 
-      // Get credentials to generate console URL
-      await aws.getRoleCredentials(
-        p,
-        account.accountId,
-        account.name,
-        roleName,
-        account.region ?? p.defaultRegion
-      )
+      await aws.getRoleCredentials(p, account.accountId, account.name, roleName, account.region ?? p.defaultRegion)
 
-      // Generate console URL
       const region = account.region ?? p.defaultRegion
       const url = `https://${account.accountId}.signin.aws.amazon.com/console/home?region=${region}`
 
@@ -88,30 +151,10 @@ export function AccountListScreen() {
     }
   }
 
-  const handleSetRegion = (account: Account) => {
-    route.navigate({
-      type: "region-select",
-      profileName: routeData.profileName,
-      accountId: account.accountId,
-      accountName: account.name,
-    })
-  }
-
-  const handleSetProfile = (account: Account) => {
-    route.navigate({
-      type: "profile-name-input",
-      profileName: routeData.profileName,
-      accountId: account.accountId,
-      accountName: account.name,
-      roleName: account.roles[0] ?? "",
-    })
-  }
-
   const handleViewRoles = async (account: Account) => {
     const p = profile()
     if (!p) return
 
-    // Load roles if not loaded
     if (!account.rolesLoaded) {
       const roles = await aws.loadRoles(p, account.accountId)
       if (roles.length === 0) {
@@ -123,7 +166,6 @@ export function AccountListScreen() {
       }
     }
 
-    // Show role selection dialog
     dialog.replace(() => (
       <DialogSelect
         title="Select Role"
@@ -144,7 +186,6 @@ export function AccountListScreen() {
     if (!p) return
 
     try {
-      // Get credentials for the role
       const expiration = await aws.getRoleCredentials(
         p,
         account.accountId,
@@ -153,7 +194,6 @@ export function AccountListScreen() {
         account.region ?? p.defaultRegion
       )
 
-      // Navigate to success screen
       route.navigate({
         type: "success",
         profileName: routeData.profileName,
@@ -173,116 +213,61 @@ export function AccountListScreen() {
     const p = profile()
     if (!p) return
 
-    // If account has roles loaded and has a default role, assume it
     if (account.roles.length > 0) {
       await handleAssumeRole(account, account.roles[0])
     } else {
-      // Load and show roles
       await handleViewRoles(account)
     }
   }
 
+  const handleItemMove = (item: FilterableListItem<Account>) => {
+    setSelectedAccount(item.value)
+  }
+
   useKeyboard((evt) => {
-    if (keybind.match("back", evt)) {
+    if (keybind.match("filter", evt)) {
       evt.preventDefault()
-      route.navigate({ type: "sso-select" })
-    }
-
-    if (keybind.match("refresh", evt)) {
-      evt.preventDefault()
-      handleRefresh()
-    }
-
-    if (keybind.match("settings", evt)) {
-      evt.preventDefault()
-      route.navigate({ type: "settings" })
-    }
-
-    if (keybind.match("quit", evt)) {
-      evt.preventDefault()
-      exit()
     }
   })
 
   return (
-    <box flexDirection="column" width="100%" height="100%">
-      <box paddingLeft={1} paddingTop={1} paddingBottom={1} flexDirection="row" gap={1} alignItems="center">
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
-          Accounts - {routeData.profileName}
-        </text>
-        <Show when={aws.refreshing}>
-          <Spinner />
-        </Show>
-      </box>
-
+    <Layout
+      header={
+        <Header
+          title={`Accounts - ${routeData.profileName}`}
+          subtitle={`${aws.accounts.length} accounts`}
+          right={
+            <Show when={aws.refreshing}>
+              <Spinner />
+            </Show>
+          }
+        />
+      }
+      footer={
+        <Footer
+          right={<KeybindHint keybind={keybind.print("command_list")} label="Commands" />}
+        >
+          <KeybindHint keybind={keybind.print("refresh")} label="Refresh" />
+          <KeybindHint keybind={keybind.print("role_list")} label="Roles" />
+          <KeybindHint keybind={keybind.print("browser_open")} label="Browser" />
+          <KeybindHint keybind={keybind.print("select")} label="Select" />
+          <KeybindHint keybind={keybind.print("back")} label="Back" />
+        </Footer>
+      }
+    >
       <FilterableList
         items={items()}
         onSelect={handleSelect}
+        onMove={handleItemMove}
         filterPlaceholder="Type / to filter accounts..."
         emptyMessage="No accounts found"
-        footer={
-          <box paddingLeft={1} paddingBottom={1} flexDirection="column" gap={0.5}>
-            <box flexDirection="row" gap={2}>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("filter")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Filter</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("browser_open")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Browser</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("profile_set")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Profile</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("region_set")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Region</span>
-              </text>
-            </box>
-            <box flexDirection="row" gap={2}>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("refresh")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Refresh</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("role_list")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Roles</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("select")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Select</span>
-              </text>
-              <text>
-                <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-                  {keybind.print("quit")}
-                </span>
-                <span style={{ fg: theme.textMuted }}> Exit</span>
-              </text>
-            </box>
-          </box>
-        }
       />
 
       <Show when={aws.error}>
-        <box paddingLeft={1} paddingTop={1}>
+        <box paddingLeft={2} paddingTop={1}>
           <text fg={theme.error}>{aws.error}</text>
         </box>
       </Show>
-    </box>
+    </Layout>
   )
 }
