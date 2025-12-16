@@ -1,6 +1,6 @@
 import { RGBA, TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
-import { batch, createEffect, createMemo, For, Show } from "solid-js"
+import { createEffect, createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { useDialog } from "./dialog"
@@ -18,21 +18,10 @@ export function DialogCommand(props: DialogCommandProps) {
   const keybind = useKeybind()
   const [store, setStore] = createStore({
     selected: 0,
-    filter: "",
   })
 
-  let input: { focus: () => void }
-
   const filtered = createMemo(() => {
-    const needle = store.filter.toLowerCase()
-    const options = props.options.filter((x) => x.disabled !== true)
-    if (!needle) return options
-    return options.filter(
-      (x) =>
-        x.title.toLowerCase().includes(needle) ||
-        x.category?.toLowerCase().includes(needle) ||
-        x.description?.toLowerCase().includes(needle)
-    )
+    return props.options.filter((x) => x.disabled !== true)
   })
 
   const grouped = createMemo(() => {
@@ -55,15 +44,10 @@ export function DialogCommand(props: DialogCommandProps) {
 
   const dimensions = useTerminalDimensions()
   const height = createMemo(() =>
-    Math.min(flat().length + grouped().length * 2 - 1, Math.floor(dimensions().height / 2) - 6)
+    Math.min(flat().length + grouped().length * 2 - 1, Math.floor(dimensions().height / 2) - 4)
   )
 
   const selected = createMemo(() => flat()[store.selected])
-
-  createEffect(() => {
-    store.filter
-    setStore("selected", 0)
-  })
 
   function move(direction: number) {
     let next = store.selected + direction
@@ -105,30 +89,13 @@ export function DialogCommand(props: DialogCommandProps) {
   })
 
   return (
-    <box gap={1}>
+    <box gap={1} paddingBottom={1}>
       <box paddingLeft={3} paddingRight={2}>
         <box flexDirection="row" justifyContent="space-between">
           <text fg={theme.text} attributes={TextAttributes.BOLD}>
             Commands
           </text>
           <text fg={theme.textMuted}>esc</text>
-        </box>
-        <box paddingTop={1} paddingBottom={1}>
-          <input
-            onInput={(e) => {
-              batch(() => {
-                setStore("filter", e)
-              })
-            }}
-            focusedBackgroundColor={theme.inputBg}
-            cursorColor={theme.inputCursor}
-            focusedTextColor={theme.inputFocusText}
-            ref={(r) => {
-              input = r
-              setTimeout(() => input.focus(), 1)
-            }}
-            placeholder="Type to search commands..."
-          />
         </box>
       </box>
       <scrollbox paddingLeft={2} paddingRight={2} scrollbarOptions={{ visible: false }} maxHeight={height()}>
