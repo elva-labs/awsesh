@@ -2,14 +2,39 @@ import { RGBA, type TerminalColors } from "@opentui/core"
 import { createMemo } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { useKV } from "./kv"
-import { createStore, produce } from "solid-js/store"
+import { createStore } from "solid-js/store"
 import { useRenderer } from "@opentui/solid"
-import opencode from "./theme/opencode.json"
+import aura from "./theme/aura.json"
+import ayu from "./theme/ayu.json"
+import catppuccin from "./theme/catppuccin.json"
+import catppuccinMacchiato from "./theme/catppuccin-macchiato.json"
+import cobalt2 from "./theme/cobalt2.json"
 import dracula from "./theme/dracula.json"
+import everforest from "./theme/everforest.json"
+import flexoki from "./theme/flexoki.json"
+import github from "./theme/github.json"
+import gruvbox from "./theme/gruvbox.json"
+import kanagawa from "./theme/kanagawa.json"
+import lucentOrng from "./theme/lucent-orng.json"
+import material from "./theme/material.json"
+import matrix from "./theme/matrix.json"
+import mercury from "./theme/mercury.json"
+import monokai from "./theme/monokai.json"
+import nightowl from "./theme/nightowl.json"
 import nord from "./theme/nord.json"
-import tokyonight from "./theme/tokyo-night.json"
+import oneDark from "./theme/one-dark.json"
+import opencode from "./theme/opencode.json"
+import orng from "./theme/orng.json"
+import palenight from "./theme/palenight.json"
+import rosepine from "./theme/rosepine.json"
+import solarized from "./theme/solarized.json"
+import synthwave84 from "./theme/synthwave84.json"
+import tokyonight from "./theme/tokyonight.json"
+import vercel from "./theme/vercel.json"
+import vesper from "./theme/vesper.json"
+import zenburn from "./theme/zenburn.json"
 
-type Theme = {
+type ThemeColors = {
   primary: RGBA
   secondary: RGBA
   accent: RGBA
@@ -19,43 +44,198 @@ type Theme = {
   info: RGBA
   text: RGBA
   textMuted: RGBA
+  selectedListItemText: RGBA
   background: RGBA
+  backgroundPanel: RGBA
+  backgroundElement: RGBA
+  backgroundMenu: RGBA
   border: RGBA
-  inputBg: RGBA
-  inputCursor: RGBA
-  inputFocusText: RGBA
+  borderActive: RGBA
+  borderSubtle: RGBA
+  diffAdded: RGBA
+  diffRemoved: RGBA
+  diffContext: RGBA
+  diffHunkHeader: RGBA
+  diffHighlightAdded: RGBA
+  diffHighlightRemoved: RGBA
+  diffAddedBg: RGBA
+  diffRemovedBg: RGBA
+  diffContextBg: RGBA
+  diffLineNumber: RGBA
+  diffAddedLineNumberBg: RGBA
+  diffRemovedLineNumberBg: RGBA
+  markdownText: RGBA
+  markdownHeading: RGBA
+  markdownLink: RGBA
+  markdownLinkText: RGBA
+  markdownCode: RGBA
+  markdownBlockQuote: RGBA
+  markdownEmph: RGBA
+  markdownStrong: RGBA
+  markdownHorizontalRule: RGBA
+  markdownListItem: RGBA
+  markdownListEnumeration: RGBA
+  markdownImage: RGBA
+  markdownImageText: RGBA
+  markdownCodeBlock: RGBA
+  syntaxComment: RGBA
+  syntaxKeyword: RGBA
+  syntaxFunction: RGBA
+  syntaxVariable: RGBA
+  syntaxString: RGBA
+  syntaxNumber: RGBA
+  syntaxType: RGBA
+  syntaxOperator: RGBA
+  syntaxPunctuation: RGBA
+}
+
+type Theme = ThemeColors & {
+  _hasSelectedListItemText: boolean
+}
+
+export function selectedForeground(theme: Theme): RGBA {
+  if (theme._hasSelectedListItemText) {
+    return theme.selectedListItemText
+  }
+  if (theme.background.a === 0) {
+    const { r, g, b } = theme.primary
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    return luminance > 0.5 ? RGBA.fromInts(0, 0, 0) : RGBA.fromInts(255, 255, 255)
+  }
+  return theme.background
 }
 
 type HexColor = `#${string}`
+type RefName = string
+type Variant = {
+  dark: HexColor | RefName
+  light: HexColor | RefName
+}
+type ColorValue = HexColor | RefName | Variant | RGBA
+
 type ThemeJson = {
   $schema?: string
-  theme: Record<keyof Theme, HexColor | RGBA>
+  defs?: Record<string, HexColor | RefName>
+  theme: Omit<Record<keyof ThemeColors, ColorValue>, "selectedListItemText" | "backgroundMenu"> & {
+    selectedListItemText?: ColorValue
+    backgroundMenu?: ColorValue
+  }
 }
 
-const DEFAULT_THEMES: Record<string, ThemeJson> = {
-  system: opencode as any,
-  opencode: opencode as any,
+export const DEFAULT_THEMES: Record<string, ThemeJson> = {
+  aura: aura as any,
+  ayu: ayu as any,
+  catppuccin: catppuccin as any,
+  ["catppuccin-macchiato"]: catppuccinMacchiato as any,
+  cobalt2: cobalt2 as any,
   dracula: dracula as any,
+  everforest: everforest as any,
+  flexoki: flexoki as any,
+  github: github as any,
+  gruvbox: gruvbox as any,
+  kanagawa: kanagawa as any,
+  ["lucent-orng"]: lucentOrng as any,
+  material: material as any,
+  matrix: matrix as any,
+  mercury: mercury as any,
+  monokai: monokai as any,
+  nightowl: nightowl as any,
   nord: nord as any,
-  ["tokyo-night"]: tokyonight as any,
+  ["one-dark"]: oneDark as any,
+  opencode: opencode as any,
+  orng: orng as any,
+  palenight: palenight as any,
+  rosepine: rosepine as any,
+  solarized: solarized as any,
+  synthwave84: synthwave84 as any,
+  tokyonight: tokyonight as any,
+  vercel: vercel as any,
+  vesper: vesper as any,
+  zenburn: zenburn as any,
 }
 
-function resolveTheme(themeJson: ThemeJson): Theme {
-  return Object.fromEntries(
-    Object.entries(themeJson.theme).map(([key, value]) => {
-      if (value instanceof RGBA) return [key, value]
-      return [key, RGBA.fromHex(value)]
-    })
-  ) as Theme
+function resolveTheme(theme: ThemeJson, mode: "dark" | "light"): Theme {
+  const defs = theme.defs ?? {}
+
+  function resolveColor(c: ColorValue): RGBA {
+    if (c instanceof RGBA) return c
+    if (typeof c === "string") {
+      if (c === "transparent" || c === "none") return RGBA.fromInts(0, 0, 0, 0)
+      if (c.startsWith("#")) return RGBA.fromHex(c)
+      if (defs[c] != null) {
+        return resolveColor(defs[c])
+      } else if (theme.theme[c as keyof ThemeColors] !== undefined) {
+        return resolveColor(theme.theme[c as keyof ThemeColors]!)
+      } else {
+        throw new Error(`Color reference "${c}" not found in defs or theme`)
+      }
+    }
+    if (typeof c === "number") {
+      return ansiToRgba(c)
+    }
+    return resolveColor(c[mode])
+  }
+
+  const resolved = Object.fromEntries(
+    Object.entries(theme.theme)
+      .filter(([key]) => key !== "selectedListItemText" && key !== "backgroundMenu")
+      .map(([key, value]) => {
+        return [key, resolveColor(value as ColorValue)]
+      })
+  ) as Partial<ThemeColors>
+
+  const hasSelectedListItemText = theme.theme.selectedListItemText !== undefined
+  if (hasSelectedListItemText) {
+    resolved.selectedListItemText = resolveColor(theme.theme.selectedListItemText!)
+  } else {
+    resolved.selectedListItemText = resolved.background
+  }
+
+  if (theme.theme.backgroundMenu !== undefined) {
+    resolved.backgroundMenu = resolveColor(theme.theme.backgroundMenu)
+  } else {
+    resolved.backgroundMenu = resolved.backgroundElement
+  }
+
+  return {
+    ...resolved,
+    _hasSelectedListItemText: hasSelectedListItemText,
+  } as Theme
 }
 
-function generateSystem(colors: TerminalColors): ThemeJson {
+function ansiToRgba(code: number): RGBA {
+  if (code < 16) {
+    const ansiColors = [
+      "#000000", "#800000", "#008000", "#808000",
+      "#000080", "#800080", "#008080", "#c0c0c0",
+      "#808080", "#ff0000", "#00ff00", "#ffff00",
+      "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+    ]
+    return RGBA.fromHex(ansiColors[code] ?? "#000000")
+  }
+  if (code < 232) {
+    const index = code - 16
+    const b = index % 6
+    const g = Math.floor(index / 6) % 6
+    const r = Math.floor(index / 36)
+    const val = (x: number) => (x === 0 ? 0 : x * 40 + 55)
+    return RGBA.fromInts(val(r), val(g), val(b))
+  }
+  if (code < 256) {
+    const gray = (code - 232) * 10 + 8
+    return RGBA.fromInts(gray, gray, gray)
+  }
+  return RGBA.fromInts(0, 0, 0)
+}
+
+function generateSystem(colors: TerminalColors, mode: "dark" | "light"): ThemeJson {
   const bg = RGBA.fromHex(colors.defaultBackground ?? colors.palette[0]!)
   const fg = RGBA.fromHex(colors.defaultForeground ?? colors.palette[7]!)
   const palette = colors.palette.filter((x) => x !== null).map((x) => RGBA.fromHex(x))
+  const isDark = mode === "dark"
 
-  const grays = generateGrayScale(bg)
-  const textMuted = generateMutedTextColor(bg)
+  const grays = generateGrayScale(bg, isDark)
+  const textMuted = generateMutedTextColor(bg, isDark)
 
   const ansiColors = {
     black: palette[0],
@@ -79,22 +259,59 @@ function generateSystem(colors: TerminalColors): ThemeJson {
       info: ansiColors.cyan,
       text: fg,
       textMuted,
+      selectedListItemText: bg,
       background: bg,
+      backgroundPanel: grays[2],
+      backgroundElement: grays[3],
+      backgroundMenu: grays[3],
+      borderSubtle: grays[6],
       border: grays[7],
-      inputBg: grays[2],
-      inputCursor: ansiColors.cyan,
-      inputFocusText: fg,
+      borderActive: grays[8],
+      diffAdded: ansiColors.green,
+      diffRemoved: ansiColors.red,
+      diffContext: grays[7],
+      diffHunkHeader: grays[7],
+      diffHighlightAdded: ansiColors.green,
+      diffHighlightRemoved: ansiColors.red,
+      diffAddedBg: grays[2],
+      diffRemovedBg: grays[2],
+      diffContextBg: grays[1],
+      diffLineNumber: grays[6],
+      diffAddedLineNumberBg: grays[3],
+      diffRemovedLineNumberBg: grays[3],
+      markdownText: fg,
+      markdownHeading: fg,
+      markdownLink: ansiColors.blue,
+      markdownLinkText: ansiColors.cyan,
+      markdownCode: ansiColors.green,
+      markdownBlockQuote: ansiColors.yellow,
+      markdownEmph: ansiColors.yellow,
+      markdownStrong: fg,
+      markdownHorizontalRule: grays[7],
+      markdownListItem: ansiColors.blue,
+      markdownListEnumeration: ansiColors.cyan,
+      markdownImage: ansiColors.blue,
+      markdownImageText: ansiColors.cyan,
+      markdownCodeBlock: fg,
+      syntaxComment: textMuted,
+      syntaxKeyword: ansiColors.magenta,
+      syntaxFunction: ansiColors.blue,
+      syntaxVariable: fg,
+      syntaxString: ansiColors.green,
+      syntaxNumber: ansiColors.yellow,
+      syntaxType: ansiColors.cyan,
+      syntaxOperator: ansiColors.cyan,
+      syntaxPunctuation: fg,
     },
   }
 }
 
-function generateGrayScale(bg: RGBA): Record<number, RGBA> {
+function generateGrayScale(bg: RGBA, isDark: boolean): Record<number, RGBA> {
   const grays: Record<number, RGBA> = {}
   const bgR = bg.r * 255
   const bgG = bg.g * 255
   const bgB = bg.b * 255
   const luminance = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB
-  const isDark = luminance < 128
 
   for (let i = 1; i <= 12; i++) {
     const factor = i / 12.0
@@ -136,12 +353,11 @@ function generateGrayScale(bg: RGBA): Record<number, RGBA> {
   return grays
 }
 
-function generateMutedTextColor(bg: RGBA): RGBA {
+function generateMutedTextColor(bg: RGBA, isDark: boolean): RGBA {
   const bgR = bg.r * 255
   const bgG = bg.g * 255
   const bgB = bg.b * 255
   const bgLum = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB
-  const isDark = bgLum < 128
 
   let grayValue: number
 
@@ -169,21 +385,20 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     const renderer = useRenderer()
     const [store, setStore] = createStore({
       themes: DEFAULT_THEMES,
+      mode: kv.get("theme_mode", "dark") as "dark" | "light",
       active: kv.get("theme", "system") as string,
       ready: false,
     })
 
     renderer.getPalette({ size: 16 }).then((colors) => {
       if (colors.palette[0]) {
-        setStore(produce((draft) => {
-          draft.themes.system = generateSystem(colors)
-        }))
+        setStore("themes", "system", generateSystem(colors, store.mode))
       }
       setStore("ready", true)
     })
 
     const values = createMemo(() => {
-      return resolveTheme(store.themes[store.active] ?? store.themes.system ?? store.themes.opencode)
+      return resolveTheme(store.themes[store.active] ?? store.themes.opencode, store.mode)
     })
 
     return {
@@ -196,7 +411,14 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         return store.active
       },
       all() {
-        return Object.keys(store.themes)
+        return store.themes
+      },
+      mode() {
+        return store.mode
+      },
+      setMode(mode: "dark" | "light") {
+        setStore("mode", mode)
+        kv.set("theme_mode", mode)
       },
       set(theme: string) {
         setStore("active", theme)
