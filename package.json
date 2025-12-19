@@ -17,15 +17,17 @@
     "awsesh": "./src/index.ts"
   },
   "dependencies": {
-    "@opentui/core": "0.1.46",
-    "@opentui/solid": "0.1.46",
     "@aws-sdk/client-sso": "^3.701.0",
     "@aws-sdk/client-sso-oidc": "^3.701.0",
     "@aws-sdk/client-sts": "^3.701.0",
-    "solid-js": "1.9.9",
-    "yargs": "18.0.0",
+    "@opentui/core": "0.1.46",
+    "@opentui/solid": "0.1.46",
+    "fuzzysort": "^3.1.0",
     "open": "10.1.2",
-    "xdg-basedir": "5.1.0"
+    "remeda": "^2.32.0",
+    "solid-js": "1.9.9",
+    "xdg-basedir": "5.1.0",
+    "yargs": "18.0.0"
   },
   "devDependencies": {
     "@types/yargs": "17.0.33",

@@ -9,6 +9,7 @@ import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
 import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
+import { DialogSettings } from "../component/dialog-settings"
 import type { SSOProfile } from "@/types"
 
 export function ProfileListScreen() {
@@ -72,13 +73,13 @@ export function ProfileListScreen() {
       },
     },
     {
-      id: "app.settings",
+      id: "settings",
       title: "Settings",
-      description: "Open application settings",
+      description: "Open settings menu",
       category: "Application",
       keybind: "settings",
       onSelect: () => {
-        route.navigate({ type: "settings" })
+        dialog.replace(() => <DialogSettings />)
       },
     },
     {
@@ -145,6 +146,7 @@ export function ProfileListScreen() {
           <KeybindHint keybind={keybind.print("profile_edit")} label="Edit" />
           <KeybindHint keybind={keybind.print("profile_delete")} label="Delete" />
           <KeybindHint keybind={keybind.print("select")} label="Select" />
+          <KeybindHint keybind={keybind.print("settings")} label="Theme" />
           <KeybindHint keybind={keybind.print("quit")} label="Quit" />
         </Footer>
       }

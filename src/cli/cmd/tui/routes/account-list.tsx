@@ -12,6 +12,7 @@ import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
 import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
+import { DialogSettings } from "../component/dialog-settings"
 import type { Account } from "@/types"
 
 export function AccountListScreen() {
@@ -75,13 +76,13 @@ export function AccountListScreen() {
       },
     },
     {
-      id: "app.settings",
+      id: "settings",
       title: "Settings",
-      description: "Open application settings",
+      description: "Open settings menu",
       category: "Application",
       keybind: "settings",
       onSelect: () => {
-        route.navigate({ type: "settings" })
+        dialog.replace(() => <DialogSettings />)
       },
     },
     {

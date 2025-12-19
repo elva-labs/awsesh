@@ -66,10 +66,6 @@ export type SuccessRoute = {
   region?: string;
 };
 
-export type SettingsRoute = {
-  type: "settings";
-};
-
 export type Route =
   | SSOSelectRoute
   | ProfileFormRoute
@@ -79,8 +75,7 @@ export type Route =
   | RegionSelectRoute
   | RoleSelectRoute
   | ProfileNameInputRoute
-  | SuccessRoute
-  | SettingsRoute;
+  | SuccessRoute;
 
 /**
  * Route context provider for TUI navigation
