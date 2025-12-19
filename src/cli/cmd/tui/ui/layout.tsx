@@ -39,7 +39,6 @@ export function Layout(props: ParentProps<LayoutProps>) {
         <box
           width={sidebarWidth()}
           height="100%"
-          backgroundColor={theme.inputBg}
           borderStyle="single"
           borderColor={theme.border}
           border={["left"]}

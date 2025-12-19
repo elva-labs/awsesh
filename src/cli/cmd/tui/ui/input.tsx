@@ -22,11 +22,11 @@ export function Input(props: InputProps) {
       value={props.value}
       placeholder={props.placeholder}
       onInput={(e) => props.onInput?.(e)}
-      backgroundColor={props.backgroundColor ?? theme.inputBg}
-      focusedBackgroundColor={props.focusedBackgroundColor ?? theme.inputBg}
+      backgroundColor={props.backgroundColor ?? theme.background}
+      focusedBackgroundColor={props.focusedBackgroundColor ?? theme.background}
       textColor={props.textColor ?? theme.text}
-      focusedTextColor={props.focusedTextColor ?? theme.inputFocusText}
-      cursorColor={props.cursorColor ?? theme.inputCursor}
+      focusedTextColor={props.focusedTextColor ?? theme.text}
+      cursorColor={props.cursorColor ?? theme.primary}
       ref={props.ref}
     />
   )

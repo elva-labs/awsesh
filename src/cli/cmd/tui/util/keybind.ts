@@ -1,3 +1,5 @@
+import type { ParsedKey } from "@opentui/core"
+
 export namespace Keybind {
   export interface Info {
     ctrl: boolean
@@ -5,6 +7,16 @@ export namespace Keybind {
     shift: boolean
     leader: boolean
     meta: boolean
+  }
+
+  export function fromParsedKey(key: ParsedKey, leader = false): Info {
+    return {
+      name: key.name,
+      ctrl: key.ctrl,
+      meta: key.meta,
+      shift: key.shift,
+      leader,
+    }
   }
 
   export function parse(str: string): Info {
@@ -38,7 +50,7 @@ export namespace Keybind {
     )
   }
 
-  export function toString(keybind: Info): string {
+  export function format(keybind: Info): string {
     const parts: string[] = []
     if (keybind.leader) parts.push("<leader>")
     if (keybind.ctrl) parts.push("ctrl")

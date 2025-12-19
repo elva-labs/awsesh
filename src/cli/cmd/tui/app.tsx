@@ -78,7 +78,7 @@ export function tui(): Promise<void> {
         targetFps: 60,
         gatherStats: false,
         exitOnCtrlC: false,
-        useKittyKeyboard: true,
+        useKittyKeyboard: {},
       }
     )
   })

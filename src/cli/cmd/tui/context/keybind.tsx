@@ -1,7 +1,7 @@
 import { createMemo } from "solid-js"
 import { useConfig, type KeybindsConfig } from "./config"
 import { Keybind } from "../util/keybind"
-import type { ParsedKey } from "@opentui/core"
+import type { ParsedKey, Renderable } from "@opentui/core"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import { createSimpleContext } from "./helper"
@@ -23,7 +23,7 @@ export const { use: useKeybind, provider: KeybindProvider } = createSimpleContex
     })
     const renderer = useRenderer()
 
-    let focus: any | null
+    let focus: Renderable | null
     let timeout: NodeJS.Timeout
 
     function leader(active: boolean) {
@@ -74,21 +74,10 @@ export const { use: useKeybind, provider: KeybindProvider } = createSimpleContex
         return store.leader
       },
       parse(evt: ParsedKey): Keybind.Info {
-        if (evt.name === "\x1F")
-          return {
-            ctrl: true,
-            name: "_",
-            shift: false,
-            leader: false,
-            meta: false,
-          }
-        return {
-          ctrl: evt.ctrl,
-          name: evt.name,
-          shift: evt.shift,
-          leader: store.leader,
-          meta: evt.meta,
+        if (evt.name === "\x1F") {
+          return Keybind.fromParsedKey({ ...evt, name: "_", ctrl: true }, store.leader)
         }
+        return Keybind.fromParsedKey(evt, store.leader)
       },
       match(key: keyof KeybindsConfig, evt: ParsedKey) {
         const keybind = keybinds()[key]
@@ -104,8 +93,10 @@ export const { use: useKeybind, provider: KeybindProvider } = createSimpleContex
       print(key: keyof KeybindsConfig) {
         const first = keybinds()[key]?.at(0)
         if (!first) return ""
-        const r = Keybind.toString(first)
-        return r.replace("<leader>", Keybind.toString(keybinds().leader![0]!))
+        const r = Keybind.format(first)
+        const leaderKey = keybinds().leader?.at(0)
+        if (!leaderKey) return r
+        return r.replace("<leader>", Keybind.format(leaderKey))
       },
     }
     return result

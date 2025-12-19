@@ -1,14 +1,14 @@
 import { TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
-import { createSignal } from "solid-js"
+import { createSignal, onMount, Show, type JSX } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
 
 export type DialogPromptProps = {
   title: string
-  message?: string
+  description?: () => JSX.Element
   placeholder?: string
-  defaultValue?: string
+  value?: string
   onConfirm?: (value: string) => void
   onCancel?: () => void
 }
@@ -16,44 +16,46 @@ export type DialogPromptProps = {
 export function DialogPrompt(props: DialogPromptProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
-  const [value, setValue] = createSignal(props.defaultValue ?? "")
+  const [value, setValue] = createSignal(props.value ?? "")
   let input: any
 
   useKeyboard((evt) => {
     if (evt.name === "return" && !evt.shift) {
       evt.preventDefault()
       props.onConfirm?.(value())
-      dialog.clear()
     }
+  })
+
+  onMount(() => {
+    setTimeout(() => {
+      input?.focus()
+    }, 1)
   })
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD}>{props.title}</text>
+        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+          {props.title}
+        </text>
         <text fg={theme.textMuted}>esc</text>
       </box>
-      {props.message && (
-        <box paddingBottom={1}>
-          <text fg={theme.textMuted}>{props.message}</text>
-        </box>
-      )}
-      <box paddingBottom={1}>
+      <box gap={1}>
+        <Show when={props.description}>{props.description!()}</Show>
         <input
           value={value()}
           onInput={(e) => setValue(e)}
-          focusedBackgroundColor={theme.inputBg}
-          cursorColor={theme.inputCursor}
-          focusedTextColor={theme.inputFocusText}
+          focusedBackgroundColor={theme.background}
+          cursorColor={theme.primary}
+          focusedTextColor={theme.text}
           placeholder={props.placeholder ?? "Enter value..."}
-          ref={(r) => {
-            input = r
-            setTimeout(() => input.focus(), 1)
-          }}
+          ref={(r) => (input = r)}
         />
       </box>
-      <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
-        <text fg={theme.textMuted}>Enter to save</text>
+      <box paddingBottom={1} flexDirection="row" gap={2}>
+        <text fg={theme.text}>
+          enter <span style={{ fg: theme.textMuted }}>submit</span>
+        </text>
       </box>
     </box>
   )
@@ -62,23 +64,21 @@ export function DialogPrompt(props: DialogPromptProps) {
 DialogPrompt.show = (
   dialog: DialogContext,
   title: string,
-  message?: string,
-  defaultValue?: string,
-  placeholder?: string,
+  options?: Omit<DialogPromptProps, "title">
 ) => {
   return new Promise<string | null>((resolve) => {
     dialog.replace(
       () => (
         <DialogPrompt
           title={title}
-          message={message}
-          defaultValue={defaultValue}
-          placeholder={placeholder}
-          onConfirm={(value) => resolve(value)}
+          {...options}
+          onConfirm={(value) => {
+            resolve(value)
+          }}
           onCancel={() => resolve(null)}
         />
       ),
-      () => resolve(null),
+      () => resolve(null)
     )
   })
 }

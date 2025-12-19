@@ -275,9 +275,9 @@ export function RoleSelector() {
               ref={(r) => (inputRef = r)}
               onInput={(value) => handleFilterChange(value)}
               placeholder="Type to filter..."
-              focusedBackgroundColor={theme.inputBg}
-              cursorColor={theme.inputCursor}
-              focusedTextColor={theme.inputFocusText}
+              focusedBackgroundColor={theme.background}
+              cursorColor={theme.primary}
+              focusedTextColor={theme.text}
             />
           </box>
           <box marginLeft={8}>

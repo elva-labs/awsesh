@@ -177,9 +177,9 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                 input?.blur()
               }
             }}
-            focusedBackgroundColor={theme.inputBg}
-            cursorColor={theme.inputCursor}
-            focusedTextColor={theme.inputFocusText}
+            focusedBackgroundColor={theme.background}
+            cursorColor={theme.primary}
+            focusedTextColor={theme.text}
             placeholder={props.filterPlaceholder ?? "Type / to filter..."}
             ref={(r: any) => (input = r)}
           />

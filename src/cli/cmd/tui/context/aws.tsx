@@ -367,11 +367,31 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       },
 
       /**
+       * Reload profiles from config
+       */
+      async reloadProfiles(): Promise<void> {
+        try {
+          const loadedProfiles = await config.loadProfiles();
+          setProfiles(loadedProfiles);
+        } catch (e) {
+          setError(`Failed to load profiles: ${e}`);
+        }
+      },
+
+      /**
        * Create a new profile
        */
       async createProfile(profile: SSOProfile): Promise<void> {
         await config.saveProfile(profile);
         setProfiles([...profiles(), profile]);
+      },
+
+      /**
+       * Update an existing profile
+       */
+      async updateProfile(profile: SSOProfile): Promise<void> {
+        await config.saveProfile(profile);
+        setProfiles(profiles().map((p) => (p.name === profile.name ? profile : p)));
       },
 
       /**

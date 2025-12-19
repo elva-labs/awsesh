@@ -1,5 +1,6 @@
 import { DialogPrompt } from "../ui/dialog-prompt"
 import { useDialog } from "../ui/dialog"
+import { useTheme } from "../context/theme"
 
 export interface ProfileNameDialogProps {
   currentProfileName?: string
@@ -10,12 +11,17 @@ export interface ProfileNameDialogProps {
 
 export function ProfileNameDialog(props: ProfileNameDialogProps) {
   const dialog = useDialog()
+  const { theme } = useTheme()
 
   return (
     <DialogPrompt
       title="Set Profile Name"
-      message={`Set custom profile name for ${props.accountName} / ${props.roleName}:`}
-      defaultValue={props.currentProfileName ?? "default"}
+      description={() => (
+        <text fg={theme.textMuted}>
+          Set custom profile name for {props.accountName} / {props.roleName}:
+        </text>
+      )}
+      value={props.currentProfileName ?? "default"}
       placeholder="Enter profile name..."
       onConfirm={(value) => {
         if (value.trim()) {
