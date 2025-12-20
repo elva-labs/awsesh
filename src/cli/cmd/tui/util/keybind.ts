@@ -20,7 +20,8 @@ export namespace Keybind {
   }
 
   export function parse(str: string): Info {
-    const parts = str.toLowerCase().split("+")
+    const normalized = str.toLowerCase().replace(/<leader>/g, "leader+")
+    const parts = normalized.split("+")
     const result: Info = {
       ctrl: false,
       shift: false,
@@ -33,7 +34,7 @@ export namespace Keybind {
       if (part === "ctrl") result.ctrl = true
       else if (part === "shift") result.shift = true
       else if (part === "meta" || part === "cmd") result.meta = true
-      else if (part === "<leader>") result.leader = true
+      else if (part === "leader") result.leader = true
       else result.name = part
     }
 
@@ -58,5 +59,14 @@ export namespace Keybind {
     if (keybind.meta) parts.push("meta")
     if (keybind.name) parts.push(keybind.name)
     return parts.join("+")
+  }
+
+  export function toString(keybind: Info): string {
+    const parts: string[] = []
+    if (keybind.ctrl) parts.push("C")
+    if (keybind.shift) parts.push("S")
+    if (keybind.meta) parts.push("M")
+    parts.push(keybind.name)
+    return parts.join("-")
   }
 }

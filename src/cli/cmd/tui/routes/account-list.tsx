@@ -34,7 +34,6 @@ export function AccountListScreen() {
     {
       id: "account.refresh",
       title: "Refresh Accounts",
-      description: "Reload the account list",
       category: "Account",
       keybind: "refresh",
       onSelect: () => {
@@ -44,7 +43,6 @@ export function AccountListScreen() {
     {
       id: "account.browser",
       title: "Open in Browser",
-      description: "Open AWS Console in browser",
       category: "Account",
       keybind: "browser_open",
       disabled: !selectedAccount(),
@@ -56,7 +54,6 @@ export function AccountListScreen() {
     {
       id: "account.roles",
       title: "View Roles",
-      description: "List available roles for account",
       category: "Account",
       keybind: "role_list",
       disabled: !selectedAccount(),
@@ -68,7 +65,6 @@ export function AccountListScreen() {
     {
       id: "nav.back",
       title: "Back to Profiles",
-      description: "Return to profile selection",
       category: "Navigation",
       keybind: "back",
       onSelect: () => {
@@ -78,7 +74,6 @@ export function AccountListScreen() {
     {
       id: "settings",
       title: "Settings",
-      description: "Open settings menu",
       category: "Application",
       keybind: "settings",
       onSelect: () => {
@@ -88,7 +83,6 @@ export function AccountListScreen() {
     {
       id: "app.quit",
       title: "Quit",
-      description: "Exit the application",
       category: "Application",
       keybind: "quit",
       onSelect: () => {

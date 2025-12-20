@@ -27,7 +27,6 @@ export function ProfileListScreen() {
     {
       id: "profile.add",
       title: "Add Profile",
-      description: "Create a new SSO profile",
       category: "Profile",
       keybind: "profile_add",
       onSelect: () => {
@@ -40,7 +39,6 @@ export function ProfileListScreen() {
     {
       id: "profile.edit",
       title: "Edit Profile",
-      description: "Edit the selected profile",
       category: "Profile",
       keybind: "profile_edit",
       disabled: !selectedProfile(),
@@ -58,7 +56,6 @@ export function ProfileListScreen() {
     {
       id: "profile.delete",
       title: "Delete Profile",
-      description: "Delete the selected profile",
       category: "Profile",
       keybind: "profile_delete",
       disabled: !selectedProfile(),
@@ -75,7 +72,6 @@ export function ProfileListScreen() {
     {
       id: "settings",
       title: "Settings",
-      description: "Open settings menu",
       category: "Application",
       keybind: "settings",
       onSelect: () => {
@@ -85,7 +81,6 @@ export function ProfileListScreen() {
     {
       id: "app.quit",
       title: "Quit",
-      description: "Exit the application",
       category: "Application",
       keybind: "quit",
       onSelect: () => {
