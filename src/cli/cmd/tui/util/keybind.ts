@@ -20,8 +20,8 @@ export namespace Keybind {
   }
 
   export function parse(str: string): Info {
-    const normalized = str.toLowerCase().replace(/<leader>/g, "leader+")
-    const parts = normalized.split("+")
+    const normalized = str.toLowerCase().replace(/<leader>\+?/g, "leader+")
+    const parts = normalized.split("+").filter((p) => p.length > 0)
     const result: Info = {
       ctrl: false,
       shift: false,
@@ -35,6 +35,7 @@ export namespace Keybind {
       else if (part === "shift") result.shift = true
       else if (part === "meta" || part === "cmd") result.meta = true
       else if (part === "leader") result.leader = true
+      else if (part === "space") result.name = "space"
       else result.name = part
     }
 
@@ -61,7 +62,7 @@ export namespace Keybind {
     return parts.join("+")
   }
 
-  export function toString(keybind: Info): string {
+  export function toShortString(keybind: Info): string {
     const parts: string[] = []
     if (keybind.ctrl) parts.push("C")
     if (keybind.shift) parts.push("S")

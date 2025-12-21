@@ -166,8 +166,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   props.ref?.(ref)
 
   return (
-    <box gap={1} paddingBottom={1}>
-      <box paddingLeft={4} paddingRight={4}>
+    <box gap={1}>
+      <box paddingLeft={3} paddingRight={3}>
         <box flexDirection="row" justifyContent="space-between">
           <text fg={theme.text} attributes={TextAttributes.BOLD}>
             {props.title}

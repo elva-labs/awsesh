@@ -50,19 +50,19 @@ export interface UserConfig {
 }
 
 const defaultKeybinds: KeybindsConfig = {
-  quit: ["ctrl+c", "<leader>q"],
+  quit: ["ctrl+c", "<leader>+q"],
   back: ["escape"],
   help: ["?"],
-  filter: ["<leader>/"],
-  refresh: ["<leader>r"],
-  settings: ["<leader>,"],
-  browser_open: ["<leader>o"],
-  profile_set: ["<leader>p"],
-  region_set: ["<leader>r"],
-  role_list: ["<leader>l"],
-  profile_add: ["<leader>a"],
-  profile_edit: ["<leader>e"],
-  profile_delete: ["<leader>d"],
+  filter: ["<leader>+/"],
+  refresh: ["<leader>+r"],
+  settings: ["<leader>+,"],
+  browser_open: ["<leader>+o"],
+  profile_set: ["<leader>+p"],
+  region_set: ["<leader>+r"],
+  role_list: ["<leader>+l"],
+  profile_add: ["<leader>+a"],
+  profile_edit: ["<leader>+e"],
+  profile_delete: ["<leader>+d"],
   nav_up: ["up", "k"],
   nav_down: ["down", "j"],
   nav_left: ["left", "h"],
@@ -140,8 +140,81 @@ export namespace Config {
     const dir = path.dirname(configPath)
     await Bun.write(path.join(dir, ".keep"), "")
     
-    await Bun.write(configPath, JSON.stringify(config, null, 2))
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+    
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const merged: UserConfig = {
+      ...existing,
+      ...config,
+      keybinds: {
+        ...existing.keybinds,
+        ...config.keybinds,
+      },
+    }
+    
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
     log.info("Config saved")
+  }
+
+  function arraysEqual(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false
+    return a.every((v, i) => v === b[i])
+  }
+
+  export async function setKeybind(
+    key: keyof KeybindsConfig,
+    bindings: string[]
+  ): Promise<void> {
+    const defaultBindings = defaultKeybinds[key]
+    const isDefault = arraysEqual(bindings, defaultBindings)
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const keybinds: UserKeybindsConfig = {}
+    
+    for (const [k, v] of Object.entries(existing.keybinds ?? {})) {
+      if (k !== key) {
+        keybinds[k as keyof KeybindsConfig] = v
+      }
+    }
+
+    if (!isDefault) {
+      keybinds[key] = bindings
+    }
+
+    const hasKeybinds = Object.keys(keybinds).length > 0
+    const { keybinds: _, ...rest } = existing
+    const merged: UserConfig = hasKeybinds ? { ...rest, keybinds } : rest
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("Keybind saved", { key, isDefault })
+  }
+
+  export function getDefaultKeybind(key: keyof KeybindsConfig): string[] {
+    return [...defaultKeybinds[key]]
+  }
+
+  export function isDefaultKeybind(key: keyof KeybindsConfig, bindings: string[]): boolean {
+    return arraysEqual(bindings, defaultKeybinds[key])
   }
 
   export function getDefaults(): AppConfig {
