@@ -2,7 +2,7 @@ import { Show, createMemo, createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
-import { useKeyboard } from "@opentui/solid"
+
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
@@ -219,13 +219,6 @@ export function AccountListScreen() {
     setSelectedAccount(item.value)
   }
 
-  useKeyboard((evt) => {
-    if (dialog.stack.length > 0) return
-    if (keybind.match("filter", evt)) {
-      evt.preventDefault()
-    }
-  })
-
   return (
     <Layout
       header={
@@ -255,7 +248,6 @@ export function AccountListScreen() {
         items={items()}
         onSelect={handleSelect}
         onMove={handleItemMove}
-        filterPlaceholder="Type / to filter accounts..."
         emptyMessage="No accounts found"
       />
 

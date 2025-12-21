@@ -161,7 +161,6 @@ export function ProfileListScreen() {
           items={items()}
           onSelect={handleSelect}
           onMove={handleItemMove}
-          showFilter={false}
         />
       </Show>
 

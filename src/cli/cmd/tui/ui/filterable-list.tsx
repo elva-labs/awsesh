@@ -1,10 +1,13 @@
-import { batch, createEffect, createMemo, For, Show, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { useTheme } from "../context/theme"
+import { useKeybind } from "../context/keybind"
+import { useCommand } from "../context/command"
 import { useDialog } from "./dialog"
-import { TextAttributes, RGBA } from "@opentui/core"
+import { TextAttributes, RGBA, type InputRenderable } from "@opentui/core"
 import { Locale } from "../util/locale"
+import * as fuzzysort from "fuzzysort"
 
 export interface FilterableListProps<T> {
   title?: string
@@ -32,6 +35,8 @@ export interface FilterableListItem<T = any> {
 
 export function FilterableList<T>(props: FilterableListProps<T>) {
   const { theme } = useTheme()
+  const keybind = useKeybind()
+  const command = useCommand()
   const dialog = useDialog()
   const [store, setStore] = createStore({
     selected: 0,
@@ -39,19 +44,14 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     filterActive: false,
   })
 
-  let input: any
+  let input: InputRenderable
   let scroll: any
 
   const filtered = createMemo(() => {
     const needle = store.filter.toLowerCase()
     const items = props.items.filter((x) => !x.disabled)
     if (!needle) return items
-    return items.filter(
-      (x) =>
-        x.title.toLowerCase().includes(needle) ||
-        x.category?.toLowerCase().includes(needle) ||
-        x.description?.toLowerCase().includes(needle)
-    )
+    return fuzzysort.go(needle, items, { keys: ["title", "category", "description"] }).map((x) => x.obj)
   })
 
   const grouped = createMemo(() => {
@@ -82,6 +82,30 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     if (scroll) scroll.scrollTo(0)
   })
 
+  createEffect(() => {
+    if (input) {
+      input.value = store.filter
+    }
+  })
+
+  let commandsSuspended = false
+  createEffect(() => {
+    const hasFilter = store.filter.length > 0
+    if (hasFilter && !commandsSuspended) {
+      command.suspend(true)
+      commandsSuspended = true
+    } else if (!hasFilter && commandsSuspended) {
+      command.suspend(false)
+      commandsSuspended = false
+    }
+  })
+
+  onCleanup(() => {
+    if (commandsSuspended) {
+      command.suspend(false)
+    }
+  })
+
   function move(direction: number) {
     let next = store.selected + direction
     if (next < 0) next = flat().length - 1
@@ -110,6 +134,11 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     if (store.filterActive) return
     if (dialog.stack.length > 0) return
 
+    if (evt.name === "escape" && store.filter) {
+      evt.preventDefault()
+      setStore("filter", "")
+      return
+    }
     if (evt.name === "up" || (evt.ctrl && evt.name === "p") || evt.name === "k") {
       evt.preventDefault()
       move(-1)
@@ -133,14 +162,15 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
         props.onSelect?.(item)
       }
     }
-    if (evt.name === "/" && props.showFilter !== false) {
+    if (keybind.match("filter", evt) && props.showFilter !== false) {
       evt.preventDefault()
-      if (store.filter) {
-        setStore("filter", "")
-      } else {
-        setStore("filterActive", true)
-        setTimeout(() => input?.focus(), 1)
-      }
+      setStore("filterActive", true)
+      setTimeout(() => {
+        input?.focus()
+        if (input && store.filter) {
+          input.cursorPosition = store.filter.length
+        }
+      }, 1)
     }
   })
 
@@ -172,16 +202,21 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
               }
               if (evt.name === "escape") {
                 evt.preventDefault()
-                setStore("filter", "")
-                setStore("filterActive", false)
-                input?.blur()
+                if (store.filter) {
+                  setStore("filter", "")
+                } else {
+                  setStore("filterActive", false)
+                  input?.blur()
+                }
               }
             }}
+            backgroundColor={theme.background}
+            textColor={theme.text}
             focusedBackgroundColor={theme.background}
             cursorColor={theme.primary}
             focusedTextColor={theme.text}
-            placeholder={props.filterPlaceholder ?? "Type / to filter..."}
-            ref={(r: any) => (input = r)}
+            placeholder={props.filterPlaceholder ?? "Search..."}
+            ref={(r) => (input = r)}
           />
         </box>
       </Show>
@@ -244,7 +279,6 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                         <text
                           flexGrow={1}
                           fg={active() ? theme.background : current() ? theme.primary : theme.text}
-                          attributes={active() ? TextAttributes.BOLD : undefined}
                           overflow="hidden"
                           wrapMode="none"
                         >
