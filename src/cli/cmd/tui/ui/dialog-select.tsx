@@ -1,7 +1,7 @@
 import { InputRenderable, RGBA, ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { entries, filter, flatMap, groupBy, pipe } from "remeda"
-import { batch, createEffect, createMemo, For, Show, type JSX, on } from "solid-js"
+import { batch, createEffect, createMemo, For, onMount, Show, type JSX, on } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import * as fuzzysort from "fuzzysort"
@@ -165,9 +165,29 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
   props.ref?.(ref)
 
+  onMount(() => {
+    if (props.current) {
+      const currentIndex = flat().findIndex((opt) => isDeepEqual(opt.value, props.current))
+      if (currentIndex >= 0) {
+        setStore("selected", currentIndex)
+        setTimeout(() => {
+          const target = scroll.getChildren().find((child) => {
+            return child.id === JSON.stringify(props.current)
+          })
+          if (target) {
+            const y = target.y - scroll.y
+            if (y >= scroll.height || y < 0) {
+              scroll.scrollTo(Math.max(0, target.y - scroll.height / 2))
+            }
+          }
+        }, 10)
+      }
+    }
+  })
+
   return (
     <box gap={1}>
-      <box paddingLeft={3} paddingRight={3}>
+      <box paddingLeft={3} paddingRight={2}>
         <box flexDirection="row" justifyContent="space-between">
           <text fg={theme.text} attributes={TextAttributes.BOLD}>
             {props.title}
@@ -194,8 +214,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         </box>
       </box>
       <scrollbox
-        paddingLeft={1}
-        paddingRight={1}
+        paddingLeft={2}
+        paddingRight={2}
         scrollbarOptions={{ visible: false }}
         ref={(r: ScrollBoxRenderable) => (scroll = r)}
         maxHeight={height()}
@@ -204,7 +224,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           {([category, options], index) => (
             <>
               <Show when={category}>
-                <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={3}>
+                <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={1}>
                   <text fg={theme.accent} attributes={TextAttributes.BOLD}>
                     {category}
                   </text>
@@ -228,8 +248,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                         moveTo(index)
                       }}
                       backgroundColor={active() ? (option.bg ?? theme.primary) : RGBA.fromInts(0, 0, 0, 0)}
-                      paddingLeft={current() || option.gutter ? 1 : 3}
-                      paddingRight={3}
+                      paddingLeft={1}
+                      paddingRight={1}
                       gap={1}
                     >
                       <Option
@@ -239,6 +259,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                         active={active()}
                         current={current()}
                         gutter={option.gutter}
+                        showCurrentMarker={props.current !== undefined}
                       />
                     </box>
                   )
@@ -259,6 +280,7 @@ function Option(props: {
   current?: boolean
   footer?: JSX.Element | string
   gutter?: JSX.Element
+  showCurrentMarker?: boolean
 }) {
   const { theme } = useTheme()
   const fg = selectedForeground(theme)
@@ -266,7 +288,7 @@ function Option(props: {
   return (
     <>
       <Show when={props.current}>
-        <text flexShrink={0} fg={props.active ? fg : props.current ? theme.primary : theme.text} marginRight={0.5}>
+        <text flexShrink={0} fg={props.active ? fg : theme.primary} marginRight={0.5}>
           ●
         </text>
       </Show>
@@ -275,12 +297,16 @@ function Option(props: {
           {props.gutter}
         </box>
       </Show>
+      <Show when={!props.current && !props.gutter && props.showCurrentMarker}>
+        <text flexShrink={0} marginRight={0.5}>
+          {" "}
+        </text>
+      </Show>
       <text
         flexGrow={1}
         fg={props.active ? fg : props.current ? theme.primary : theme.text}
         attributes={props.active ? TextAttributes.BOLD : undefined}
         overflow="hidden"
-        paddingLeft={3}
       >
         {Locale.truncate(props.title, 61)}
         <Show when={props.description}>

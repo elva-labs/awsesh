@@ -142,7 +142,7 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
   }
 
   return (
-    <box paddingLeft={3} paddingRight={3} gap={1}>
+    <box paddingLeft={3} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text fg={theme.text} attributes={TextAttributes.BOLD}>
           Edit: {props.label}
@@ -174,7 +174,7 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
         </box>
       </Show>
 
-      <box paddingTop={1} gap={0.5}>
+      <box paddingTop={1} paddingBottom={1} gap={0.5}>
         <text fg={theme.textMuted}>Actions:</text>
         <text fg={theme.text}>
           <span style={{ fg: theme.accent }}>a</span>
