@@ -31,6 +31,7 @@ export interface KeybindsConfig {
 
 export interface AppConfig {
   theme: string
+  theme_mode?: "dark" | "light"
   autoAssumeRole: boolean
   cacheAccountDuration: number
   defaultRegion: string
@@ -43,6 +44,7 @@ export type UserKeybindsConfig = Partial<{
 
 export interface UserConfig {
   theme?: string
+  theme_mode?: "dark" | "light"
   autoAssumeRole?: boolean
   cacheAccountDuration?: number
   defaultRegion?: string
@@ -75,7 +77,7 @@ const defaultKeybinds: KeybindsConfig = {
 }
 
 export const defaultConfig: AppConfig = {
-  theme: "default",
+  theme: "system",
   autoAssumeRole: true,
   cacheAccountDuration: 15,
   defaultRegion: "us-east-1",
@@ -103,6 +105,7 @@ function mergeConfig(defaults: AppConfig, overrides?: UserConfig): AppConfig {
 
   return {
     theme: overrides.theme ?? defaults.theme,
+    theme_mode: overrides.theme_mode,
     autoAssumeRole: overrides.autoAssumeRole ?? defaults.autoAssumeRole,
     cacheAccountDuration: overrides.cacheAccountDuration ?? defaults.cacheAccountDuration,
     defaultRegion: overrides.defaultRegion ?? defaults.defaultRegion,
@@ -215,6 +218,55 @@ export namespace Config {
 
   export function isDefaultKeybind(key: keyof KeybindsConfig, bindings: string[]): boolean {
     return arraysEqual(bindings, defaultKeybinds[key])
+  }
+
+  export async function setTheme(theme: string): Promise<void> {
+    const isDefault = theme === defaultConfig.theme
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const { theme: _, ...rest } = existing
+    const merged: UserConfig = isDefault ? rest : { ...rest, theme }
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("Theme saved", { theme, isDefault })
+  }
+
+  export async function setThemeMode(
+    mode: "dark" | "light",
+    autoDetected: "dark" | "light"
+  ): Promise<void> {
+    const isDefault = mode === autoDetected
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const { theme_mode: _, ...rest } = existing
+    const merged: UserConfig = isDefault ? rest : { ...rest, theme_mode: mode }
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("Theme mode saved", { mode, isDefault })
   }
 
   export function getDefaults(): AppConfig {

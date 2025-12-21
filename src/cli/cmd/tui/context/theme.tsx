@@ -1,38 +1,42 @@
+import path from "node:path"
 import { RGBA, type TerminalColors } from "@opentui/core"
-import { createMemo } from "solid-js"
+import { createEffect, createMemo } from "solid-js"
 import { createSimpleContext } from "./helper"
-import { useKV } from "./kv"
-import { createStore } from "solid-js/store"
+import { useConfig } from "./config"
+import { Config } from "@/config/config"
+import { createStore, produce } from "solid-js/store"
 import { useRenderer } from "@opentui/solid"
-import aura from "./theme/aura.json"
-import ayu from "./theme/ayu.json"
-import catppuccin from "./theme/catppuccin.json"
-import catppuccinMacchiato from "./theme/catppuccin-macchiato.json"
-import cobalt2 from "./theme/cobalt2.json"
-import dracula from "./theme/dracula.json"
-import everforest from "./theme/everforest.json"
-import flexoki from "./theme/flexoki.json"
-import github from "./theme/github.json"
-import gruvbox from "./theme/gruvbox.json"
-import kanagawa from "./theme/kanagawa.json"
-import lucentOrng from "./theme/lucent-orng.json"
-import material from "./theme/material.json"
-import matrix from "./theme/matrix.json"
-import mercury from "./theme/mercury.json"
-import monokai from "./theme/monokai.json"
-import nightowl from "./theme/nightowl.json"
-import nord from "./theme/nord.json"
-import oneDark from "./theme/one-dark.json"
-import opencode from "./theme/opencode.json"
-import orng from "./theme/orng.json"
-import palenight from "./theme/palenight.json"
-import rosepine from "./theme/rosepine.json"
-import solarized from "./theme/solarized.json"
-import synthwave84 from "./theme/synthwave84.json"
-import tokyonight from "./theme/tokyonight.json"
-import vercel from "./theme/vercel.json"
-import vesper from "./theme/vesper.json"
-import zenburn from "./theme/zenburn.json"
+import { useKV } from "./kv"
+import { Global } from "@/global"
+import aura from "./theme/aura.json" with { type: "json" }
+import ayu from "./theme/ayu.json" with { type: "json" }
+import catppuccin from "./theme/catppuccin.json" with { type: "json" }
+import catppuccinMacchiato from "./theme/catppuccin-macchiato.json" with { type: "json" }
+import cobalt2 from "./theme/cobalt2.json" with { type: "json" }
+import dracula from "./theme/dracula.json" with { type: "json" }
+import everforest from "./theme/everforest.json" with { type: "json" }
+import flexoki from "./theme/flexoki.json" with { type: "json" }
+import github from "./theme/github.json" with { type: "json" }
+import gruvbox from "./theme/gruvbox.json" with { type: "json" }
+import kanagawa from "./theme/kanagawa.json" with { type: "json" }
+import lucentOrng from "./theme/lucent-orng.json" with { type: "json" }
+import material from "./theme/material.json" with { type: "json" }
+import matrix from "./theme/matrix.json" with { type: "json" }
+import mercury from "./theme/mercury.json" with { type: "json" }
+import monokai from "./theme/monokai.json" with { type: "json" }
+import nightowl from "./theme/nightowl.json" with { type: "json" }
+import nord from "./theme/nord.json" with { type: "json" }
+import oneDark from "./theme/one-dark.json" with { type: "json" }
+import opencode from "./theme/opencode.json" with { type: "json" }
+import orng from "./theme/orng.json" with { type: "json" }
+import palenight from "./theme/palenight.json" with { type: "json" }
+import rosepine from "./theme/rosepine.json" with { type: "json" }
+import solarized from "./theme/solarized.json" with { type: "json" }
+import synthwave84 from "./theme/synthwave84.json" with { type: "json" }
+import tokyonight from "./theme/tokyonight.json" with { type: "json" }
+import vercel from "./theme/vercel.json" with { type: "json" }
+import vesper from "./theme/vesper.json" with { type: "json" }
+import zenburn from "./theme/zenburn.json" with { type: "json" }
 
 type ThemeColors = {
   primary: RGBA
@@ -91,6 +95,7 @@ type ThemeColors = {
 
 type Theme = ThemeColors & {
   _hasSelectedListItemText: boolean
+  subtleOpacity: number
 }
 
 export function selectedForeground(theme: Theme): RGBA {
@@ -119,39 +124,40 @@ type ThemeJson = {
   theme: Omit<Record<keyof ThemeColors, ColorValue>, "selectedListItemText" | "backgroundMenu"> & {
     selectedListItemText?: ColorValue
     backgroundMenu?: ColorValue
+    subtleOpacity?: number
   }
 }
 
 export const DEFAULT_THEMES: Record<string, ThemeJson> = {
-  aura: aura as any,
-  ayu: ayu as any,
-  catppuccin: catppuccin as any,
-  ["catppuccin-macchiato"]: catppuccinMacchiato as any,
-  cobalt2: cobalt2 as any,
-  dracula: dracula as any,
-  everforest: everforest as any,
-  flexoki: flexoki as any,
-  github: github as any,
-  gruvbox: gruvbox as any,
-  kanagawa: kanagawa as any,
-  ["lucent-orng"]: lucentOrng as any,
-  material: material as any,
-  matrix: matrix as any,
-  mercury: mercury as any,
-  monokai: monokai as any,
-  nightowl: nightowl as any,
-  nord: nord as any,
-  ["one-dark"]: oneDark as any,
-  opencode: opencode as any,
-  orng: orng as any,
-  palenight: palenight as any,
-  rosepine: rosepine as any,
-  solarized: solarized as any,
-  synthwave84: synthwave84 as any,
-  tokyonight: tokyonight as any,
-  vercel: vercel as any,
-  vesper: vesper as any,
-  zenburn: zenburn as any,
+  aura,
+  ayu,
+  catppuccin,
+  "catppuccin-macchiato": catppuccinMacchiato,
+  cobalt2,
+  dracula,
+  everforest,
+  flexoki,
+  github,
+  gruvbox,
+  kanagawa,
+  "lucent-orng": lucentOrng,
+  material,
+  matrix,
+  mercury,
+  monokai,
+  nightowl,
+  nord,
+  "one-dark": oneDark,
+  opencode,
+  orng,
+  palenight,
+  rosepine,
+  solarized,
+  synthwave84,
+  tokyonight,
+  vercel,
+  vesper,
+  zenburn,
 }
 
 function resolveTheme(theme: ThemeJson, mode: "dark" | "light"): Theme {
@@ -164,11 +170,12 @@ function resolveTheme(theme: ThemeJson, mode: "dark" | "light"): Theme {
       if (c.startsWith("#")) return RGBA.fromHex(c)
       if (defs[c] != null) {
         return resolveColor(defs[c])
-      } else if (theme.theme[c as keyof ThemeColors] !== undefined) {
-        return resolveColor(theme.theme[c as keyof ThemeColors]!)
-      } else {
-        throw new Error(`Color reference "${c}" not found in defs or theme`)
       }
+      const themeColor = theme.theme[c as keyof ThemeColors]
+      if (themeColor !== undefined) {
+        return resolveColor(themeColor)
+      }
+      throw new Error(`Color reference "${c}" not found in defs or theme`)
     }
     if (typeof c === "number") {
       return ansiToRgba(c)
@@ -178,15 +185,15 @@ function resolveTheme(theme: ThemeJson, mode: "dark" | "light"): Theme {
 
   const resolved = Object.fromEntries(
     Object.entries(theme.theme)
-      .filter(([key]) => key !== "selectedListItemText" && key !== "backgroundMenu")
+      .filter(([key]) => key !== "selectedListItemText" && key !== "backgroundMenu" && key !== "subtleOpacity")
       .map(([key, value]) => {
         return [key, resolveColor(value as ColorValue)]
       })
   ) as Partial<ThemeColors>
 
   const hasSelectedListItemText = theme.theme.selectedListItemText !== undefined
-  if (hasSelectedListItemText) {
-    resolved.selectedListItemText = resolveColor(theme.theme.selectedListItemText!)
+  if (hasSelectedListItemText && theme.theme.selectedListItemText) {
+    resolved.selectedListItemText = resolveColor(theme.theme.selectedListItemText)
   } else {
     resolved.selectedListItemText = resolved.background
   }
@@ -197,9 +204,12 @@ function resolveTheme(theme: ThemeJson, mode: "dark" | "light"): Theme {
     resolved.backgroundMenu = resolved.backgroundElement
   }
 
+  const subtleOpacity = theme.theme.subtleOpacity ?? 0.6
+
   return {
     ...resolved,
     _hasSelectedListItemText: hasSelectedListItemText,
+    subtleOpacity,
   } as Theme
 }
 
@@ -229,8 +239,10 @@ function ansiToRgba(code: number): RGBA {
 }
 
 function generateSystem(colors: TerminalColors, mode: "dark" | "light"): ThemeJson {
-  const bg = RGBA.fromHex(colors.defaultBackground ?? colors.palette[0]!)
-  const fg = RGBA.fromHex(colors.defaultForeground ?? colors.palette[7]!)
+  const bgColor = colors.defaultBackground ?? colors.palette[0] ?? "#000000"
+  const fgColor = colors.defaultForeground ?? colors.palette[7] ?? "#ffffff"
+  const bg = RGBA.fromHex(bgColor)
+  const fg = RGBA.fromHex(fgColor)
   const palette = colors.palette.filter((x) => x !== null).map((x) => RGBA.fromHex(x))
   const isDark = mode === "dark"
 
@@ -378,24 +390,82 @@ function generateMutedTextColor(bg: RGBA, isDark: boolean): RGBA {
   return RGBA.fromInts(grayValue, grayValue, grayValue)
 }
 
+const CUSTOM_THEME_GLOB = new Bun.Glob("themes/*.json")
+
+async function getCustomThemes(): Promise<Record<string, ThemeJson>> {
+  const result: Record<string, ThemeJson> = {}
+  
+  const themesDir = Global.Path.config
+  
+  for await (const item of CUSTOM_THEME_GLOB.scan({
+    absolute: true,
+    followSymlinks: true,
+    dot: true,
+    cwd: themesDir,
+  })) {
+    const name = path.basename(item, ".json")
+    result[name] = await Bun.file(item).json()
+  }
+  
+  return result
+}
+
 export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   name: "Theme",
-  init: () => {
+  init: (props: { mode: "dark" | "light" }) => {
+    const config = useConfig()
     const kv = useKV()
     const renderer = useRenderer()
+    
+    const autoDetectedMode = props.mode
+    
     const [store, setStore] = createStore({
       themes: DEFAULT_THEMES,
-      mode: kv.get("theme_mode", "dark") as "dark" | "light",
-      active: kv.get("theme", "system") as string,
+      mode: config.data.theme_mode ?? kv.get("theme_mode", props.mode),
+      active: config.data.theme,
       ready: false,
     })
 
-    renderer.getPalette({ size: 16 }).then((colors) => {
-      if (colors.palette[0]) {
-        setStore("themes", "system", generateSystem(colors, store.mode))
-      }
-      setStore("ready", true)
+    createEffect(() => {
+      getCustomThemes()
+        .then((custom) => {
+          setStore(
+            produce((draft) => {
+              Object.assign(draft.themes, custom)
+            })
+          )
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (store.active !== "system") {
+            setStore("ready", true)
+          }
+        })
     })
+
+    renderer
+      .getPalette({ size: 16 })
+      .then((colors) => {
+        if (!colors.palette[0]) {
+          if (store.active === "system") {
+            setStore(
+              produce((draft) => {
+                draft.active = "opencode"
+                draft.ready = true
+              })
+            )
+          }
+          return
+        }
+        setStore(
+          produce((draft) => {
+            draft.themes.system = generateSystem(colors, store.mode)
+            if (store.active === "system") {
+              draft.ready = true
+            }
+          })
+        )
+      })
 
     const values = createMemo(() => {
       return resolveTheme(store.themes[store.active] ?? store.themes.opencode, store.mode)
@@ -419,13 +489,17 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       setMode(mode: "dark" | "light") {
         setStore("mode", mode)
         kv.set("theme_mode", mode)
+        Config.setThemeMode(mode, autoDetectedMode)
       },
       set(theme: string) {
         setStore("active", theme)
-        kv.set("theme", theme)
+        Config.setTheme(theme)
       },
       get ready() {
         return store.ready
+      },
+      get autoDetectedMode() {
+        return autoDetectedMode
       },
     }
   },

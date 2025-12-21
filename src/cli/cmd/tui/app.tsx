@@ -16,6 +16,7 @@ import { ProfileDeleteConfirmScreen } from "./routes/profile-delete-confirm"
 import { SSOLoginScreen } from "./routes/sso-login"
 import { AccountListScreen } from "./routes/account-list"
 import { SuccessScreen } from "./routes/success"
+import { Terminal } from "./util/terminal"
 
 function App() {
   const route = useRoute()
@@ -48,7 +49,9 @@ function App() {
   )
 }
 
-export function tui(): Promise<void> {
+export async function tui(): Promise<void> {
+  const mode = await Terminal.getTerminalBackgroundColor()
+  
   return new Promise<void>((resolve) => {
     render(
       () => (
@@ -56,7 +59,7 @@ export function tui(): Promise<void> {
           <KVProvider>
             <ConfigProvider>
               <RouteProvider>
-                <ThemeProvider>
+                <ThemeProvider mode={mode}>
                   <KeybindProvider>
                     <DialogProvider>
                       <ToastProvider>

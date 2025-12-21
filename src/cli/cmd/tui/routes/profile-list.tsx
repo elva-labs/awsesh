@@ -13,7 +13,7 @@ import { DialogSettings } from "../component/dialog-settings"
 import type { SSOProfile } from "@/types"
 
 export function ProfileListScreen() {
-  const { theme } = useTheme()
+  const { theme, mode, setMode } = useTheme()
   const route = useRoute()
   const aws = useAWS()
   const keybind = useKeybind()
@@ -76,6 +76,15 @@ export function ProfileListScreen() {
       keybind: "settings",
       onSelect: () => {
         dialog.replace(() => <DialogSettings />)
+      },
+    },
+    {
+      id: "theme.toggle_mode",
+      title: "Toggle appearance",
+      category: "System",
+      onSelect: (ctx) => {
+        setMode(mode() === "dark" ? "light" : "dark")
+        ctx.clear()
       },
     },
     {
