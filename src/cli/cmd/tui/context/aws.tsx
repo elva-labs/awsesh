@@ -25,12 +25,20 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
     const [refreshingRoles, setRefreshingRoles] = createSignal(false);
     const [error, setError] = createSignal<string | undefined>();
     const [currentProfile, setCurrentProfile] = createSignal<SSOProfile | undefined>();
+    const [tokenStatus, setTokenStatus] = createSignal<Record<string, boolean>>({});
 
-    // Load profiles on init
+    // Load profiles on init and check token status
     (async () => {
       try {
         const loadedProfiles = await config.loadProfiles();
         setProfiles(loadedProfiles);
+        
+        const status: Record<string, boolean> = {};
+        for (const profile of loadedProfiles) {
+          const token = await config.loadToken(profile.startUrl);
+          status[profile.startUrl] = token !== null;
+        }
+        setTokenStatus(status);
       } catch (e) {
         setError(`Failed to load profiles: ${e}`);
       }
@@ -54,6 +62,10 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       },
       get error() {
         return error();
+      },
+      
+      isSessionActive(startUrl: string): boolean {
+        return tokenStatus()[startUrl] ?? false;
       },
 
       /**
@@ -288,6 +300,9 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           token,
           loginInfo.expiresAt
         );
+
+        // Update token status
+        setTokenStatus((prev) => ({ ...prev, [profile.startUrl]: true }));
 
         return token;
       },

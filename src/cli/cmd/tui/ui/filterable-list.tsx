@@ -28,9 +28,11 @@ export interface FilterableListItem<T = any> {
   title: string
   value: T
   description?: string
+  subtitle?: string
   footer?: string | JSX.Element
   category?: string
   disabled?: boolean
+  active?: boolean
 }
 
 export function FilterableList<T>(props: FilterableListProps<T>) {
@@ -71,7 +73,12 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
   const height = createMemo(() => {
     if (props.maxHeight) return props.maxHeight
     const baseHeight = props.showFilter !== false ? 6 : 4
-    return Math.min(flat().length + grouped().length * 2, Math.floor(dimensions().height) - baseHeight)
+    const items = flat()
+    const itemHeight = items.reduce((acc, item) => {
+      const rowHeight = item.subtitle ? 3 : 2
+      return acc + rowHeight
+    }, 0)
+    return Math.min(itemHeight + grouped().length * 2, Math.floor(dimensions().height) - baseHeight)
   })
 
   const selected = createMemo(() => flat()[store.selected])
@@ -175,7 +182,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
   })
 
   return (
-    <box flexDirection="column" gap={1}>
+    <box flexDirection="column" flexGrow={1}>
       <Show when={props.title}>
         <box paddingLeft={1}>
           <text fg={theme.text} attributes={TextAttributes.BOLD}>
@@ -185,8 +192,9 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
       </Show>
 
       <Show when={props.showFilter !== false}>
-        <box paddingLeft={1} paddingRight={1}>
-          <input
+        <box flexDirection="column" marginBottom={1}>
+          <box paddingLeft={1} paddingRight={1} height={1}>
+            <input
             value={store.filter}
             onInput={(e) => {
               batch(() => {
@@ -216,7 +224,14 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
             cursorColor={theme.primary}
             focusedTextColor={theme.text}
             placeholder={props.filterPlaceholder ?? "Search..."}
+            placeholderColor={theme.textMuted}
             ref={(r) => (input = r)}
+          />
+          </box>
+          <box
+            borderStyle="single"
+            borderColor={theme.border}
+            border={["top"]}
           />
         </box>
       </Show>
@@ -230,80 +245,114 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
       <Show when={flat().length > 0}>
         <scrollbox
           scrollbarOptions={{ visible: false }}
-          maxHeight={height()}
+          flexGrow={1}
           ref={(r: any) => (scroll = r)}
         >
-          <For each={grouped()}>
-            {([category, items], index) => (
-              <>
-                <Show when={category}>
-                  <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={1}>
-                    <text fg={theme.accent} attributes={TextAttributes.BOLD}>
-                      {category}
-                    </text>
-                  </box>
-                </Show>
-                <For each={items}>
-                  {(item) => {
+          <box flexDirection="column">
+            <For each={grouped()}>
+              {([category, items], index) => (
+                <>
+                  <Show when={category}>
+                    <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={1}>
+                      <text fg={theme.accent} attributes={TextAttributes.BOLD}>
+                        {category}
+                      </text>
+                    </box>
+                  </Show>
+                  <For each={items}>
+                  {(item, itemIndex) => {
                     const active = createMemo(() => item.id === selected()?.id)
                     const current = createMemo(() => {
                       if (props.current === undefined) return false
                       return item.value === props.current
                     })
+                    const isFirst = createMemo(() => index() === 0 && itemIndex() === 0)
+                    const showSeparator = createMemo(() => !isFirst() && item.subtitle)
 
                     return (
-                      <box
-                        id={item.id}
-                        flexDirection="row"
-                        onMouseUp={() => {
-                          if (!item.disabled) props.onSelect?.(item)
-                        }}
-                        onMouseOver={() => {
-                          const idx = flat().findIndex((x) => x.id === item.id)
-                          if (idx !== -1) moveTo(idx)
-                        }}
-                        backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
-                        paddingLeft={1}
-                        paddingRight={1}
-                        gap={1}
-                      >
-                        <Show when={current()}>
-                          <text
-                            flexShrink={0}
-                            fg={active() ? theme.background : theme.primary}
-                            marginRight={0.5}
-                          >
-                            ●
-                          </text>
+                      <>
+                        <Show when={showSeparator()}>
+                          <box
+                            borderStyle="single"
+                            borderColor={theme.border}
+                            border={["top"]}
+                          />
                         </Show>
-                        <text
-                          flexGrow={1}
-                          fg={active() ? theme.background : current() ? theme.primary : theme.text}
-                          overflow="hidden"
-                          wrapMode="none"
+                        <box
+                          id={item.id}
+                          flexDirection="column"
+                          onMouseUp={() => {
+                            if (!item.disabled) props.onSelect?.(item)
+                          }}
+                          onMouseOver={() => {
+                            const idx = flat().findIndex((x) => x.id === item.id)
+                            if (idx !== -1) moveTo(idx)
+                          }}
+                          backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
+                          paddingLeft={1}
+                          paddingRight={1}
                         >
-                          {Locale.truncate(item.title, 62)}
-                          <Show when={item.description}>
-                            <span style={{ fg: active() ? theme.background : theme.textMuted }}>
-                              {" "}
-                              {item.description}
-                            </span>
+                        <box flexDirection="row" gap={1}>
+                          <Show when={current()}>
+                            <text
+                              flexShrink={0}
+                              fg={active() ? theme.background : theme.primary}
+                              marginRight={0.5}
+                            >
+                              ●
+                            </text>
                           </Show>
-                        </text>
-                        <Show when={item.footer}>
-                          <box flexShrink={0}>
-                            <text fg={active() ? theme.background : theme.textMuted}>
-                              {item.footer}
+                          <text
+                            flexGrow={1}
+                            fg={active() ? theme.background : current() ? theme.primary : theme.text}
+                            overflow="hidden"
+                            wrapMode="none"
+                            attributes={TextAttributes.BOLD}
+                          >
+                            {Locale.truncate(item.title, 62)}
+                            <Show when={item.description}>
+                              <span style={{ fg: active() ? theme.background : theme.textMuted }}>
+                                {" "}
+                                {item.description}
+                              </span>
+                            </Show>
+                          </text>
+                          <Show when={item.active !== undefined}>
+                            <text
+                              flexShrink={0}
+                              fg={item.active ? theme.success : theme.error}
+                            >
+                              ●
+                            </text>
+                          </Show>
+                          <Show when={item.footer}>
+                            <box flexShrink={0}>
+                              <text fg={active() ? theme.background : theme.textMuted}>
+                                {item.footer}
+                              </text>
+                            </box>
+                          </Show>
+                        </box>
+                        <Show when={item.subtitle}>
+                          <box paddingLeft={current() ? 2.5 : 0}>
+                            <text
+                              fg={active() ? theme.background : theme.textMuted}
+                              overflow="hidden"
+                              wrapMode="none"
+                            >
+                              {item.subtitle}
                             </text>
                           </box>
                         </Show>
                       </box>
+                      </>
                     )
                   }}
-                </For>
-              </>
-            )}
-          </For>
+                  </For>
+                </>
+              )}
+            </For>
+          </box>
         </scrollbox>
       </Show>
 

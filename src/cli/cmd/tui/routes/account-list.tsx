@@ -92,12 +92,17 @@ export function AccountListScreen() {
   ])
 
   const items = (): FilterableListItem<Account>[] => {
-    return aws.accounts.map((account) => ({
-      id: account.accountId,
-      title: `${account.name} (${account.accountId})`,
-      value: account,
-      description: `Role: ${account.roles[0] ?? "Loading..."} | Region: ${account.region ?? profile()?.defaultRegion ?? "us-east-1"}`,
-    }))
+    return aws.accounts.map((account) => {
+      const roleName = account.roles[0] ?? "No roles"
+      const region = account.region ?? profile()?.defaultRegion ?? "us-east-1"
+      return {
+        id: account.accountId,
+        title: account.name,
+        subtitle: `${account.accountId} · ${roleName} · ${region}`,
+        value: account,
+        active: account.rolesLoaded,
+      }
+    })
   }
 
   const handleRefresh = async () => {

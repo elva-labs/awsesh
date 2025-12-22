@@ -102,8 +102,9 @@ export function ProfileListScreen() {
     return aws.profiles.map((profile) => ({
       id: profile.name,
       title: profile.name,
+      subtitle: profile.startUrl,
       value: profile,
-      description: profile.startUrl,
+      active: aws.isSessionActive(profile.startUrl),
     }))
   }
 
