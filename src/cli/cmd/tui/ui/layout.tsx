@@ -63,6 +63,7 @@ export function Header(props: HeaderProps) {
     <box
       paddingLeft={1}
       paddingRight={1}
+      marginTop={1}
       borderStyle="single"
       borderColor={theme.border}
       border={["bottom"]}
