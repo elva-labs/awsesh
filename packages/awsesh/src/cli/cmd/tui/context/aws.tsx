@@ -265,13 +265,15 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
           const targetRegion = region || session.defaultRegion
 
-          let profileNameToUse = customProfileName
-          if (!profileNameToUse) {
-            const remembered = await awsesh.profileNames.get(session.name, accountName, roleName)
-            profileNameToUse = remembered || `${accountName}-${roleName}`
-          }
+          // Always write to default profile
+          await awsesh.credentials.write("default", credentials, targetRegion)
 
-          await awsesh.credentials.write(profileNameToUse, credentials, targetRegion)
+          // Also write to custom profile if specified or configured
+          const configuredProfile = await awsesh.profileNames.get(session.name, accountName, roleName)
+          const customProfile = customProfileName || configuredProfile
+          if (customProfile) {
+            await awsesh.credentials.write(customProfile, credentials, targetRegion)
+          }
 
           await awsesh.lastSelected.save({
             session: session.name,

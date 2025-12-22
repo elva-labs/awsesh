@@ -118,10 +118,17 @@ export const session = cmd({
 
       const credentials = await awsesh.sso.getCredentials(sessionData, token.token, account.accountId, selectedRole)
 
-      const profileName = customProfile || `${account.name}-${selectedRole}`
       const effectiveRegion = region || sessionData.defaultRegion
 
-      await awsesh.credentials.write(profileName, credentials, effectiveRegion)
+      // Always write to default profile
+      await awsesh.credentials.write("default", credentials, effectiveRegion)
+
+      // Also write to custom profile if specified or configured
+      const configuredProfile = await awsesh.profileNames.get(ssoSession, accountName, selectedRole)
+      const customProfileName = customProfile || configuredProfile
+      if (customProfileName) {
+        await awsesh.credentials.write(customProfileName, credentials, effectiveRegion)
+      }
 
       await awsesh.lastSelected.save({
         session: ssoSession,
@@ -130,7 +137,6 @@ export const session = cmd({
       })
 
       if (evalMode) {
-        console.log(`export AWS_PROFILE='${profileName}'`)
         console.log(`export AWS_REGION='${effectiveRegion}'`)
         console.log(`export AWS_ACCESS_KEY_ID='${credentials.accessKeyId}'`)
         console.log(`export AWS_SECRET_ACCESS_KEY='${credentials.secretAccessKey}'`)
@@ -138,14 +144,12 @@ export const session = cmd({
         console.log(`export AWS_SESSION_EXPIRATION='${credentials.expiration.toISOString()}'`)
       } else {
         UI.success("Credentials configured successfully!")
-        UI.info(`CLI Profile: ${profileName}`)
+        UI.info(`Profile: default${customProfileName ? `, ${customProfileName}` : ""}`)
         UI.info(`Region: ${effectiveRegion}`)
         UI.info(`Account: ${accountName} (${account.accountId})`)
         UI.info(`Role: ${selectedRole}`)
         console.log()
-        UI.info("Usage:")
-        console.log(`  export AWS_PROFILE=${profileName}`)
-        console.log(`  aws sts get-caller-identity`)
+        UI.info("Usage: aws sts get-caller-identity")
       }
     } catch (error) {
       UI.error(`Failed to set credentials: ${error}`)
