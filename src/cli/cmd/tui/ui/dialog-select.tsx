@@ -124,17 +124,34 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   function moveTo(next: number) {
     setStore("selected", next)
     props.onMove?.(selected()!)
-    const target = scroll.getChildren().find((child) => {
-      return child.id === JSON.stringify(selected()?.value)
-    })
+
+    const children = scroll.getChildren()
+    const target = children.find((child) => child.id === JSON.stringify(selected()?.value))
     if (!target) return
+
     const y = target.y - scroll.y
-    if (y >= scroll.height) {
-      scroll.scrollBy(y - scroll.height + 1)
+
+    const nextItem = flat()[next + 1]
+    const nextTarget = nextItem ? children.find((child) => child.id === JSON.stringify(nextItem.value)) : null
+    if (nextTarget) {
+      const nextY = nextTarget.y - scroll.y
+      if (nextY + nextTarget.height > scroll.height) {
+        scroll.scrollBy(nextY + nextTarget.height - scroll.height)
+      }
+    } else if (y + target.height > scroll.height) {
+      scroll.scrollBy(y + target.height - scroll.height)
     }
-    if (y < 0) {
+
+    const prevItem = flat()[next - 1]
+    const prevTarget = prevItem ? children.find((child) => child.id === JSON.stringify(prevItem.value)) : null
+    if (prevTarget) {
+      const prevY = prevTarget.y - scroll.y
+      if (prevY < 0) {
+        scroll.scrollBy(prevY)
+      }
+    } else if (y < 0) {
       scroll.scrollBy(y)
-      if (isDeepEqual(flat()[0].value, selected()?.value)) {
+      if (next === 0) {
         scroll.scrollTo(0)
       }
     }
