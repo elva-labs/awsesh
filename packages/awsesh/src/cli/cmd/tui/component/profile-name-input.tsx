@@ -46,7 +46,7 @@ export function ProfileNameInput() {
         name
       )
 
-      const expiration = await aws.getRoleCredentials(
+      const result = await aws.getRoleCredentials(
         session,
         routeData.accountId,
         routeData.accountName,
@@ -59,10 +59,10 @@ export function ProfileNameInput() {
         type: "success",
         sessionName: routeData.sessionName,
         accountId: routeData.accountId,
-        profileName: name,
+        profileName: result.profileName,
         accountName: routeData.accountName,
         roleName: routeData.roleName,
-        expiration: expiration.toISOString(),
+        expiration: result.expiration.toISOString(),
         region: routeData.region || session.defaultRegion,
       })
     } catch {

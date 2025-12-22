@@ -3,7 +3,7 @@ import { createSimpleContext } from "./helper"
 import { useAwsesh } from "./awsesh"
 import { Global } from "@/global"
 import { Log } from "@/util/log"
-import type { SSOSession, Account, SSOLoginInfo } from "@awsesh/core"
+import type { SSOSession, Account, SSOLoginInfo, ActiveCredential } from "@awsesh/core"
 
 const log = Log.create({ service: "aws-context" })
 
@@ -20,6 +20,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
     const [error, setError] = createSignal<string | undefined>()
     const [currentSession, setCurrentSession] = createSignal<SSOSession | undefined>()
     const [tokenStatus, setTokenStatus] = createSignal<Record<string, boolean>>({})
+    const [activeCredentials, setActiveCredentials] = createSignal<ActiveCredential[]>([])
 
     ;(async () => {
       try {
@@ -32,6 +33,9 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           status[session.startUrl] = token !== undefined && awsesh.tokens.isValid(token)
         }
         setTokenStatus(status)
+
+        const creds = await awsesh.activeCredentials.list()
+        setActiveCredentials(creds)
       } catch (e) {
         setError(`Failed to load sessions: ${e}`)
       }
@@ -59,6 +63,17 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       
       isSessionActive(startUrl: string): boolean {
         return tokenStatus()[startUrl] ?? false
+      },
+
+      getCredentialStatus(accountId: string): "default" | "active" | "inactive" {
+        const creds = activeCredentials()
+        const now = new Date()
+        const accountCreds = creds.filter(
+          (c) => c.accountId === accountId && new Date(c.expiration) > now
+        )
+        if (accountCreds.length === 0) return "inactive"
+        if (accountCreds.some((c) => c.isDefault)) return "default"
+        return "active"
       },
 
       async loadAccounts(session: SSOSession): Promise<void> {
@@ -251,7 +266,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         roleName: string,
         region?: string,
         customProfileName?: string
-      ): Promise<Date> {
+      ): Promise<{ expiration: Date; profileName: string }> {
         setLoading(true)
         setError(undefined)
 
@@ -265,15 +280,23 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
           const targetRegion = region || session.defaultRegion
 
-          // Always write to default profile
-          await awsesh.credentials.write("default", credentials, targetRegion)
-
-          // Also write to custom profile if specified or configured
           const configuredProfile = await awsesh.profileNames.get(session.name, accountName, roleName)
-          const customProfile = customProfileName || configuredProfile
-          if (customProfile) {
-            await awsesh.credentials.write(customProfile, credentials, targetRegion)
+          const profileName = customProfileName || configuredProfile || "default"
+          const isDefault = profileName === "default"
+
+          await awsesh.credentials.write(profileName, credentials, targetRegion)
+
+          const activeCredential: ActiveCredential = {
+            profileName,
+            accountId,
+            accountName,
+            roleName,
+            sessionName: session.name,
+            expiration: credentials.expiration.toISOString(),
+            isDefault,
           }
+          await awsesh.activeCredentials.save(activeCredential)
+          setActiveCredentials(await awsesh.activeCredentials.list())
 
           await awsesh.lastSelected.save({
             session: session.name,
@@ -281,7 +304,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
             role: roleName,
           })
 
-          return credentials.expiration
+          return { expiration: credentials.expiration, profileName }
         } catch (e) {
           setError(`Failed to get credentials: ${e}`)
           throw e

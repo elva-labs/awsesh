@@ -211,8 +211,7 @@ export function RoleSelector() {
     if (!session) return;
 
     try {
-      // Get credentials and write to file with optional custom region
-      const expiration = await aws.getRoleCredentials(
+      const result = await aws.getRoleCredentials(
         session,
         routeData.accountId,
         routeData.accountName,
@@ -220,17 +219,14 @@ export function RoleSelector() {
         routeData.region
       );
 
-      // Navigate to success screen with expiration
-      // Note: profileName here becomes the CLI profile name (default: accountName-roleName)
-      const defaultProfileName = `${routeData.accountName}-${roleName}`;
       route.navigate({
         type: "success",
-        sessionName: routeData.sessionName, // SSO session name
+        sessionName: routeData.sessionName,
         accountId: routeData.accountId,
-        profileName: defaultProfileName, // CLI profile name
+        profileName: result.profileName,
         accountName: routeData.accountName,
         roleName,
-        expiration: expiration.toISOString(),
+        expiration: result.expiration.toISOString(),
         region: routeData.region || session.defaultRegion,
       });
     } catch (e) {

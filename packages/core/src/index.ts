@@ -17,6 +17,7 @@ import type {
   AccountCache,
   RoleCredentials,
   LastSelected,
+  ActiveCredential,
 } from "./types"
 
 interface TokenCacheStored {
@@ -149,6 +150,40 @@ export function createAwsesh(options: AwseshOptions) {
           profileName,
           credentials: creds,
           region,
+        })
+      },
+    },
+
+    activeCredentials: {
+      list: async (): Promise<ActiveCredential[]> => {
+        const data = await storage.read<ActiveCredential[]>("credentials/active")
+        if (!data || !Array.isArray(data)) return []
+        const now = new Date()
+        return data.filter((c) => new Date(c.expiration) > now)
+      },
+      save: async (credential: ActiveCredential): Promise<void> => {
+        await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
+          const list = Array.isArray(existing) ? existing : []
+          const now = new Date()
+          const filtered = list
+            .filter((c) => new Date(c.expiration) > now)
+            .filter((c) => !(c.accountId === credential.accountId && c.roleName === credential.roleName))
+            .map((c) => (credential.isDefault ? { ...c, isDefault: false } : c))
+            .filter((c) => c.isDefault || c.profileName !== "default")
+          return [...filtered, credential]
+        })
+      },
+      getForAccount: async (accountId: string): Promise<ActiveCredential[]> => {
+        const data = await storage.read<ActiveCredential[]>("credentials/active")
+        if (!data || !Array.isArray(data)) return []
+        const now = new Date()
+        return data.filter((c) => c.accountId === accountId && new Date(c.expiration) > now)
+      },
+      cleanup: async (): Promise<void> => {
+        await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
+          if (!existing || !Array.isArray(existing)) return []
+          const now = new Date()
+          return existing.filter((c) => new Date(c.expiration) > now)
         })
       },
     },

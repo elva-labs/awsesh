@@ -23,6 +23,9 @@ export interface FilterableListProps<T> {
   maxHeight?: number
 }
 
+export type IndicatorState = "active" | "default" | "inactive"
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface FilterableListItem<T = any> {
   id: string
   title: string
@@ -32,7 +35,7 @@ export interface FilterableListItem<T = any> {
   footer?: string | JSX.Element
   category?: string
   disabled?: boolean
-  active?: boolean
+  indicator?: IndicatorState
 }
 
 export function FilterableList<T>(props: FilterableListProps<T>) {
@@ -338,10 +341,16 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                               </span>
                             </Show>
                           </text>
-                          <Show when={item.active !== undefined}>
+                          <Show when={item.indicator !== undefined}>
                             <text
                               flexShrink={0}
-                              fg={item.active ? theme.success : theme.error}
+                              fg={
+                                item.indicator === "default"
+                                  ? theme.primary
+                                  : item.indicator === "active"
+                                    ? theme.success
+                                    : theme.error
+                              }
                             >
                               ●
                             </text>

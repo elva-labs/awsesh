@@ -16,7 +16,7 @@ export function SSOSelector() {
       title: session.name,
       subtitle: session.startUrl,
       value: session,
-      active: aws.isSessionActive(session.startUrl),
+      indicator: aws.isSessionActive(session.startUrl) ? "active" : "inactive",
     }))
   })
 

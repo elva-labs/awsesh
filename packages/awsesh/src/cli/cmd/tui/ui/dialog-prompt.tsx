@@ -8,23 +8,21 @@ export type DialogPromptProps = {
   title: string
   description?: () => JSX.Element
   placeholder?: string
+  defaultValue?: string
   value?: string
   onConfirm?: (value: string) => void
   onCancel?: () => void
 }
 
 export function DialogPrompt(props: DialogPromptProps) {
-  const dialog = useDialog()
   const { theme } = useTheme()
   const [value, setValue] = createSignal(props.value ?? "")
   let input: any
 
-  useKeyboard((evt) => {
-    if (evt.name === "return" && !evt.shift) {
-      evt.preventDefault()
-      props.onConfirm?.(value())
-    }
-  })
+  const handleSubmit = () => {
+    const finalValue = value() || props.defaultValue || ""
+    props.onConfirm?.(finalValue)
+  }
 
   onMount(() => {
     setTimeout(() => {
@@ -45,16 +43,24 @@ export function DialogPrompt(props: DialogPromptProps) {
         <input
           value={value()}
           onInput={(e) => setValue(e)}
+          onKeyDown={(evt: any) => {
+            if (evt.name === "return" && !evt.shift) {
+              evt.preventDefault()
+              handleSubmit()
+            }
+          }}
           focusedBackgroundColor={theme.background}
           cursorColor={theme.primary}
           focusedTextColor={theme.text}
-          placeholder={props.placeholder ?? "Enter value..."}
+          placeholder={props.defaultValue || props.placeholder || "Enter value..."}
+          placeholderColor={theme.textMuted}
           ref={(r) => (input = r)}
         />
       </box>
       <box paddingBottom={1} flexDirection="row" gap={2}>
         <text fg={theme.text}>
-          enter <span style={{ fg: theme.textMuted }}>submit</span>
+          {"enter "}
+          <span style={{ fg: theme.textMuted }}>submit</span>
         </text>
       </box>
     </box>
@@ -67,18 +73,31 @@ DialogPrompt.show = (
   options?: Omit<DialogPromptProps, "title">
 ) => {
   return new Promise<string | null>((resolve) => {
+    let resolved = false
     dialog.replace(
       () => (
         <DialogPrompt
           title={title}
           {...options}
           onConfirm={(value) => {
+            if (resolved) return
+            resolved = true
+            dialog.clear()
             resolve(value)
           }}
-          onCancel={() => resolve(null)}
+          onCancel={() => {
+            if (resolved) return
+            resolved = true
+            dialog.clear()
+            resolve(null)
+          }}
         />
       ),
-      () => resolve(null)
+      () => {
+        if (resolved) return
+        resolved = true
+        resolve(null)
+      }
     )
   })
 }

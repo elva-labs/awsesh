@@ -55,3 +55,13 @@ export interface LastSelected {
   account?: string
   role?: string
 }
+
+export interface ActiveCredential {
+  profileName: string
+  accountId: string
+  accountName: string
+  roleName: string
+  sessionName: string
+  expiration: string
+  isDefault: boolean
+}

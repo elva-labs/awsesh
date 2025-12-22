@@ -2,7 +2,7 @@ import { Show, createMemo, createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
-
+import { useAwsesh } from "../context/awsesh"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
@@ -10,6 +10,7 @@ import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 import { Spinner } from "../ui/spinner"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
+import { DialogPrompt } from "../ui/dialog-prompt"
 import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
 import { DialogSettings } from "../component/dialog-settings"
@@ -20,6 +21,7 @@ export function AccountListScreen() {
   const route = useRoute()
   const routeData = useRouteData("account-select")
   const aws = useAWS()
+  const awsesh = useAwsesh()
   const keybind = useKeybind()
   const command = useCommand()
   const toast = useToast()
@@ -63,6 +65,17 @@ export function AccountListScreen() {
       },
     },
     {
+      id: "account.profile",
+      title: "Set CLI Profile",
+      category: "Account",
+      keybind: "profile_set",
+      disabled: !selectedAccount(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleSetProfile(account)
+      },
+    },
+    {
       id: "nav.back",
       title: "Back to Sessions",
       category: "Navigation",
@@ -100,7 +113,7 @@ export function AccountListScreen() {
         title: account.name,
         subtitle: `${account.accountId} · ${roleName} · ${region}`,
         value: account,
-        active: account.rolesLoaded,
+        indicator: aws.getCredentialStatus(account.accountId),
       }
     })
   }
@@ -179,12 +192,104 @@ export function AccountListScreen() {
     ))
   }
 
+  const handleSetProfile = async (account: Account) => {
+    const s = session()
+    if (!s) return
+
+    if (!account.rolesLoaded) {
+      const roles = await aws.loadRoles(s, account.accountId)
+      if (roles.length === 0) {
+        toast.show({
+          variant: "error",
+          message: "No roles found for this account",
+        })
+        return
+      }
+    }
+
+    const selectRoleAndSetProfile = async (roleName: string) => {
+      const existingProfile = await awsesh.profileNames.get(s.name, account.name, roleName)
+      const defaultName = existingProfile || `${account.name}-${roleName}`
+
+      const profileName = await DialogPrompt.show(dialog, "Set CLI Profile", {
+        placeholder: "Profile name (alphanumeric, dash, underscore)",
+        defaultValue: defaultName,
+        description: () => (
+          <box flexDirection="column" gap={0}>
+            <text fg={theme.textMuted}>
+              {"Account: "}
+              <span style={{ fg: theme.text }}>{account.name}</span>
+            </text>
+            <text fg={theme.textMuted}>
+              {"Role: "}
+              <span style={{ fg: theme.text }}>{roleName}</span>
+            </text>
+          </box>
+        ),
+      })
+
+      if (profileName === null || profileName === undefined) return
+
+      const sanitized = (profileName || defaultName).replace(/[^a-zA-Z0-9\-_]/g, "")
+      if (!sanitized) {
+        toast.show({
+          variant: "error",
+          message: "Invalid profile name",
+        })
+        return
+      }
+
+      await awsesh.profileNames.save(s.name, account.name, roleName, sanitized)
+
+      try {
+        const result = await aws.getRoleCredentials(
+          s,
+          account.accountId,
+          account.name,
+          roleName,
+          account.region ?? s.defaultRegion,
+          sanitized
+        )
+
+        route.navigate({
+          type: "success",
+          sessionName: s.name,
+          profileName: result.profileName,
+          accountName: account.name,
+          accountId: account.accountId,
+          roleName,
+          region: account.region ?? s.defaultRegion,
+          expiration: result.expiration.toISOString(),
+        })
+      } catch (e) {
+        toast.error(e)
+      }
+    }
+
+    if (account.roles.length === 1) {
+      await selectRoleAndSetProfile(account.roles[0])
+    } else {
+      dialog.replace(() => (
+        <DialogSelect
+          title="Select Role for CLI Profile"
+          options={account.roles.map((role) => ({
+            title: role,
+            value: role,
+          }))}
+          onSelect={(option) => {
+            selectRoleAndSetProfile(option.value)
+          }}
+        />
+      ))
+    }
+  }
+
   const handleAssumeRole = async (account: Account, roleName: string) => {
     const s = session()
     if (!s) return
 
     try {
-      const expiration = await aws.getRoleCredentials(
+      const result = await aws.getRoleCredentials(
         s,
         account.accountId,
         account.name,
@@ -194,13 +299,13 @@ export function AccountListScreen() {
 
       route.navigate({
         type: "success",
-        sessionName: routeData.sessionName, // SSO session name
-        profileName: `${account.name}-${roleName}`, // This is the CLI profile name
+        sessionName: routeData.sessionName,
+        profileName: result.profileName,
         accountName: account.name,
         accountId: account.accountId,
         roleName,
         region: account.region ?? s.defaultRegion,
-        expiration: expiration.toISOString(),
+        expiration: result.expiration.toISOString(),
       })
     } catch (e) {
       toast.error(e)
