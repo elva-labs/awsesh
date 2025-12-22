@@ -14,7 +14,6 @@ import { ToastProvider } from "./ui/toast"
 import { SessionListScreen } from "./routes/session-list"
 import { SessionFormScreen } from "./routes/session-form"
 import { SessionDeleteConfirmScreen } from "./routes/session-delete-confirm"
-import { SSOLoginScreen } from "./routes/sso-login"
 import { AccountListScreen } from "./routes/account-list"
 import { SuccessScreen } from "./routes/success"
 import { Terminal } from "./util/terminal"
@@ -35,9 +34,6 @@ function App() {
         </Match>
         <Match when={route.data.type === "session-delete-confirm"}>
           <SessionDeleteConfirmScreen />
-        </Match>
-        <Match when={route.data.type === "sso-login"}>
-          <SSOLoginScreen />
         </Match>
         <Match when={route.data.type === "account-select"}>
           <AccountListScreen />
@@ -62,17 +58,17 @@ export async function tui(): Promise<void> {
               <RouteProvider>
                 <ThemeProvider mode={mode}>
                   <KeybindProvider>
-                    <DialogProvider>
-                      <ToastProvider>
-                        <CommandProvider>
-                          <AwseshProvider>
-                            <AWSProvider>
+                    <AwseshProvider>
+                      <AWSProvider>
+                        <DialogProvider>
+                          <ToastProvider>
+                            <CommandProvider>
                               <App />
-                            </AWSProvider>
-                          </AwseshProvider>
-                        </CommandProvider>
-                      </ToastProvider>
-                    </DialogProvider>
+                            </CommandProvider>
+                          </ToastProvider>
+                        </DialogProvider>
+                      </AWSProvider>
+                    </AwseshProvider>
                   </KeybindProvider>
                 </ThemeProvider>
               </RouteProvider>

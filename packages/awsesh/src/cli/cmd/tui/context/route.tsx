@@ -49,13 +49,6 @@ export type ProfileNameInputRoute = {
   region?: string;
 };
 
-export type SSOLoginRoute = {
-  type: "sso-login";
-  sessionName: string;
-  startUrl: string;
-  ssoRegion: string;
-};
-
 export type SuccessRoute = {
   type: "success";
   sessionName: string; // SSO session name for navigation
@@ -72,7 +65,6 @@ export type Route =
   | SessionFormRoute
   | SessionDeleteConfirmRoute
   | AccountSelectRoute
-  | SSOLoginRoute
   | RegionSelectRoute
   | RoleSelectRoute
   | ProfileNameInputRoute

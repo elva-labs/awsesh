@@ -9,7 +9,9 @@ import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
 import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
+import { useToast } from "../ui/toast"
 import { DialogSettings } from "../component/dialog-settings"
+import { DialogSSOLogin } from "../component/dialog-sso-login"
 import type { SSOSession } from "@awsesh/core"
 
 export function SessionListScreen() {
@@ -20,6 +22,7 @@ export function SessionListScreen() {
   const command = useCommand()
   const dialog = useDialog()
   const exit = useExit()
+  const toast = useToast()
 
   const [selectedSession, setSelectedSession] = createSignal<SSOSession | null>(null)
 
@@ -122,20 +125,28 @@ export function SessionListScreen() {
   const handleSelect = async (item: FilterableListItem<SSOSession>) => {
     const session = item.value
 
-    try {
+    if (aws.isSessionActive(session.startUrl)) {
       await aws.loadAccounts(session)
       route.navigate({
         type: "account-select",
         sessionName: session.name,
       })
-    } catch {
-      route.navigate({
-        type: "sso-login",
-        sessionName: session.name,
-        startUrl: session.startUrl,
-        ssoRegion: session.ssoRegion,
-      })
+      return
     }
+
+    DialogSSOLogin.show(
+      dialog,
+      session,
+      () => {
+        route.navigate({
+          type: "account-select",
+          sessionName: session.name,
+        })
+      },
+      (error) => {
+        toast.error(error)
+      }
+    )
   }
 
   return (
