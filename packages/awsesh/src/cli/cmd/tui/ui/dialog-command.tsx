@@ -39,7 +39,7 @@ export function DialogCommand(props: DialogCommandProps) {
   })
 
   const flat = createMemo(() => {
-    return filtered()
+    return grouped().flatMap(([_, options]) => options)
   })
 
   const dimensions = useTerminalDimensions()
