@@ -126,14 +126,31 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     if (item) props.onMove?.(item)
     if (!scroll) return
 
-    const target = scroll.getChildren().find((child) => child.id === item.id)
+    const children = scroll.getChildren()
+    const target = children.find((child) => child.id === item.id)
     if (!target) return
 
     const y = target.y - scroll.y
-    if (y >= scroll.height) {
-      scroll.scrollBy(y - scroll.height + target.height)
+
+    const nextItem = flat()[next + 1]
+    const nextTarget = nextItem ? children.find((child) => child.id === nextItem.id) : null
+    if (nextTarget) {
+      const nextY = nextTarget.y - scroll.y
+      if (nextY + nextTarget.height > scroll.height) {
+        scroll.scrollBy(nextY + nextTarget.height - scroll.height)
+      }
+    } else if (y + target.height > scroll.height) {
+      scroll.scrollBy(y + target.height - scroll.height)
     }
-    if (y < 0) {
+
+    const prevItem = flat()[next - 1]
+    const prevTarget = prevItem ? children.find((child) => child.id === prevItem.id) : null
+    if (prevTarget) {
+      const prevY = prevTarget.y - scroll.y
+      if (prevY < 0) {
+        scroll.scrollBy(prevY)
+      }
+    } else if (y < 0) {
       scroll.scrollBy(y)
       if (next === 0) {
         scroll.scrollTo(0)
