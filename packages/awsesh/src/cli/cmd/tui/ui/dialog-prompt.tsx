@@ -73,30 +73,25 @@ DialogPrompt.show = (
   options?: Omit<DialogPromptProps, "title">
 ) => {
   return new Promise<string | null>((resolve) => {
-    let resolved = false
+    let resultValue: string | null = null
+    let confirmed = false
     dialog.replace(
       () => (
         <DialogPrompt
           title={title}
           {...options}
           onConfirm={(value) => {
-            if (resolved) return
-            resolved = true
+            resultValue = value
+            confirmed = true
             dialog.clear()
-            resolve(value)
           }}
           onCancel={() => {
-            if (resolved) return
-            resolved = true
             dialog.clear()
-            resolve(null)
           }}
         />
       ),
       () => {
-        if (resolved) return
-        resolved = true
-        resolve(null)
+        resolve(confirmed ? resultValue : null)
       }
     )
   })
