@@ -5,7 +5,7 @@ import { useTheme } from "../context/theme"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
 import { useDialog } from "./dialog"
-import { TextAttributes, RGBA, type InputRenderable } from "@opentui/core"
+import { TextAttributes, RGBA, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { Locale } from "../util/locale"
 import * as fuzzysort from "fuzzysort"
 
@@ -47,7 +47,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
   })
 
   let input: InputRenderable
-  let scroll: any
+  let scroll: ScrollBoxRenderable
 
   const filtered = createMemo(() => {
     const needle = store.filter.toLowerCase()
@@ -124,16 +124,33 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     setStore("selected", next)
     const item = flat()[next]
     if (item) props.onMove?.(item)
-    const target = scroll?.getChildren().find((child: any) => {
-      return child.id === selected()?.id
-    })
-    if (!target || !scroll) return
-    const y = target.y - scroll.y
-    if (y >= scroll.height) {
-      scroll.scrollBy(y - scroll.height + 1)
+    if (!scroll) return
+    
+    // Calculate position based on item index, accounting for multi-row items and separators
+    const items = flat()
+    let targetY = 0
+    for (let i = 0; i < next; i++) {
+      const it = items[i]
+      // Each item with subtitle takes 2 rows, plus 1 for separator (except first)
+      if (it.subtitle) {
+        targetY += 2
+        if (i > 0) targetY += 1 // separator
+      } else {
+        targetY += 1
+      }
     }
-    if (y < 0) {
-      scroll.scrollBy(y)
+    
+    const itemHeight = item.subtitle ? 2 : 1
+    const scrollY = scroll.scrollTop
+    const viewHeight = scroll.height
+    
+    // Scroll down if item is below visible area
+    if (targetY + itemHeight > scrollY + viewHeight) {
+      scroll.scrollTo(targetY + itemHeight - viewHeight)
+    }
+    // Scroll up if item is above visible area
+    else if (targetY < scrollY) {
+      scroll.scrollTo(targetY)
     }
   }
 
@@ -246,7 +263,8 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
         <scrollbox
           scrollbarOptions={{ visible: false }}
           flexGrow={1}
-          ref={(r: any) => (scroll = r)}
+          overflow="hidden"
+          ref={(r: ScrollBoxRenderable) => (scroll = r)}
         >
           <box flexDirection="column">
             <For each={grouped()}>
