@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal } from "solid-js"
+import { Show, createMemo, createSignal, createResource, createEffect } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
@@ -29,8 +29,32 @@ export function AccountListScreen() {
   const exit = useExit()
 
   const [selectedAccount, setSelectedAccount] = createSignal<Account | null>(null)
+  const [preferredRoles, setPreferredRoles] = createSignal<Record<string, string>>({})
+  const [profileNames, setProfileNames] = createSignal<Record<string, Record<string, string>>>({})
 
   const session = createMemo(() => aws.sessions.find((s) => s.name === routeData.sessionName))
+
+  createEffect(async () => {
+    const s = session()
+    if (!s) return
+    const roles = await awsesh.preferredRoles.getAll(s.name)
+    setPreferredRoles(roles)
+  })
+
+  const loadProfileNamesForAccount = async (accountName: string) => {
+    const s = session()
+    if (!s) return
+    const names = await awsesh.profileNames.getForAccount(s.name, accountName)
+    if (Object.keys(names).length > 0) {
+      setProfileNames((prev) => ({ ...prev, [accountName]: names }))
+    }
+  }
+
+  createEffect(() => {
+    for (const account of aws.accounts) {
+      loadProfileNamesForAccount(account.name)
+    }
+  })
 
   command.register(() => [
     {
@@ -104,14 +128,28 @@ export function AccountListScreen() {
     },
   ])
 
+  const getPreferredRole = (account: Account): string => {
+    const preferred = preferredRoles()[account.accountId]
+    if (preferred && account.roles.includes(preferred)) return preferred
+    return account.roles[0] ?? "No roles"
+  }
+
+  const getProfileNameForAccount = (account: Account): string | undefined => {
+    const roleName = getPreferredRole(account)
+    return profileNames()[account.name]?.[roleName]
+  }
+
   const items = (): FilterableListItem<Account>[] => {
     return aws.accounts.map((account) => {
-      const roleName = account.roles[0] ?? "No roles"
+      const roleName = getPreferredRole(account)
       const region = account.region ?? session()?.defaultRegion ?? "us-east-1"
+      const customProfile = getProfileNameForAccount(account)
+      const subtitleParts = [account.accountId, roleName, region]
+      if (customProfile) subtitleParts.push(customProfile)
       return {
         id: account.accountId,
         title: account.name,
-        subtitle: `${account.accountId} · ${roleName} · ${region}`,
+        subtitle: subtitleParts.join(" · "),
         value: account,
         indicator: aws.getCredentialStatus(account.accountId),
       }
@@ -138,8 +176,8 @@ export function AccountListScreen() {
     if (!s) return
 
     try {
-      const roleName = account.roles[0]
-      if (!roleName) {
+      const roleName = getPreferredRole(account)
+      if (roleName === "No roles") {
         toast.show({
           variant: "error",
           message: "No role available for this account",
@@ -184,9 +222,14 @@ export function AccountListScreen() {
           title: role,
           value: role,
         }))}
-        onSelect={(option) => {
+        onSelect={async (option) => {
           dialog.clear()
-          handleAssumeRole(account, option.value)
+          await awsesh.preferredRoles.save(s.name, account.accountId, option.value)
+          setPreferredRoles((prev) => ({ ...prev, [account.accountId]: option.value }))
+          toast.show({
+            variant: "success",
+            message: `Default role set to ${option.value}`,
+          })
         }}
       />
     ))
@@ -318,7 +361,8 @@ export function AccountListScreen() {
     if (!s) return
 
     if (account.roles.length > 0) {
-      await handleAssumeRole(account, account.roles[0])
+      const roleName = getPreferredRole(account)
+      await handleAssumeRole(account, roleName)
     } else {
       await handleViewRoles(account)
     }

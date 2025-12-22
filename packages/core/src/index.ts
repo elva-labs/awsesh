@@ -141,6 +141,30 @@ export function createAwsesh(options: AwseshOptions) {
           }
         )
       },
+      getForAccount: async (sessionName: string, accountName: string): Promise<Record<string, string>> => {
+        const data = await storage.read<Record<string, Record<string, Record<string, string>>>>(
+          "preference/profile-names"
+        )
+        return data?.[sessionName]?.[accountName] ?? {}
+      },
+    },
+
+    preferredRoles: {
+      get: async (sessionName: string, accountId: string): Promise<string | undefined> => {
+        const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-roles")
+        return data?.[sessionName]?.[accountId]
+      },
+      save: async (sessionName: string, accountId: string, roleName: string): Promise<void> => {
+        await storage.update<Record<string, Record<string, string>>>("preference/preferred-roles", (draft) => {
+          if (!draft[sessionName]) draft[sessionName] = {}
+          draft[sessionName][accountId] = roleName
+          return draft
+        })
+      },
+      getAll: async (sessionName: string): Promise<Record<string, string>> => {
+        const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-roles")
+        return data?.[sessionName] ?? {}
+      },
     },
 
     credentials: {
