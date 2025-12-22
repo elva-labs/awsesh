@@ -3,7 +3,7 @@ import { createSimpleContext } from "./helper"
 import { useAwsesh } from "./awsesh"
 import { Global } from "@/global"
 import { Log } from "@/util/log"
-import type { SSOSession, Account, SSOLoginInfo, ActiveCredential } from "@awsesh/core"
+import type { SSOSession, Account, SSOLoginInfo, ActiveCredential, TokenResult } from "@awsesh/core"
 
 const log = Log.create({ service: "aws-context" })
 
@@ -245,18 +245,18 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       },
 
       async pollForToken(session: SSOSession, loginInfo: SSOLoginInfo): Promise<string> {
-        let token: string | null = null
-        while (!token) {
+        let tokenResult: TokenResult | null = null
+        while (!tokenResult) {
           await new Promise((resolve) =>
             setTimeout(resolve, loginInfo.interval * 1000)
           )
-          token = await awsesh.sso.pollForToken(session, loginInfo)
+          tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
         }
 
-        await awsesh.tokens.save(session.startUrl, token, loginInfo.expiresAt)
+        await awsesh.tokens.save(session.startUrl, tokenResult.token, tokenResult.expiresAt)
         setTokenStatus((prev) => ({ ...prev, [session.startUrl]: true }))
 
-        return token
+        return tokenResult.token
       },
 
       async getRoleCredentials(

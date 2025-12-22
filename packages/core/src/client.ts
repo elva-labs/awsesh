@@ -10,7 +10,7 @@ import {
   StartDeviceAuthorizationCommand,
   CreateTokenCommand,
 } from "@aws-sdk/client-sso-oidc"
-import type { SSOLoginInfo, Account, RoleCredentials } from "./types"
+import type { SSOLoginInfo, Account, RoleCredentials, TokenResult } from "./types"
 
 export class AWSClient {
   private ssoClient: SSOClient
@@ -52,7 +52,7 @@ export class AWSClient {
     }
   }
 
-  async pollForToken(info: SSOLoginInfo): Promise<string | null> {
+  async pollForToken(info: SSOLoginInfo): Promise<TokenResult | null> {
     try {
       const response = await this.oidcClient.send(
         new CreateTokenCommand({
@@ -63,7 +63,13 @@ export class AWSClient {
         })
       )
 
-      return response.accessToken ?? null
+      if (!response.accessToken) return null
+
+      const expiresIn = response.expiresIn ?? 28800
+      return {
+        token: response.accessToken,
+        expiresAt: new Date(Date.now() + expiresIn * 1000),
+      }
     } catch (error: unknown) {
       const err = error as { name?: string }
       if (err.name === "AuthorizationPendingException") {

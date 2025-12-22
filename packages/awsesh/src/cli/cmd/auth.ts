@@ -3,7 +3,7 @@ import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
 import { openBrowser } from "@/util/browser"
 import { copyToClipboard } from "@/util/clipboard"
-import type { SSOSession } from "@awsesh/core"
+import type { SSOSession, TokenResult } from "@awsesh/core"
 
 interface AuthArgs {
   session?: string
@@ -103,15 +103,15 @@ export const auth = cmd({
 
     UI.info("Waiting for authorization...")
     
-    let token: string | null = null
-    while (!token) {
+    let tokenResult: TokenResult | null = null
+    while (!tokenResult) {
       await new Promise((resolve) => setTimeout(resolve, loginInfo.interval * 1000))
-      token = await awsesh.sso.pollForToken(session, loginInfo)
+      tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
     }
 
-    await awsesh.tokens.save(session.startUrl, token, loginInfo.expiresAt)
+    await awsesh.tokens.save(session.startUrl, tokenResult.token, tokenResult.expiresAt)
 
     UI.success("Authentication successful!")
-    UI.info(`Token cached and will expire at ${loginInfo.expiresAt.toLocaleString()}`)
+    UI.info(`Token cached and will expire at ${tokenResult.expiresAt.toLocaleString()}`)
   },
 })

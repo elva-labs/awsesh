@@ -30,6 +30,11 @@ export interface TokenCache {
   startUrl: string
 }
 
+export interface TokenResult {
+  token: string
+  expiresAt: Date
+}
+
 export interface Account {
   accountId: string
   name: string
