@@ -346,9 +346,9 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                               flexShrink={0}
                               fg={
                                 item.indicator === "default"
-                                  ? theme.primary
+                                  ? theme.success
                                   : item.indicator === "active"
-                                    ? theme.success
+                                    ? theme.info
                                     : theme.error
                               }
                             >
