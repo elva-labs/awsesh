@@ -239,12 +239,10 @@ export function AccountListScreen() {
       }
       footer={
         <Footer
-          right={<KeybindHint keybind={keybind.print("command_list")} label="Commands" />}
+          right={<KeybindHint keybind={keybind.print("command_list")} label="More" />}
         >
-          <KeybindHint keybind={keybind.print("refresh")} label="Refresh" />
-          <KeybindHint keybind={keybind.print("role_list")} label="Roles" />
-          <KeybindHint keybind={keybind.print("browser_open")} label="Browser" />
           <KeybindHint keybind={keybind.print("select")} label="Select" />
+          <KeybindHint keybind={keybind.print("role_list")} label="Roles" />
           <KeybindHint keybind={keybind.print("back")} label="Back" />
         </Footer>
       }

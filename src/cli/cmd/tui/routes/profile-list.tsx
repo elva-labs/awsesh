@@ -144,14 +144,12 @@ export function ProfileListScreen() {
       footer={
         <Footer
           right={
-            <KeybindHint keybind={keybind.print("command_list")} label="Commands" />
+            <KeybindHint keybind={keybind.print("command_list")} label="More" />
           }
         >
+          <KeybindHint keybind={keybind.print("select")} label="Select" />
           <KeybindHint keybind={keybind.print("profile_add")} label="Add" />
           <KeybindHint keybind={keybind.print("profile_edit")} label="Edit" />
-          <KeybindHint keybind={keybind.print("profile_delete")} label="Delete" />
-          <KeybindHint keybind={keybind.print("select")} label="Select" />
-          <KeybindHint keybind={keybind.print("settings")} label="Theme" />
           <KeybindHint keybind={keybind.print("quit")} label="Quit" />
         </Footer>
       }

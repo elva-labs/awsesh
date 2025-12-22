@@ -61,10 +61,8 @@ export function Header(props: HeaderProps) {
 
   return (
     <box
-      paddingLeft={2}
-      paddingRight={2}
-      paddingTop={1}
-      paddingBottom={1}
+      paddingLeft={1}
+      paddingRight={1}
       borderStyle="single"
       borderColor={theme.border}
       border={["bottom"]}
@@ -97,10 +95,8 @@ export function Footer(props: ParentProps<FooterProps>) {
 
   return (
     <box
-      paddingLeft={2}
-      paddingRight={2}
-      paddingTop={1}
-      paddingBottom={1}
+      paddingLeft={1}
+      paddingRight={1}
       borderStyle="single"
       borderColor={theme.border}
       border={["top"]}
