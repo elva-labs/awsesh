@@ -1,42 +1,60 @@
-import { exec } from "child_process"
-import { promisify } from "util"
-
-const execAsync = promisify(exec)
+import { $ } from "bun"
 
 /**
- * Copy text to clipboard
+ * Copy text to clipboard using platform-native tools
  * Returns true if successful, false otherwise
  */
 export async function copyToClipboard(text: string): Promise<boolean> {
+  const os = process.platform
+
   try {
-    const platform = process.platform
-    
-    if (platform === "darwin") {
-      // macOS
-      await execAsync(`echo "${escapeForShell(text)}" | pbcopy`)
-      return true
-    } else if (platform === "linux") {
-      // Try xclip first, then xsel
-      try {
-        await execAsync(`echo "${escapeForShell(text)}" | xclip -selection clipboard`)
-        return true
-      } catch {
-        try {
-          await execAsync(`echo "${escapeForShell(text)}" | xsel --clipboard --input`)
-          return true
-        } catch {
-          return false
-        }
-      }
-    } else if (platform === "win32") {
-      // Windows
-      await execAsync(`echo ${escapeForShell(text)} | clip`)
+    if (os === "darwin") {
+      const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+      await $`osascript -e 'set the clipboard to "${escaped}"'`.nothrow().quiet()
       return true
     }
-    
+
+    if (os === "linux") {
+      if (process.env.WAYLAND_DISPLAY && Bun.which("wl-copy")) {
+        const proc = Bun.spawn(["wl-copy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" })
+        proc.stdin.write(text)
+        proc.stdin.end()
+        await proc.exited.catch(() => {})
+        return true
+      }
+      if (Bun.which("xclip")) {
+        const proc = Bun.spawn(["xclip", "-selection", "clipboard"], {
+          stdin: "pipe",
+          stdout: "ignore",
+          stderr: "ignore",
+        })
+        proc.stdin.write(text)
+        proc.stdin.end()
+        await proc.exited.catch(() => {})
+        return true
+      }
+      if (Bun.which("xsel")) {
+        const proc = Bun.spawn(["xsel", "--clipboard", "--input"], {
+          stdin: "pipe",
+          stdout: "ignore",
+          stderr: "ignore",
+        })
+        proc.stdin.write(text)
+        proc.stdin.end()
+        await proc.exited.catch(() => {})
+        return true
+      }
+      return false
+    }
+
+    if (os === "win32") {
+      const escaped = text.replace(/"/g, '""')
+      await $`powershell -command "Set-Clipboard -Value \"${escaped}\""`.nothrow().quiet()
+      return true
+    }
+
     return false
-  } catch (error) {
-    console.error("Failed to copy to clipboard:", error)
+  } catch {
     return false
   }
 }
@@ -45,13 +63,17 @@ export async function copyToClipboard(text: string): Promise<boolean> {
  * Check if clipboard functionality is available
  */
 export function isClipboardAvailable(): boolean {
-  const platform = process.platform
-  return platform === "darwin" || platform === "linux" || platform === "win32"
-}
+  const os = process.platform
 
-/**
- * Escape text for shell execution
- */
-function escapeForShell(text: string): string {
-  return text.replace(/"/g, '\\"')
+  if (os === "darwin") return true
+  if (os === "win32") return true
+  if (os === "linux") {
+    return !!(
+      (process.env.WAYLAND_DISPLAY && Bun.which("wl-copy")) ||
+      Bun.which("xclip") ||
+      Bun.which("xsel")
+    )
+  }
+
+  return false
 }
