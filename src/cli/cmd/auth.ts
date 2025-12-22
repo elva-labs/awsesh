@@ -3,33 +3,33 @@ import { UI } from "../ui.js";
 import { withInstance } from "../../instance/instance.js";
 import { openBrowser } from "../../util/browser.js";
 import { copyToClipboard } from "../../util/clipboard.js";
-import type { SSOProfile } from "../../types/index.js";
+import type { SSOSession } from "../../types/index.js";
 
 interface AuthArgs {
-  profile?: string;
+  session?: string;
   list?: boolean;
   delete?: string;
 }
 
 export const auth = cmd({
-  command: "auth [profile]",
+  command: "auth [session]",
   describe: "Authenticate with AWS SSO",
   builder: (yargs) =>
     yargs
-      .positional("profile", {
+      .positional("session", {
         type: "string",
-        describe: "SSO profile name to authenticate with",
+        describe: "SSO session name to authenticate with",
       })
       .option("list", {
         type: "boolean",
         alias: "l",
-        describe: "List available profiles",
+        describe: "List available SSO sessions",
         default: false,
       })
       .option("delete", {
         type: "string",
         alias: "d",
-        describe: "Delete a profile by name",
+        describe: "Delete an SSO session by name",
       }),
   handler: async (args) => {
     const typedArgs = args as AuthArgs;
@@ -39,19 +39,19 @@ export const auth = cmd({
 
       // Handle --list flag
       if (typedArgs.list) {
-        const profiles = await config.loadProfiles();
-        if (profiles.length === 0) {
-          UI.info("No SSO profiles configured.");
-          UI.info("Run 'awsesh auth' to create a new profile.");
+        const sessions = await config.loadSessions();
+        if (sessions.length === 0) {
+          UI.info("No SSO sessions configured.");
+          UI.info("Run 'awsesh auth' to create a new session.");
           return;
         }
 
-        UI.info(`Found ${profiles.length} profile(s):\n`);
-        for (const profile of profiles) {
-          console.log(`  • ${profile.name}`);
-          console.log(`    Start URL: ${profile.startUrl}`);
-          console.log(`    SSO Region: ${profile.ssoRegion}`);
-          console.log(`    Default Region: ${profile.defaultRegion}`);
+        UI.info(`Found ${sessions.length} SSO session(s):\n`);
+        for (const session of sessions) {
+          console.log(`  • ${session.name}`);
+          console.log(`    Start URL: ${session.startUrl}`);
+          console.log(`    SSO Region: ${session.ssoRegion}`);
+          console.log(`    Default Region: ${session.defaultRegion}`);
           console.log();
         }
         return;
@@ -59,46 +59,46 @@ export const auth = cmd({
 
       // Handle --delete flag
       if (typedArgs.delete) {
-        const profile = await config.loadProfile(typedArgs.delete);
-        if (!profile) {
-          UI.error(`Profile '${typedArgs.delete}' does not exist.`);
+        const session = await config.loadSession(typedArgs.delete);
+        if (!session) {
+          UI.error(`SSO Session '${typedArgs.delete}' does not exist.`);
           process.exit(1);
         }
 
-        await config.deleteProfile(typedArgs.delete);
-        UI.success(`Profile '${typedArgs.delete}' deleted successfully.`);
+        await config.deleteSession(typedArgs.delete);
+        UI.success(`SSO Session '${typedArgs.delete}' deleted successfully.`);
         return;
       }
 
-      // Get profile (from args or prompt)
-      let profile: SSOProfile | null = null;
+      // Get session (from args or prompt)
+      let session: SSOSession | null = null;
 
-      if (typedArgs.profile) {
-        // Use specified profile
-        profile = await config.loadProfile(typedArgs.profile);
-        if (!profile) {
-          UI.error(`Profile '${typedArgs.profile}' not found.`);
-          UI.info("Run 'awsesh auth --list' to see available profiles.");
+      if (typedArgs.session) {
+        // Use specified session
+        session = await config.loadSession(typedArgs.session);
+        if (!session) {
+          UI.error(`SSO Session '${typedArgs.session}' not found.`);
+          UI.info("Run 'awsesh auth --list' to see available sessions.");
           process.exit(1);
         }
       } else {
-        // For now, just show an error. In the future, we'll launch TUI to select/create profile.
-        UI.error("No profile specified.");
-        UI.info("Usage: awsesh auth <profile>");
+        // For now, just show an error. In the future, we'll launch TUI to select/create session.
+        UI.error("No SSO session specified.");
+        UI.info("Usage: awsesh auth <session>");
         UI.info("   or: awsesh auth --list");
-        UI.info("\nTo create a new profile, run 'awsesh' and follow the prompts.");
+        UI.info("\nTo create a new session, run 'awsesh' and follow the prompts.");
         process.exit(1);
       }
 
-      // Create AWS client with the profile's SSO region
-      const awsClient = new aws(profile.ssoRegion);
+      // Create AWS client with the session's SSO region
+      const awsClient = new aws(session.ssoRegion);
 
       // Start device code flow
-      UI.info(`Authenticating with profile '${profile.name}'...`);
-      UI.info(`Start URL: ${profile.startUrl}`);
-      UI.info(`SSO Region: ${profile.ssoRegion}\n`);
+      UI.info(`Authenticating with session '${session.name}'...`);
+      UI.info(`Start URL: ${session.startUrl}`);
+      UI.info(`SSO Region: ${session.ssoRegion}\n`);
 
-      const loginInfo = await awsClient.startSSOLogin(profile.startUrl);
+      const loginInfo = await awsClient.startSSOLogin(session.startUrl);
 
       // Show device code and URL
       UI.info("Please visit the following URL and enter the code:\n");
@@ -125,7 +125,7 @@ export const auth = cmd({
       }
 
       // Cache token
-      await config.saveToken(profile.startUrl, token, loginInfo.expiresAt);
+      await config.saveToken(session.startUrl, token, loginInfo.expiresAt);
 
       UI.success("Authentication successful!");
       UI.info(

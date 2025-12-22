@@ -31,10 +31,10 @@ const keybindDefinitions: KeybindInfo[] = [
   { key: "settings", label: "Settings", category: "Actions" },
   { key: "browser_open", label: "Open in Browser", category: "Actions" },
 
-  { key: "profile_set", label: "Set Profile", category: "Profiles" },
-  { key: "profile_add", label: "Add Profile", category: "Profiles" },
-  { key: "profile_edit", label: "Edit Profile", category: "Profiles" },
-  { key: "profile_delete", label: "Delete Profile", category: "Profiles" },
+  { key: "session_set", label: "Set SSO Session", category: "Sessions" },
+  { key: "session_add", label: "Add SSO Session", category: "Sessions" },
+  { key: "session_edit", label: "Edit SSO Session", category: "Sessions" },
+  { key: "session_delete", label: "Delete SSO Session", category: "Sessions" },
 
   { key: "region_set", label: "Set Region", category: "AWS" },
   { key: "role_list", label: "List Roles", category: "AWS" },

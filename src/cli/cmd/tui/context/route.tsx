@@ -1,6 +1,6 @@
 import { createStore } from "solid-js/store";
 import { createSimpleContext } from "./helper";
-import type { SSOProfile } from "@/types";
+import type { SSOSession } from "@/types";
 
 /**
  * Route types for awsesh TUI navigation
@@ -9,32 +9,32 @@ export type SSOSelectRoute = {
   type: "sso-select";
 };
 
-export type ProfileFormRoute = {
-  type: "profile-form";
+export type SessionFormRoute = {
+  type: "session-form";
   mode: "create" | "edit";
-  profile?: SSOProfile;
+  session?: SSOSession;
 };
 
-export type ProfileDeleteConfirmRoute = {
-  type: "profile-delete-confirm";
-  profileName: string;
+export type SessionDeleteConfirmRoute = {
+  type: "session-delete-confirm";
+  sessionName: string;
 };
 
 export type AccountSelectRoute = {
   type: "account-select";
-  profileName: string;
+  sessionName: string;
 };
 
 export type RegionSelectRoute = {
   type: "region-select";
-  profileName: string;
+  sessionName: string;
   accountId: string;
   accountName: string;
 };
 
 export type RoleSelectRoute = {
   type: "role-select";
-  profileName: string;
+  sessionName: string;
   accountId: string;
   accountName: string;
   region?: string;
@@ -42,7 +42,7 @@ export type RoleSelectRoute = {
 
 export type ProfileNameInputRoute = {
   type: "profile-name-input";
-  profileName: string;
+  sessionName: string;
   accountId: string;
   accountName: string;
   roleName: string;
@@ -51,14 +51,15 @@ export type ProfileNameInputRoute = {
 
 export type SSOLoginRoute = {
   type: "sso-login";
-  profileName: string;
+  sessionName: string;
   startUrl: string;
   ssoRegion: string;
 };
 
 export type SuccessRoute = {
   type: "success";
-  profileName: string;
+  sessionName: string; // SSO session name for navigation
+  profileName: string; // This is the CLI profile name - keep as is
   accountName: string;
   accountId: string;
   roleName: string;
@@ -68,8 +69,8 @@ export type SuccessRoute = {
 
 export type Route =
   | SSOSelectRoute
-  | ProfileFormRoute
-  | ProfileDeleteConfirmRoute
+  | SessionFormRoute
+  | SessionDeleteConfirmRoute
   | AccountSelectRoute
   | SSOLoginRoute
   | RegionSelectRoute
@@ -85,7 +86,7 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
   init: () => {
     const [store, setStore] = createStore<Route>({
       type: "sso-select",
-    });
+    } as Route);
 
     return {
       get data() {

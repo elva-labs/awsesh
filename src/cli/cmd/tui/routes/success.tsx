@@ -49,7 +49,7 @@ export function SuccessScreen() {
       onSelect: () => {
         route.navigate({
           type: "account-select",
-          profileName: routeData.profileName,
+          sessionName: routeData.sessionName,
         })
       },
     },

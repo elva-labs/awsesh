@@ -46,15 +46,15 @@ export function RoleSelector() {
 
   // Load roles on mount
   onMount(async () => {
-    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
-    if (profile) {
+    const session = aws.sessions.find((s) => s.name === routeData.sessionName);
+    if (session) {
       // Check if roles are already loaded
       const account = aws.accounts.find(a => a.accountId === routeData.accountId);
-      if (account && account.rolesLoaded) {
+      if (account?.rolesLoaded) {
         setRoles(account.roles);
         setLoadingRoles(false);
       } else {
-        const loadedRoles = await aws.loadRoles(profile, routeData.accountId);
+        const loadedRoles = await aws.loadRoles(session, routeData.accountId);
         setRoles(loadedRoles);
         setLoadingRoles(false);
       }
@@ -80,12 +80,12 @@ export function RoleSelector() {
     const roleName = filteredRoles()[selectedIndex()];
     if (!roleName) return;
     
-    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
-    if (!profile) return;
+    const session = aws.sessions.find((s) => s.name === routeData.sessionName);
+    if (!session) return;
     
     try {
       // For roles, construct SSO portal URL with account and role context
-      const baseUrl = profile.startUrl.replace(/\/$/, "");
+      const baseUrl = session.startUrl.replace(/\/$/, "");
       const url = `${baseUrl}#/console?account_id=${routeData.accountId}&role_name=${roleName}`;
       
       const { openBrowser } = await import("@/util/browser.js");
@@ -97,14 +97,14 @@ export function RoleSelector() {
 
   // Handle refresh roles
   const handleRefreshRoles = async () => {
-    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
-    if (!profile) return;
+    const session = aws.sessions.find((s) => s.name === routeData.sessionName);
+    if (!session) return;
     
-    await aws.refreshRoles(profile, routeData.accountId);
+    await aws.refreshRoles(session, routeData.accountId);
     
     // Update local roles
     const account = aws.accounts.find(a => a.accountId === routeData.accountId);
-    if (account && account.rolesLoaded) {
+    if (account?.rolesLoaded) {
       setRoles(account.roles);
     }
   };
@@ -161,7 +161,7 @@ export function RoleSelector() {
         
         route.navigate({
           type: "profile-name-input",
-          profileName: routeData.profileName,
+          sessionName: routeData.sessionName,
           accountId: routeData.accountId,
           accountName: routeData.accountName,
           roleName,
@@ -186,7 +186,7 @@ export function RoleSelector() {
         // Vim left - go back
         route.navigate({
           type: "account-select",
-          profileName: routeData.profileName,
+          sessionName: routeData.sessionName,
         });
       }
     } else if (key.name === "up" && selectedIndex() > 0) {
@@ -202,19 +202,19 @@ export function RoleSelector() {
       // Go back to account selection
       route.navigate({
         type: "account-select",
-        profileName: routeData.profileName,
+        sessionName: routeData.sessionName,
       });
     }
   });
 
   async function handleRoleSelection(roleName: string) {
-    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
-    if (!profile) return;
+    const session = aws.sessions.find((s) => s.name === routeData.sessionName);
+    if (!session) return;
 
     try {
       // Get credentials and write to file with optional custom region
       const expiration = await aws.getRoleCredentials(
-        profile,
+        session,
         routeData.accountId,
         routeData.accountName,
         roleName,
@@ -222,14 +222,17 @@ export function RoleSelector() {
       );
 
       // Navigate to success screen with expiration
+      // Note: profileName here becomes the CLI profile name (default: accountName-roleName)
+      const defaultProfileName = `${routeData.accountName}-${roleName}`;
       route.navigate({
         type: "success",
+        sessionName: routeData.sessionName, // SSO session name
         accountId: routeData.accountId,
-        profileName: routeData.profileName,
+        profileName: defaultProfileName, // CLI profile name
         accountName: routeData.accountName,
         roleName,
         expiration: expiration.toISOString(),
-        region: routeData.region || profile.defaultRegion,
+        region: routeData.region || session.defaultRegion,
       });
     } catch (e) {
       // Error will be shown via aws.error
@@ -246,7 +249,7 @@ export function RoleSelector() {
 
       <box marginBottom={1} flexDirection="column">
         <text>
-          Profile: <text fg={theme.success}>{routeData.profileName}</text>
+          SSO Session: <text fg={theme.success}>{routeData.sessionName}</text>
         </text>
         <text>
           Account: <text fg={theme.success}>{routeData.accountName}</text> (
@@ -272,7 +275,7 @@ export function RoleSelector() {
           <box>
             <text>Filter: </text>
             <input
-              ref={(r) => (inputRef = r)}
+              ref={(r) => { inputRef = r }}
               onInput={(value) => handleFilterChange(value)}
               placeholder="Type to filter..."
               focusedBackgroundColor={theme.background}

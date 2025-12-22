@@ -4,16 +4,16 @@ import { withInstance } from "@/instance/instance";
 
 /**
  * Direct session setup command
- * Usage: awsesh <sso-profile> <account-name> [role-name]
+ * Usage: awsesh <sso-session> <account-name> [role-name]
  */
 export const session = cmd({
-  command: "<ssoProfile> <accountName> [roleName]",
+  command: "<ssoSession> <accountName> [roleName]",
   describe: "Directly set credentials for a specific account and role",
   builder: (yargs) =>
     yargs
-      .positional("ssoProfile", {
+      .positional("ssoSession", {
         type: "string",
-        describe: "SSO profile name",
+        describe: "SSO session name",
         demandOption: true,
       })
       .positional("accountName", {
@@ -45,11 +45,11 @@ export const session = cmd({
       .option("profile", {
         alias: "p",
         type: "string",
-        describe: "Custom AWS profile name for credentials",
+        describe: "Custom CLI profile name for credentials",
       }),
   handler: async (args) => {
-    const { ssoProfile, accountName, roleName, browser, region, eval: evalMode, profile: customProfile } = args as {
-      ssoProfile: string;
+    const { ssoSession, accountName, roleName, browser, region, eval: evalMode, profile: customProfile } = args as {
+      ssoSession: string;
       accountName: string;
       roleName?: string;
       browser?: boolean;
@@ -62,24 +62,24 @@ export const session = cmd({
       const { config, aws } = instance;
 
       try {
-        // 1. Load SSO profile
-        const profile = await config.loadProfile(ssoProfile);
-        if (!profile) {
-          UI.error(`SSO profile '${ssoProfile}' not found.`);
-          UI.info("Run 'awsesh auth --list' to see available profiles.");
+        // 1. Load SSO session
+        const session = await config.loadSession(ssoSession);
+        if (!session) {
+          UI.error(`SSO session '${ssoSession}' not found.`);
+          UI.info("Run 'awsesh auth --list' to see available sessions.");
           process.exit(1);
         }
 
         // 2. Get token
-        let token = await config.loadToken(profile.startUrl);
+        let token = await config.loadToken(session.startUrl);
         if (!token) {
-          UI.error(`No valid token found for '${ssoProfile}'.`);
-          UI.info(`Run 'awsesh auth ${ssoProfile}' to authenticate first.`);
+          UI.error(`No valid token found for '${ssoSession}'.`);
+          UI.info(`Run 'awsesh auth ${ssoSession}' to authenticate first.`);
           process.exit(1);
         }
 
         // 3. List accounts
-        const awsClient = new aws(profile.ssoRegion);
+        const awsClient = new aws(session.ssoRegion);
         const accounts = await awsClient.listAccounts(token.token);
 
         // 4. Find matching account
@@ -97,7 +97,7 @@ export const session = cmd({
         if (!selectedRole) {
           const lastSelected = await config.loadLastSelected();
           if (
-            lastSelected.profile === ssoProfile &&
+            lastSelected.session === ssoSession &&
             lastSelected.account === accountName &&
             lastSelected.role
           ) {
@@ -107,7 +107,7 @@ export const session = cmd({
 
         if (!selectedRole) {
           UI.error("No role specified and no previously selected role found.");
-          UI.info(`Usage: awsesh ${ssoProfile} ${accountName} <role-name>`);
+          UI.info(`Usage: awsesh ${ssoSession} ${accountName} <role-name>`);
           process.exit(1);
         }
 
@@ -124,7 +124,7 @@ export const session = cmd({
           const url = awsClient.getAccountURL(
             account.accountId,
             token.token,
-            profile.startUrl,
+            session.startUrl,
             selectedRole
           );
           UI.info(`Opening AWS console in browser...`);
@@ -141,9 +141,9 @@ export const session = cmd({
           selectedRole
         );
 
-        // 9. Determine profile name
+        // 9. Determine CLI profile name
         const profileName = customProfile || `${account.name}-${selectedRole}`;
-        const effectiveRegion = region || profile.defaultRegion;
+        const effectiveRegion = region || session.defaultRegion;
 
         // 10. Write credentials
         await config.writeCredentials(
@@ -156,7 +156,7 @@ export const session = cmd({
 
         // 11. Save last selected
         await config.saveLastSelected({
-          profile: ssoProfile,
+          session: ssoSession,
           account: accountName,
           role: selectedRole,
         });
@@ -175,7 +175,7 @@ export const session = cmd({
         } else {
           // Normal output
           UI.success("Credentials configured successfully!");
-          UI.info(`Profile: ${profileName}`);
+          UI.info(`CLI Profile: ${profileName}`);
           UI.info(`Region: ${effectiveRegion}`);
           UI.info(`Account: ${accountName} (${account.accountId})`);
           UI.info(`Role: ${selectedRole}`);

@@ -3,7 +3,7 @@ import { useAWS } from "../context/aws"
 import { useRoute } from "../context/route"
 import { useTheme } from "../context/theme"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
-import type { SSOProfile } from "@/types"
+import type { SSOSession } from "@/types"
 
 export function SSOSelector() {
   const aws = useAWS()
@@ -11,30 +11,30 @@ export function SSOSelector() {
   const { theme } = useTheme()
 
   const items = createMemo(() => {
-    return aws.profiles.map((profile): FilterableListItem<SSOProfile> => ({
-      id: profile.name,
-      title: profile.name,
-      subtitle: profile.startUrl,
-      value: profile,
-      active: aws.isSessionActive(profile.startUrl),
+    return aws.sessions.map((session): FilterableListItem<SSOSession> => ({
+      id: session.name,
+      title: session.name,
+      subtitle: session.startUrl,
+      value: session,
+      active: aws.isSessionActive(session.startUrl),
     }))
   })
 
-  function handleSelect(item: FilterableListItem<SSOProfile>) {
+  function handleSelect(item: FilterableListItem<SSOSession>) {
     route.navigate({
       type: "account-select",
-      profileName: item.value.name,
+      sessionName: item.value.name,
     })
   }
 
   return (
     <box flexDirection="column" flexGrow={1}>
       <Show
-        when={aws.profiles.length > 0}
+        when={aws.sessions.length > 0}
         fallback={
           <box padding={1}>
             <text fg={theme.warning}>
-              No SSO profiles found. Press N to create one.
+              No SSO sessions found. Press N to create one.
             </text>
           </box>
         }

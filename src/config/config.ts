@@ -12,12 +12,12 @@ export interface KeybindsConfig {
   refresh: string[]
   settings: string[]
   browser_open: string[]
-  profile_set: string[]
+  session_set: string[]
   region_set: string[]
   role_list: string[]
-  profile_add: string[]
-  profile_edit: string[]
-  profile_delete: string[]
+  session_add: string[]
+  session_edit: string[]
+  session_delete: string[]
   nav_up: string[]
   nav_down: string[]
   nav_left: string[]
@@ -59,12 +59,12 @@ const defaultKeybinds: KeybindsConfig = {
   refresh: ["<leader>+r"],
   settings: ["<leader>+,"],
   browser_open: ["<leader>+o"],
-  profile_set: ["<leader>+p"],
+  session_set: ["<leader>+p"],
   region_set: ["<leader>+r"],
   role_list: ["<leader>+l"],
-  profile_add: ["<leader>+a"],
-  profile_edit: ["<leader>+e"],
-  profile_delete: ["<leader>+d"],
+  session_add: ["<leader>+a"],
+  session_edit: ["<leader>+e"],
+  session_delete: ["<leader>+d"],
   nav_up: ["up", "k"],
   nav_down: ["down", "j"],
   nav_left: ["left", "h"],

@@ -13,7 +13,7 @@ export const whoami = cmd({
       // Get last selected preferences
       const lastSelected = await config.loadLastSelected();
 
-      if (!lastSelected.profile || !lastSelected.account || !lastSelected.role) {
+      if (!lastSelected.session || !lastSelected.account || !lastSelected.role) {
         UI.info("No AWS credentials currently configured.");
         UI.info("Run 'awsesh' to configure your AWS credentials.");
         return;
@@ -21,7 +21,7 @@ export const whoami = cmd({
 
       // Display current identity
       UI.info("Current AWS Identity:\n");
-      console.log(`  Profile:     ${lastSelected.profile}`);
+      console.log(`  SSO Session: ${lastSelected.session}`);
       console.log(`  Account:     ${lastSelected.account}`);
       console.log(`  Role:        ${lastSelected.role}`);
 

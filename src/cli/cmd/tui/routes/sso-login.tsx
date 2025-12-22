@@ -44,10 +44,10 @@ export function SSOLoginScreen() {
 
   onMount(async () => {
     try {
-      const profile = aws.profiles.find((p) => p.name === routeData.profileName)
-      if (!profile) throw new Error("Profile not found")
+      const session = aws.sessions.find((s) => s.name === routeData.sessionName)
+      if (!session) throw new Error("SSO Session not found")
 
-      const info = await aws.startLogin(profile)
+      const info = await aws.startLogin(session)
       setLoginInfo(info)
 
       const expiresAt = info.expiresAt.getTime()
@@ -85,10 +85,10 @@ export function SSOLoginScreen() {
   const pollForAuthorization = async (info: SSOLoginInfo) => {
     pollInterval = setInterval(async () => {
       try {
-        const profile = aws.profiles.find((p) => p.name === routeData.profileName)
-        if (!profile) return
+        const session = aws.sessions.find((s) => s.name === routeData.sessionName)
+        if (!session) return
 
-        const token = await aws.pollForToken(profile, info)
+        const token = await aws.pollForToken(session, info)
 
         if (token) {
           clearInterval(pollInterval)
@@ -100,12 +100,12 @@ export function SSOLoginScreen() {
             message: "Authentication successful!",
           })
 
-          const p = aws.profiles.find((p) => p.name === routeData.profileName)
-          if (p) {
-            await aws.loadAccounts(p)
+          const s = aws.sessions.find((s) => s.name === routeData.sessionName)
+          if (s) {
+            await aws.loadAccounts(s)
             route.navigate({
               type: "account-select",
-              profileName: routeData.profileName,
+              sessionName: routeData.sessionName,
             })
           }
         }
@@ -130,7 +130,7 @@ export function SSOLoginScreen() {
 
   return (
     <Layout
-      header={<Header title="AWS SSO Login" subtitle={routeData.profileName} />}
+      header={<Header title="AWS SSO Login" subtitle={routeData.sessionName} />}
       footer={
         <Footer right={<KeybindHint keybind={keybind.print("command_list")} label="Commands" />}>
           <KeybindHint keybind={keybind.print("back")} label="Cancel" />

@@ -7,6 +7,7 @@ This document outlines the complete requirements for the new AWSESH TUI (Termina
 ## Architecture Principles
 
 Based on OpenCode's proven patterns:
+
 - **SolidJS + OpenTUI**: Use SolidJS for reactive state management and OpenTUI for terminal rendering
 - **Context-based architecture**: Use context providers for global state (theme, keybinds, routing, AWS state)
 - **Dialog system**: Reusable dialog components for popups and confirmations
@@ -58,6 +59,7 @@ Profile List (Initial Screen)
 **Purpose**: Show all configured AWS SSO profiles or prompt to add one.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ AWS SSO Profiles                            esc │
@@ -75,6 +77,7 @@ Profile List (Initial Screen)
 ```
 
 **Empty State**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ AWS SSO Profiles                            esc │
@@ -90,6 +93,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - List of all configured SSO profiles
 - Current selection indicated with "●"
 - Empty state with helpful message
@@ -107,6 +111,7 @@ Profile List (Initial Screen)
 **Purpose**: Form for creating or editing an SSO profile.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ Add SSO Profile                             esc │
@@ -130,6 +135,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Form with four input fields
 - Tab to navigate between fields
 - Validation on save:
@@ -144,6 +150,7 @@ Profile List (Initial Screen)
 **Purpose**: Confirm before deleting an SSO profile.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                                                 │
@@ -163,6 +170,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Centered dialog with dark overlay background
 - Shows profile name being deleted
 - Warning message
@@ -176,6 +184,7 @@ Profile List (Initial Screen)
 **Purpose**: Handle SSO device authorization when token is expired.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ AWS SSO Login - My Organization                 │
@@ -202,6 +211,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Automatically opens browser to device authorization URL
 - Displays device code prominently
 - Shows countdown timer (updates every second)
@@ -215,6 +225,7 @@ Profile List (Initial Screen)
 **Purpose**: Main screen for browsing and selecting AWS accounts.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ Accounts - My Organization              🔄 esc │
@@ -238,6 +249,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Shows list of accounts with:
   - Account name and ID
   - Currently selected/default role
@@ -259,6 +271,7 @@ Profile List (Initial Screen)
   - `,` (configurable) - Open Settings
 
 **Background Loading**:
+
 - On first load: show cached accounts immediately
 - Background: fetch fresh account list from AWS
 - Update list seamlessly when new data arrives
@@ -269,6 +282,7 @@ Profile List (Initial Screen)
 **Purpose**: Filter account list by typing.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ Accounts - My Organization              🔄 esc │
@@ -285,6 +299,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Input field with focus
 - Live filtering as you type (fuzzy search)
 - Enter to apply filter and return focus to list
@@ -296,6 +311,7 @@ Profile List (Initial Screen)
 **Purpose**: Override default region for an account.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                                                 │
@@ -318,6 +334,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Centered dialog
 - Search/filter input
 - List of AWS regions with descriptions
@@ -331,6 +348,7 @@ Profile List (Initial Screen)
 **Purpose**: View and select from available roles for an account.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                                                 │
@@ -353,6 +371,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Centered dialog
 - Search/filter input
 - List of available roles for the account
@@ -367,6 +386,7 @@ Profile List (Initial Screen)
 **Purpose**: Set custom AWS profile name for account/role combination.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                                                 │
@@ -389,6 +409,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Centered dialog
 - Input pre-filled with previously used profile name (if any)
 - Shows helpful context about where profile name is used
@@ -400,6 +421,7 @@ Profile List (Initial Screen)
 **Purpose**: Show confirmation of assumed role with credential details.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ ✓ Credentials Set                               │
@@ -427,6 +449,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - Shows all credential information
 - Displays what environment variables were set
 - Actions:
@@ -438,6 +461,7 @@ Profile List (Initial Screen)
 **Purpose**: Configure application defaults and behavior.
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ Settings                                    esc │
@@ -461,6 +485,7 @@ Profile List (Initial Screen)
 ```
 
 **Features**:
+
 - List of configurable settings
 - Navigate with arrow keys or vim keys
 - Enter to edit/toggle setting
@@ -474,6 +499,7 @@ Following OpenCode patterns, create these reusable components:
 ### 1. Dialog System
 
 **Base Dialog** (`ui/dialog.tsx`):
+
 - Centered overlay with dark background
 - Configurable size (medium, large)
 - Stack-based (can have nested dialogs)
@@ -481,6 +507,7 @@ Following OpenCode patterns, create these reusable components:
 - Click outside to close
 
 **Dialog Variants**:
+
 - `DialogConfirm` - Confirmation with Cancel/Confirm buttons
 - `DialogSelect` - Searchable list selection
 - `DialogPrompt` - Single input field
@@ -489,6 +516,7 @@ Following OpenCode patterns, create these reusable components:
 ### 2. List View Component
 
 **FilterableList** (`ui/list.tsx`):
+
 - Generic list with filtering
 - Search input
 - Keyboard navigation (arrows, vim keys, page up/down)
@@ -500,12 +528,14 @@ Following OpenCode patterns, create these reusable components:
 ### 3. Input Components
 
 **TextInput** (`ui/input.tsx`):
+
 - Focused/unfocused states
 - Placeholder text
 - Cursor rendering
 - Copy/paste support
 
 **FormField** (`ui/form-field.tsx`):
+
 - Label + Input combination
 - Validation state
 - Error messages
@@ -513,10 +543,12 @@ Following OpenCode patterns, create these reusable components:
 ### 4. Status Components
 
 **Spinner** (`ui/spinner.tsx`):
+
 - Animated loading indicator
 - Multiple variants
 
 **Toast** (`ui/toast.tsx`):
+
 - Temporary notifications
 - Auto-dismiss
 - Variants: info, success, warning, error
@@ -526,6 +558,7 @@ Following OpenCode patterns, create these reusable components:
 Following OpenCode architecture:
 
 ### 1. ThemeProvider (`context/theme.tsx`)
+
 - Manages current theme
 - Light/dark mode detection
 - Theme switching
@@ -533,18 +566,21 @@ Following OpenCode architecture:
 - Provides theme colors to components
 
 ### 2. RouteProvider (`context/route.tsx`)
+
 - Manages current route/screen
 - Navigation functions
 - Route history
 - Route data passing
 
 ### 3. KeybindProvider (`context/keybind.tsx`)
+
 - Loads keybind configuration
 - Provides keybind matching
 - Allows runtime keybind changes
 - Leader key support
 
 ### 4. AWSProvider (`context/aws.tsx`)
+
 - Manages AWS state (profiles, accounts, tokens)
 - Handles SSO authentication
 - Account list fetching/caching
@@ -552,16 +588,19 @@ Following OpenCode architecture:
 - Token management
 
 ### 5. DialogProvider (`context/dialog.tsx`)
+
 - Manages dialog stack
 - Show/hide dialogs
 - Dialog size control
 
 ### 6. ExitProvider (`context/exit.tsx`)
+
 - Manages application exit
 - Cleanup on exit
 - Exit hooks
 
 ### 7. ConfigProvider (`context/config.tsx`)
+
 - Manages user settings
 - Persists configuration
 - Provides config values
@@ -601,6 +640,7 @@ Store in `~/.config/awsesh/keybinds.json` (or XDG config location):
 Store themes in `~/.config/awsesh/themes/` (or XDG config location).
 
 **Default themes to include**:
+
 - opencode (default)
 - dracula
 - nord
@@ -613,45 +653,49 @@ Follow OpenCode's theme JSON schema.
 ## State Management
 
 ### Profile State
+
 ```typescript
 interface ProfileState {
-  profiles: SSOProfile[]
-  current: string | null  // current profile name
-  loading: boolean
-  error: string | null
+  profiles: SSOProfile[];
+  current: string | null; // current profile name
+  loading: boolean;
+  error: string | null;
 }
 ```
 
 ### Account State
+
 ```typescript
 interface AccountState {
-  accounts: Account[]
-  loading: boolean
-  backgroundRefresh: boolean
-  lastRefresh: number
-  filter: string
-  selected: string | null  // account ID
+  accounts: Account[];
+  loading: boolean;
+  backgroundRefresh: boolean;
+  lastRefresh: number;
+  filter: string;
+  selected: string | null; // account ID
 }
 ```
 
 ### Auth State
+
 ```typescript
 interface AuthState {
-  tokens: Map<string, TokenCache>  // keyed by startUrl
-  loginInProgress: SSOLoginInfo | null
-  loginTimeRemaining: number
+  tokens: Map<string, TokenCache>; // keyed by startUrl
+  loginInProgress: SSOLoginInfo | null;
+  loginTimeRemaining: number;
 }
 ```
 
 ### Route State
+
 ```typescript
 type Route =
   | { type: "profile-list" }
-  | { type: "profile-form", mode: "add" | "edit", data?: SSOProfile }
-  | { type: "account-list", profile: string }
-  | { type: "sso-login", profile: string }
-  | { type: "success", data: SuccessData }
-  | { type: "settings" }
+  | { type: "profile-form"; mode: "add" | "edit"; data?: SSOProfile }
+  | { type: "account-list"; profile: string }
+  | { type: "sso-login"; profile: string }
+  | { type: "success"; data: SuccessData }
+  | { type: "settings" };
 ```
 
 ## File Storage
@@ -659,11 +703,13 @@ type Route =
 Following XDG Base Directory specification:
 
 **Config directory** (`~/.config/awsesh/` or `$XDG_CONFIG_HOME/awsesh/`):
+
 - `keybinds.json` - User keybind configuration
 - `settings.json` - User settings
 - `themes/` - Custom themes
 
 **Data directory** (`~/.local/share/awsesh/` or `$XDG_DATA_HOME/awsesh/`):
+
 - `storage/profile/` - SSO profile configs
 - `storage/token/` - Cached SSO tokens
 - `storage/preference/` - User preferences per account/role
@@ -727,6 +773,7 @@ Following XDG Base Directory specification:
 ## Migration from Old Version
 
 The application should detect old config files and offer to migrate:
+
 1. Detect `~/.aws/awsesh*` files
 2. Show migration prompt
 3. Convert INI format to JSON
@@ -736,6 +783,7 @@ The application should detect old config files and offer to migrate:
 ## Future Enhancements
 
 Ideas for post-MVP features:
+
 - MCP server integration (if applicable)
 - Account favorites/pinning
 - Recent account history

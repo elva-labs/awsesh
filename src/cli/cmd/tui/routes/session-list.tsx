@@ -10,9 +10,9 @@ import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
 import { DialogSettings } from "../component/dialog-settings"
-import type { SSOProfile } from "@/types"
+import type { SSOSession } from "@/types"
 
-export function ProfileListScreen() {
+export function SessionListScreen() {
   const { theme, mode, setMode } = useTheme()
   const route = useRoute()
   const aws = useAWS()
@@ -21,50 +21,50 @@ export function ProfileListScreen() {
   const dialog = useDialog()
   const exit = useExit()
 
-  const [selectedProfile, setSelectedProfile] = createSignal<SSOProfile | null>(null)
+  const [selectedSession, setSelectedSession] = createSignal<SSOSession | null>(null)
 
   command.register(() => [
     {
-      id: "profile.add",
-      title: "Add Profile",
-      category: "Profile",
-      keybind: "profile_add",
+      id: "session.add",
+      title: "Add SSO Session",
+      category: "Session",
+      keybind: "session_add",
       onSelect: () => {
         route.navigate({
-          type: "profile-form",
+          type: "session-form",
           mode: "create",
         })
       },
     },
     {
-      id: "profile.edit",
-      title: "Edit Profile",
-      category: "Profile",
-      keybind: "profile_edit",
-      disabled: !selectedProfile(),
+      id: "session.edit",
+      title: "Edit SSO Session",
+      category: "Session",
+      keybind: "session_edit",
+      disabled: !selectedSession(),
       onSelect: () => {
-        const selected = selectedProfile()
+        const selected = selectedSession()
         if (selected) {
           route.navigate({
-            type: "profile-form",
+            type: "session-form",
             mode: "edit",
-            profile: selected,
+            session: selected,
           })
         }
       },
     },
     {
-      id: "profile.delete",
-      title: "Delete Profile",
-      category: "Profile",
-      keybind: "profile_delete",
-      disabled: !selectedProfile(),
+      id: "session.delete",
+      title: "Delete SSO Session",
+      category: "Session",
+      keybind: "session_delete",
+      disabled: !selectedSession(),
       onSelect: () => {
-        const selected = selectedProfile()
+        const selected = selectedSession()
         if (selected) {
           route.navigate({
-            type: "profile-delete-confirm",
-            profileName: selected.name,
+            type: "session-delete-confirm",
+            sessionName: selected.name,
           })
         }
       },
@@ -98,18 +98,18 @@ export function ProfileListScreen() {
     },
   ])
 
-  const items = (): FilterableListItem<SSOProfile>[] => {
-    return aws.profiles.map((profile) => ({
-      id: profile.name,
-      title: profile.name,
-      subtitle: profile.startUrl,
-      value: profile,
-      active: aws.isSessionActive(profile.startUrl),
+  const items = (): FilterableListItem<SSOSession>[] => {
+    return aws.sessions.map((session) => ({
+      id: session.name,
+      title: session.name,
+      subtitle: session.startUrl,
+      value: session,
+      active: aws.isSessionActive(session.startUrl),
     }))
   }
 
-  const handleItemMove = (item: FilterableListItem<SSOProfile>) => {
-    setSelectedProfile(item.value)
+  const handleItemMove = (item: FilterableListItem<SSOSession>) => {
+    setSelectedSession(item.value)
   }
 
   useKeyboard((evt) => {
@@ -119,28 +119,28 @@ export function ProfileListScreen() {
     }
   })
 
-  const handleSelect = async (item: FilterableListItem<SSOProfile>) => {
-    const profile = item.value
+  const handleSelect = async (item: FilterableListItem<SSOSession>) => {
+    const session = item.value
 
     try {
-      await aws.loadAccounts(profile)
+      await aws.loadAccounts(session)
       route.navigate({
         type: "account-select",
-        profileName: profile.name,
+        sessionName: session.name,
       })
     } catch {
       route.navigate({
         type: "sso-login",
-        profileName: profile.name,
-        startUrl: profile.startUrl,
-        ssoRegion: profile.ssoRegion,
+        sessionName: session.name,
+        startUrl: session.startUrl,
+        ssoRegion: session.ssoRegion,
       })
     }
   }
 
   return (
     <Layout
-      header={<Header title="AWS SSO Profiles" subtitle={`${aws.profiles.length} profiles`} />}
+      header={<Header title="AWS SSO Sessions" subtitle={`${aws.sessions.length} sessions`} />}
       footer={
         <Footer
           right={
@@ -148,8 +148,8 @@ export function ProfileListScreen() {
           }
         >
           <KeybindHint keybind={keybind.print("select")} label="Select" />
-          <KeybindHint keybind={keybind.print("profile_add")} label="Add" />
-          <KeybindHint keybind={keybind.print("profile_edit")} label="Edit" />
+          <KeybindHint keybind={keybind.print("session_add")} label="Add" />
+          <KeybindHint keybind={keybind.print("session_edit")} label="Edit" />
           <KeybindHint keybind={keybind.print("quit")} label="Quit" />
         </Footer>
       }
@@ -158,9 +158,9 @@ export function ProfileListScreen() {
         when={items().length > 0}
         fallback={
           <box flexDirection="column" paddingLeft={2} paddingTop={2} gap={1}>
-            <text fg={theme.textMuted}>No SSO profiles configured</text>
+            <text fg={theme.textMuted}>No SSO sessions configured</text>
             <text fg={theme.textMuted}>
-              Press '{keybind.print("profile_add")}' to add your first profile
+              Press '{keybind.print("session_add")}' to add your first SSO session
             </text>
           </box>
         }

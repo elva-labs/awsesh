@@ -27,7 +27,7 @@ export function ProfileNameInput() {
   // Load remembered profile name on mount
   onMount(async () => {
     const remembered = await config.loadProfileName(
-      routeData.profileName,
+      routeData.sessionName,
       routeData.accountName,
       routeData.roleName
     );
@@ -43,13 +43,13 @@ export function ProfileNameInput() {
     const name = profileName();
     if (!name.trim()) return;
 
-    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
-    if (!profile) return;
+    const session = aws.sessions.find((s) => s.name === routeData.sessionName);
+    if (!session) return;
 
     try {
       // Save profile name to memory
       await config.saveProfileName(
-        routeData.profileName,
+        routeData.sessionName,
         routeData.accountName,
         routeData.roleName,
         name
@@ -57,7 +57,7 @@ export function ProfileNameInput() {
 
       // Get credentials and write to file with custom profile name and optional region
       const expiration = await aws.getRoleCredentials(
-        profile,
+        session,
         routeData.accountId,
         routeData.accountName,
         routeData.roleName,
@@ -68,12 +68,13 @@ export function ProfileNameInput() {
       // Navigate to success screen
       route.navigate({
         type: "success",
+        sessionName: routeData.sessionName, // SSO session name
         accountId: routeData.accountId,
-        profileName: name,
+        profileName: name, // CLI profile name - keep as profileName
         accountName: routeData.accountName,
         roleName: routeData.roleName,
         expiration: expiration.toISOString(),
-        region: routeData.region || profile.defaultRegion,
+        region: routeData.region || session.defaultRegion,
       });
     } catch (e) {
       // Error will be shown via aws.error
@@ -91,7 +92,7 @@ export function ProfileNameInput() {
       // Go back to role selection
       route.navigate({
         type: "role-select",
-        profileName: routeData.profileName,
+        sessionName: routeData.sessionName,
         accountId: routeData.accountId,
         accountName: routeData.accountName,
       });
@@ -131,7 +132,7 @@ export function ProfileNameInput() {
 
       <box marginBottom={1} flexDirection="column">
         <text>
-          SSO Profile: <text fg={theme.success}>{routeData.profileName}</text>
+          SSO Session: <text fg={theme.success}>{routeData.sessionName}</text>
         </text>
         <text>
           Account: <text fg={theme.success}>{routeData.accountName}</text> ({routeData.accountId})

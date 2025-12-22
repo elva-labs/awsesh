@@ -3,13 +3,13 @@ import { createSimpleContext } from "./helper";
 import { useInstance } from "@/instance/instance";
 import { Global } from "@/global";
 import { Log } from "@/util/log";
-import type { SSOProfile, Account, SSOLoginInfo } from "@/types";
+import type { SSOSession, Account, SSOLoginInfo } from "@/types";
 
 const log = Log.create({ service: "aws-context" });
 
 /**
  * AWS context provider for TUI
- * Manages AWS client, profiles, accounts, and authentication state
+ * Manages AWS client, sessions, accounts, and authentication state
  */
 export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
   name: "AWS",
@@ -18,35 +18,35 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
     const { config, aws } = instance;
 
     // State signals
-    const [profiles, setProfiles] = createSignal<SSOProfile[]>([]);
+    const [sessions, setSessions] = createSignal<SSOSession[]>([]);
     const [accounts, setAccounts] = createSignal<Account[]>([]);
     const [loading, setLoading] = createSignal(false);
     const [refreshing, setRefreshing] = createSignal(false);
     const [refreshingRoles, setRefreshingRoles] = createSignal(false);
     const [error, setError] = createSignal<string | undefined>();
-    const [currentProfile, setCurrentProfile] = createSignal<SSOProfile | undefined>();
+    const [currentSession, setCurrentSession] = createSignal<SSOSession | undefined>();
     const [tokenStatus, setTokenStatus] = createSignal<Record<string, boolean>>({});
 
-    // Load profiles on init and check token status
+    // Load sessions on init and check token status
     (async () => {
       try {
-        const loadedProfiles = await config.loadProfiles();
-        setProfiles(loadedProfiles);
+        const loadedSessions = await config.loadSessions();
+        setSessions(loadedSessions);
         
         const status: Record<string, boolean> = {};
-        for (const profile of loadedProfiles) {
-          const token = await config.loadToken(profile.startUrl);
-          status[profile.startUrl] = token !== null;
+        for (const session of loadedSessions) {
+          const token = await config.loadToken(session.startUrl);
+          status[session.startUrl] = token !== null;
         }
         setTokenStatus(status);
       } catch (e) {
-        setError(`Failed to load profiles: ${e}`);
+        setError(`Failed to load sessions: ${e}`);
       }
     })();
 
     return {
-      get profiles() {
-        return profiles();
+      get sessions() {
+        return sessions();
       },
       get accounts() {
         return accounts();
@@ -69,45 +69,45 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       },
 
       /**
-       * Load accounts for a profile
+       * Load accounts for a session
        */
-      async loadAccounts(profile: SSOProfile): Promise<void> {
+      async loadAccounts(session: SSOSession): Promise<void> {
         setLoading(true);
         setError(undefined);
-        setCurrentProfile(profile);
+        setCurrentSession(session);
 
         try {
           // Try to get cached accounts first
-          const cached = await config.loadAccounts(profile.name);
+          const cached = await config.loadAccounts(session.name);
           if (cached) {
             setAccounts(cached.accounts);
             setLoading(false);
             
             // Pre-load roles if under threshold and not stale
             if (!cached.isStale && cached.accounts.length <= Global.Limits.maxAccountsForRoleLoading) {
-              this.preloadRoles(profile, cached.accounts);
+              this.preloadRoles(session, cached.accounts);
             }
             
             return;
           }
 
           // Need to authenticate first
-          const token = await config.loadToken(profile.startUrl);
+          const token = await config.loadToken(session.startUrl);
           if (!token) {
             throw new Error("No valid token found. Please authenticate first.");
           }
 
           // Create AWS client and list accounts
-          const awsClient = new aws(profile.ssoRegion);
+          const awsClient = new aws(session.ssoRegion);
           const accountsList = await awsClient.listAccounts(token.token);
 
           // Cache accounts
-          await config.saveAccounts(profile.name, accountsList);
+          await config.saveAccounts(session.name, accountsList);
           setAccounts(accountsList);
           
           // Pre-load roles if under threshold
           if (accountsList.length <= Global.Limits.maxAccountsForRoleLoading) {
-            this.preloadRoles(profile, accountsList);
+            this.preloadRoles(session, accountsList);
           }
         } catch (e) {
           setError(`Failed to load accounts: ${e}`);
@@ -117,30 +117,30 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       },
 
       /**
-       * Refresh accounts for the current profile
+       * Refresh accounts for the current session
        */
       async refreshAccounts(): Promise<void> {
-        const profile = currentProfile();
-        if (!profile) return;
+        const session = currentSession();
+        if (!session) return;
 
         setRefreshing(true);
         setError(undefined);
 
         try {
-          const token = await config.loadToken(profile.startUrl);
+          const token = await config.loadToken(session.startUrl);
           if (!token) {
             throw new Error("No valid token found. Please authenticate first.");
           }
 
-          const awsClient = new aws(profile.ssoRegion);
+          const awsClient = new aws(session.ssoRegion);
           const accountsList = await awsClient.listAccounts(token.token);
 
           setAccounts(accountsList);
-          await config.saveAccounts(profile.name, accountsList);
+          await config.saveAccounts(session.name, accountsList);
           
           // Pre-load roles if under threshold
           if (accountsList.length <= Global.Limits.maxAccountsForRoleLoading) {
-            this.preloadRoles(profile, accountsList);
+            this.preloadRoles(session, accountsList);
           }
         } catch (e) {
           setError(`Failed to refresh accounts: ${e}`);
@@ -152,11 +152,11 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       /**
        * Pre-load roles for accounts sequentially
        */
-      async preloadRoles(profile: SSOProfile, accountsList: Account[]): Promise<void> {
-        const token = await config.loadToken(profile.startUrl);
+      async preloadRoles(session: SSOSession, accountsList: Account[]): Promise<void> {
+        const token = await config.loadToken(session.startUrl);
         if (!token) return;
 
-        const awsClient = new aws(profile.ssoRegion);
+        const awsClient = new aws(session.ssoRegion);
 
         for (const account of accountsList) {
           if (account.rolesLoaded) continue;
@@ -174,7 +174,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
             );
 
             // Update cache
-            await config.saveAccounts(profile.name, accounts());
+            await config.saveAccounts(session.name, accounts());
           } catch (e) {
             log.error("Failed to pre-load roles", { error: e, accountName: account.name, accountId: account.accountId });
           }
@@ -188,19 +188,19 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
        * Load roles for an account
        */
       async loadRoles(
-        profile: SSOProfile,
+        session: SSOSession,
         accountId: string
       ): Promise<string[]> {
         setLoading(true);
         setError(undefined);
 
         try {
-          const token = await config.loadToken(profile.startUrl);
+          const token = await config.loadToken(session.startUrl);
           if (!token) {
             throw new Error("No valid token found. Please authenticate first.");
           }
 
-          const awsClient = new aws(profile.ssoRegion);
+          const awsClient = new aws(session.ssoRegion);
           const roles = await awsClient.listAccountRoles(token.token, accountId);
           
           // Update account with roles in state
@@ -213,7 +213,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           );
 
           // Update cache
-          await config.saveAccounts(profile.name, accounts());
+          await config.saveAccounts(session.name, accounts());
           
           return roles;
         } catch (e) {
@@ -227,17 +227,17 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       /**
        * Refresh roles for a specific account
        */
-      async refreshRoles(profile: SSOProfile, accountId: string): Promise<void> {
+      async refreshRoles(session: SSOSession, accountId: string): Promise<void> {
         setRefreshingRoles(true);
         setError(undefined);
 
         try {
-          const token = await config.loadToken(profile.startUrl);
+          const token = await config.loadToken(session.startUrl);
           if (!token) {
             throw new Error("No valid token found. Please authenticate first.");
           }
 
-          const awsClient = new aws(profile.ssoRegion);
+          const awsClient = new aws(session.ssoRegion);
           const roles = await awsClient.listAccountRoles(token.token, accountId);
 
           // Update account with roles
@@ -250,7 +250,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           );
 
           // Update cache
-          await config.saveAccounts(profile.name, accounts());
+          await config.saveAccounts(session.name, accounts());
         } catch (e) {
           setError(`Failed to refresh roles: ${e}`);
         } finally {
@@ -261,13 +261,13 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       /**
        * Start SSO login flow
        */
-      async startLogin(profile: SSOProfile): Promise<SSOLoginInfo> {
+      async startLogin(session: SSOSession): Promise<SSOLoginInfo> {
         setLoading(true);
         setError(undefined);
 
         try {
-          const awsClient = new aws(profile.ssoRegion);
-          const loginInfo = await awsClient.startSSOLogin(profile.startUrl);
+          const awsClient = new aws(session.ssoRegion);
+          const loginInfo = await awsClient.startSSOLogin(session.startUrl);
           return loginInfo;
         } catch (e) {
           setError(`Failed to start login: ${e}`);
@@ -281,10 +281,10 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
        * Poll for token during SSO login
        */
       async pollForToken(
-        profile: SSOProfile,
+        session: SSOSession,
         loginInfo: SSOLoginInfo
       ): Promise<string> {
-        const awsClient = new aws(profile.ssoRegion);
+        const awsClient = new aws(session.ssoRegion);
 
         let token: string | null = null;
         while (!token) {
@@ -296,13 +296,13 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
         // Cache the token
         await config.saveToken(
-          profile.startUrl,
+          session.startUrl,
           token,
           loginInfo.expiresAt
         );
 
         // Update token status
-        setTokenStatus((prev) => ({ ...prev, [profile.startUrl]: true }));
+        setTokenStatus((prev) => ({ ...prev, [session.startUrl]: true }));
 
         return token;
       },
@@ -311,15 +311,15 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
        * Get role credentials and write to ~/.aws/credentials
        * Returns the expiration date of the credentials
        * 
-       * @param profile - SSO profile
+       * @param session - SSO session
        * @param accountId - AWS account ID
        * @param accountName - AWS account name (used for default profile name)
        * @param roleName - IAM role name
        * @param region - Optional custom region
-       * @param customProfileName - Optional custom profile name (overrides default)
+       * @param customProfileName - Optional custom CLI profile name (overrides default)
        */
       async getRoleCredentials(
-        profile: SSOProfile,
+        session: SSOSession,
         accountId: string,
         accountName: string,
         roleName: string,
@@ -330,26 +330,26 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         setError(undefined);
 
         try {
-          const token = await config.loadToken(profile.startUrl);
+          const token = await config.loadToken(session.startUrl);
           if (!token) {
             throw new Error("No valid token found. Please authenticate first.");
           }
 
-          const awsClient = new aws(profile.ssoRegion);
+          const awsClient = new aws(session.ssoRegion);
           const credentials = await awsClient.getRoleCredentials(
             token.token,
             accountId,
             roleName
           );
 
-          // Use custom region if provided, otherwise fall back to profile default
-          const targetRegion = region || profile.defaultRegion;
+          // Use custom region if provided, otherwise fall back to session default
+          const targetRegion = region || session.defaultRegion;
 
-          // Check if there's a remembered profile name
+          // Check if there's a remembered CLI profile name
           let profileNameToUse = customProfileName;
           if (!profileNameToUse) {
             const remembered = await config.loadProfileName(
-              profile.name,
+              session.name,
               accountName,
               roleName
             );
@@ -367,7 +367,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
           // Save last selected
           await config.saveLastSelected({
-            profile: profile.name,
+            session: session.name,
             account: accountName,
             role: roleName,
           });
@@ -382,39 +382,39 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       },
 
       /**
-       * Reload profiles from config
+       * Reload sessions from config
        */
-      async reloadProfiles(): Promise<void> {
+      async reloadSessions(): Promise<void> {
         try {
-          const loadedProfiles = await config.loadProfiles();
-          setProfiles(loadedProfiles);
+          const loadedSessions = await config.loadSessions();
+          setSessions(loadedSessions);
         } catch (e) {
-          setError(`Failed to load profiles: ${e}`);
+          setError(`Failed to load sessions: ${e}`);
         }
       },
 
       /**
-       * Create a new profile
+       * Create a new session
        */
-      async createProfile(profile: SSOProfile): Promise<void> {
-        await config.saveProfile(profile);
-        setProfiles([...profiles(), profile]);
+      async createSession(session: SSOSession): Promise<void> {
+        await config.saveSession(session);
+        setSessions([...sessions(), session]);
       },
 
       /**
-       * Update an existing profile
+       * Update an existing session
        */
-      async updateProfile(profile: SSOProfile): Promise<void> {
-        await config.saveProfile(profile);
-        setProfiles(profiles().map((p) => (p.name === profile.name ? profile : p)));
+      async updateSession(session: SSOSession): Promise<void> {
+        await config.saveSession(session);
+        setSessions(sessions().map((s) => (s.name === session.name ? session : s)));
       },
 
       /**
-       * Delete a profile
+       * Delete a session
        */
-      async deleteProfile(name: string): Promise<void> {
-        await config.deleteProfile(name);
-        setProfiles(profiles().filter((p) => p.name !== name));
+      async deleteSession(name: string): Promise<void> {
+        await config.deleteSession(name);
+        setSessions(sessions().filter((s) => s.name !== name));
       },
     };
   },

@@ -28,7 +28,7 @@ export function AccountListScreen() {
 
   const [selectedAccount, setSelectedAccount] = createSignal<Account | null>(null)
 
-  const profile = createMemo(() => aws.profiles.find((p) => p.name === routeData.profileName))
+  const session = createMemo(() => aws.sessions.find((s) => s.name === routeData.sessionName))
 
   command.register(() => [
     {
@@ -64,7 +64,7 @@ export function AccountListScreen() {
     },
     {
       id: "nav.back",
-      title: "Back to Profiles",
+      title: "Back to Sessions",
       category: "Navigation",
       keybind: "back",
       onSelect: () => {
@@ -94,7 +94,7 @@ export function AccountListScreen() {
   const items = (): FilterableListItem<Account>[] => {
     return aws.accounts.map((account) => {
       const roleName = account.roles[0] ?? "No roles"
-      const region = account.region ?? profile()?.defaultRegion ?? "us-east-1"
+      const region = account.region ?? session()?.defaultRegion ?? "us-east-1"
       return {
         id: account.accountId,
         title: account.name,
@@ -106,8 +106,8 @@ export function AccountListScreen() {
   }
 
   const handleRefresh = async () => {
-    const p = profile()
-    if (!p) return
+    const s = session()
+    if (!s) return
 
     try {
       await aws.refreshAccounts()
@@ -121,8 +121,8 @@ export function AccountListScreen() {
   }
 
   const handleOpenInBrowser = async (account: Account) => {
-    const p = profile()
-    if (!p) return
+    const s = session()
+    if (!s) return
 
     try {
       const roleName = account.roles[0]
@@ -134,9 +134,9 @@ export function AccountListScreen() {
         return
       }
 
-      await aws.getRoleCredentials(p, account.accountId, account.name, roleName, account.region ?? p.defaultRegion)
+      await aws.getRoleCredentials(s, account.accountId, account.name, roleName, account.region ?? s.defaultRegion)
 
-      const region = account.region ?? p.defaultRegion
+      const region = account.region ?? s.defaultRegion
       const url = `https://${account.accountId}.signin.aws.amazon.com/console/home?region=${region}`
 
       const { openBrowser } = await import("@/util/browser")
@@ -152,11 +152,11 @@ export function AccountListScreen() {
   }
 
   const handleViewRoles = async (account: Account) => {
-    const p = profile()
-    if (!p) return
+    const s = session()
+    if (!s) return
 
     if (!account.rolesLoaded) {
-      const roles = await aws.loadRoles(p, account.accountId)
+      const roles = await aws.loadRoles(s, account.accountId)
       if (roles.length === 0) {
         toast.show({
           variant: "error",
@@ -182,25 +182,26 @@ export function AccountListScreen() {
   }
 
   const handleAssumeRole = async (account: Account, roleName: string) => {
-    const p = profile()
-    if (!p) return
+    const s = session()
+    if (!s) return
 
     try {
       const expiration = await aws.getRoleCredentials(
-        p,
+        s,
         account.accountId,
         account.name,
         roleName,
-        account.region ?? p.defaultRegion
+        account.region ?? s.defaultRegion
       )
 
       route.navigate({
         type: "success",
-        profileName: routeData.profileName,
+        sessionName: routeData.sessionName, // SSO session name
+        profileName: `${account.name}-${roleName}`, // This is the CLI profile name
         accountName: account.name,
         accountId: account.accountId,
         roleName,
-        region: account.region ?? p.defaultRegion,
+        region: account.region ?? s.defaultRegion,
         expiration: expiration.toISOString(),
       })
     } catch (e) {
@@ -210,8 +211,8 @@ export function AccountListScreen() {
 
   const handleSelect = async (item: FilterableListItem<Account>) => {
     const account = item.value
-    const p = profile()
-    if (!p) return
+    const s = session()
+    if (!s) return
 
     if (account.roles.length > 0) {
       await handleAssumeRole(account, account.roles[0])
@@ -228,7 +229,7 @@ export function AccountListScreen() {
     <Layout
       header={
         <Header
-          title={`Accounts - ${routeData.profileName}`}
+          title={`Accounts - ${routeData.sessionName}`}
           subtitle={`${aws.accounts.length} accounts`}
           right={
             <Show when={aws.refreshing}>

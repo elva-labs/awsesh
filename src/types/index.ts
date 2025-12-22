@@ -1,6 +1,6 @@
 // Core types for awsesh
 
-export interface SSOProfile {
+export interface SSOSession {
   name: string
   startUrl: string
   ssoRegion: string
@@ -42,7 +42,7 @@ export interface RoleCredentials {
 }
 
 export interface LastSelected {
-  profile?: string
+  session?: string
   account?: string
   role?: string
 }

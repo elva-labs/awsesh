@@ -10,10 +10,10 @@ import { createStore } from "solid-js/store"
 import { For } from "solid-js"
 import { Locale } from "../util/locale"
 
-export function ProfileDeleteConfirmScreen() {
+export function SessionDeleteConfirmScreen() {
   const { theme } = useTheme()
   const route = useRoute()
-  const routeData = useRouteData("profile-delete-confirm")
+  const routeData = useRouteData("session-delete-confirm")
   const instance = useInstance()
   const keybind = useKeybind()
   const dialog = useDialog()
@@ -25,10 +25,10 @@ export function ProfileDeleteConfirmScreen() {
 
   const handleDelete = async () => {
     try {
-      await instance.config.deleteProfile(routeData.profileName)
+      await instance.config.deleteSession(routeData.sessionName)
       toast.show({
         variant: "success",
-        message: `Profile "${routeData.profileName}" deleted`,
+        message: `SSO Session "${routeData.sessionName}" deleted`,
       })
       route.navigate({ type: "sso-select" })
     } catch (e) {
@@ -79,7 +79,7 @@ export function ProfileDeleteConfirmScreen() {
       >
         <box flexDirection="row" justifyContent="space-between">
           <text fg={theme.error} attributes={TextAttributes.BOLD}>
-            Delete Profile?
+            Delete SSO Session?
           </text>
           <text fg={theme.textMuted}>esc</text>
         </box>
@@ -87,7 +87,7 @@ export function ProfileDeleteConfirmScreen() {
         <box paddingBottom={1} flexDirection="column" gap={0.5}>
           <text fg={theme.text}>Are you sure you want to delete</text>
           <text fg={theme.primary} attributes={TextAttributes.BOLD}>
-            "{routeData.profileName}"?
+            "{routeData.sessionName}"?
           </text>
           <text fg={theme.warning}>This action cannot be undone.</text>
         </box>

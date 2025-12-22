@@ -8,24 +8,24 @@ import { useDialog } from "../ui/dialog"
 import { FormField } from "../ui/form-field"
 import { TextAttributes } from "@opentui/core"
 import { useToast } from "../ui/toast"
-import type { SSOProfile } from "@/types"
+import type { SSOSession } from "@/types"
 
-export function ProfileFormScreen() {
+export function SessionFormScreen() {
   const { theme } = useTheme()
   const route = useRoute()
-  const routeData = useRouteData("profile-form")
+  const routeData = useRouteData("session-form")
   const instance = useInstance()
   const keybind = useKeybind()
   const dialog = useDialog()
   const toast = useToast()
 
   const isEdit = routeData.mode === "edit"
-  const initialProfile = routeData.profile
+  const initialSession = routeData.session
 
-  const [name, setName] = createSignal(initialProfile?.name ?? "")
-  const [startUrl, setStartUrl] = createSignal(initialProfile?.startUrl ?? "")
-  const [ssoRegion, setSsoRegion] = createSignal(initialProfile?.ssoRegion ?? "us-east-1")
-  const [defaultRegion, setDefaultRegion] = createSignal(initialProfile?.defaultRegion ?? "us-east-1")
+  const [name, setName] = createSignal(initialSession?.name ?? "")
+  const [startUrl, setStartUrl] = createSignal(initialSession?.startUrl ?? "")
+  const [ssoRegion, setSsoRegion] = createSignal(initialSession?.ssoRegion ?? "us-east-1")
+  const [defaultRegion, setDefaultRegion] = createSignal(initialSession?.defaultRegion ?? "us-east-1")
   const [errors, setErrors] = createSignal<Record<string, string>>({})
   const [focusIndex, setFocusIndex] = createSignal(0)
 
@@ -40,7 +40,7 @@ export function ProfileFormScreen() {
     const newErrors: Record<string, string> = {}
 
     if (!name().trim()) {
-      newErrors.name = "Profile name is required"
+      newErrors.name = "Session name is required"
     }
 
     if (!startUrl().trim()) {
@@ -70,7 +70,7 @@ export function ProfileFormScreen() {
       return
     }
 
-    const profile: SSOProfile = {
+    const session: SSOSession = {
       name: name().trim(),
       startUrl: startUrl().trim(),
       ssoRegion: ssoRegion().trim(),
@@ -78,10 +78,10 @@ export function ProfileFormScreen() {
     }
 
     try {
-      await instance.config.saveProfile(profile)
+      await instance.config.saveSession(session)
       toast.show({
         variant: "success",
-        message: isEdit ? "Profile updated" : "Profile created",
+        message: isEdit ? "SSO Session updated" : "SSO Session created",
       })
       route.navigate({ type: "sso-select" })
     } catch (e) {
@@ -114,14 +114,14 @@ export function ProfileFormScreen() {
     <box flexDirection="column" width="100%" height="100%" gap={1}>
       <box paddingLeft={1} paddingTop={1} flexDirection="row" justifyContent="space-between" paddingRight={1}>
         <text fg={theme.text} attributes={TextAttributes.BOLD}>
-          {isEdit ? "Edit SSO Profile" : "Add SSO Profile"}
+          {isEdit ? "Edit SSO Session" : "Add SSO Session"}
         </text>
         <text fg={theme.textMuted}>esc</text>
       </box>
 
       <box flexDirection="column" paddingLeft={2} paddingRight={2} gap={2}>
         <FormField
-          label="Profile Name"
+          label="Session Name"
           value={name()}
           onInput={setName}
           error={errors().name}

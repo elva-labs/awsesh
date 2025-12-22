@@ -10,9 +10,9 @@ import { KeybindProvider } from "./context/keybind"
 import { CommandProvider } from "./context/command"
 import { DialogProvider } from "./ui/dialog"
 import { ToastProvider } from "./ui/toast"
-import { ProfileListScreen } from "./routes/profile-list"
-import { ProfileFormScreen } from "./routes/profile-form"
-import { ProfileDeleteConfirmScreen } from "./routes/profile-delete-confirm"
+import { SessionListScreen } from "./routes/session-list"
+import { SessionFormScreen } from "./routes/session-form"
+import { SessionDeleteConfirmScreen } from "./routes/session-delete-confirm"
 import { SSOLoginScreen } from "./routes/sso-login"
 import { AccountListScreen } from "./routes/account-list"
 import { SuccessScreen } from "./routes/success"
@@ -27,13 +27,13 @@ function App() {
     <box width={dimensions().width} height={dimensions().height} backgroundColor={theme.background}>
       <Switch fallback={<box><text fg={theme.error}>Unknown route: {route.data.type}</text></box>}>
         <Match when={route.data.type === "sso-select"}>
-          <ProfileListScreen />
+          <SessionListScreen />
         </Match>
-        <Match when={route.data.type === "profile-form"}>
-          <ProfileFormScreen />
+        <Match when={route.data.type === "session-form"}>
+          <SessionFormScreen />
         </Match>
-        <Match when={route.data.type === "profile-delete-confirm"}>
-          <ProfileDeleteConfirmScreen />
+        <Match when={route.data.type === "session-delete-confirm"}>
+          <SessionDeleteConfirmScreen />
         </Match>
         <Match when={route.data.type === "sso-login"}>
           <SSOLoginScreen />

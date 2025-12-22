@@ -46,9 +46,9 @@ export function AccountSelector() {
 
   // Load accounts on mount
   onMount(async () => {
-    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
-    if (profile) {
-      await aws.loadAccounts(profile);
+    const session = aws.sessions.find((s) => s.name === routeData.sessionName);
+    if (session) {
+      await aws.loadAccounts(session);
     }
     setLoadingAccounts(false);
   });
@@ -74,8 +74,8 @@ export function AccountSelector() {
     const account = filteredAccounts()[selectedIndex()];
     if (!account) return;
     
-    const profile = aws.profiles.find((p) => p.name === routeData.profileName);
-    if (!profile) return;
+    const session = aws.sessions.find((s) => s.name === routeData.sessionName);
+    if (!session) return;
     
     try {
       // For accounts, we open the general account console
@@ -127,7 +127,7 @@ export function AccountSelector() {
           // Navigate to role selection
           route.navigate({
             type: "role-select",
-            profileName: routeData.profileName,
+            sessionName: routeData.sessionName,
             accountId: account.accountId,
             accountName: account.name,
           });
@@ -160,7 +160,7 @@ export function AccountSelector() {
         
         route.navigate({
           type: "region-select",
-          profileName: routeData.profileName,
+          sessionName: routeData.sessionName,
           accountId: account.accountId,
           accountName: account.name,
         });
@@ -190,7 +190,7 @@ export function AccountSelector() {
         // Navigate to role selection
         route.navigate({
           type: "role-select",
-          profileName: routeData.profileName,
+          sessionName: routeData.sessionName,
           accountId: account.accountId,
           accountName: account.name,
         });
@@ -211,7 +211,7 @@ export function AccountSelector() {
 
       <box marginBottom={1}>
         <text>
-          Profile: <text fg={theme.success}>{routeData.profileName}</text>
+          SSO Session: <text fg={theme.success}>{routeData.sessionName}</text>
         </text>
       </box>
 
@@ -235,7 +235,7 @@ export function AccountSelector() {
           <box>
             <text>Filter: </text>
             <input
-              ref={(r) => (inputRef = r)}
+              ref={(r) => { inputRef = r }}
               onInput={(value) => handleFilterChange(value)}
               placeholder="Type to filter..."
               focusedBackgroundColor={theme.background}

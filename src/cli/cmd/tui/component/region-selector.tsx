@@ -100,7 +100,7 @@ export function RegionSelector() {
     // Navigate to role selection with the selected region
     route.navigate({
       type: "role-select",
-      profileName: routeData.profileName,
+      sessionName: routeData.sessionName,
       accountId: routeData.accountId,
       accountName: routeData.accountName,
       region: region.code,
@@ -163,7 +163,7 @@ export function RegionSelector() {
         // Vim left - go back
         route.navigate({
           type: "account-select",
-          profileName: routeData.profileName,
+          sessionName: routeData.sessionName,
         });
       }
     } else if (key.name === "up" && selectedIndex() > 0) {
@@ -176,7 +176,7 @@ export function RegionSelector() {
       // Go back to account selection
       route.navigate({
         type: "account-select",
-        profileName: routeData.profileName,
+        sessionName: routeData.sessionName,
       });
     }
   });
@@ -191,7 +191,7 @@ export function RegionSelector() {
 
       <box marginBottom={1} flexDirection="column">
         <text>
-          Profile: <text fg={theme.success}>{routeData.profileName}</text>
+          SSO Session: <text fg={theme.success}>{routeData.sessionName}</text>
         </text>
         <text>
           Account: <text fg={theme.success}>{routeData.accountName}</text> ({routeData.accountId})
@@ -204,7 +204,7 @@ export function RegionSelector() {
           <box>
             <text>Filter: </text>
             <input
-              ref={(r) => (inputRef = r)}
+              ref={(r) => { inputRef = r }}
               onInput={(value) => handleFilterChange(value)}
               placeholder="Type to filter..."
               focusedBackgroundColor={theme.background}
