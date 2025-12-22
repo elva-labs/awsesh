@@ -246,7 +246,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
             focusedTextColor={theme.text}
             placeholder={props.filterPlaceholder ?? "Search..."}
             placeholderColor={theme.textMuted}
-            ref={(r) => (input = r)}
+            ref={(r) => { input = r }}
           />
           </box>
           <box
@@ -268,8 +268,9 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
           scrollbarOptions={{ visible: false }}
           flexGrow={1}
           overflow="hidden"
-          ref={(r: ScrollBoxRenderable) => (scroll = r)}
+          ref={(r: ScrollBoxRenderable) => { scroll = r }}
         >
+          <box flexDirection="column">
           <For each={grouped()}>
               {([category, items], index) => (
                 <>
@@ -373,6 +374,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                 </>
               )}
             </For>
+          </box>
         </scrollbox>
       </Show>
 
