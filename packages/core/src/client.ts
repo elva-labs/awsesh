@@ -151,7 +151,8 @@ export class AWSClient {
   }
 
   getDashboardURL(startUrl: string): string {
-    return startUrl
+    const portalUrl = startUrl.replace(/\/start\/?$/, "")
+    return `${portalUrl}/start/#/?tab=accounts`
   }
 
   getAccountURL(
@@ -160,7 +161,7 @@ export class AWSClient {
     startUrl: string,
     roleName: string
   ): string {
-    const baseUrl = startUrl.replace(/\/$/, "")
-    return `${baseUrl}#/console?account_id=${accountId}&role_name=${roleName}`
+    const portalUrl = startUrl.replace(/\/start\/?$/, "")
+    return `${portalUrl}/start/#/console?account_id=${accountId}&role_name=${roleName}`
   }
 }

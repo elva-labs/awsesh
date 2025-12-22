@@ -84,9 +84,8 @@ export function RoleSelector() {
     if (!session) return;
     
     try {
-      // For roles, construct SSO portal URL with account and role context
-      const baseUrl = session.startUrl.replace(/\/$/, "");
-      const url = `${baseUrl}#/console?account_id=${routeData.accountId}&role_name=${roleName}`;
+      const portalUrl = session.startUrl.replace(/\/start\/?$/, "");
+      const url = `${portalUrl}/start/#/console?account_id=${routeData.accountId}&role_name=${roleName}`;
       
       const { openBrowser } = await import("@/util/browser.js");
       await openBrowser(url);

@@ -78,10 +78,9 @@ export function AccountSelector() {
     if (!session) return;
     
     try {
-      // For accounts, we open the general account console
-      // The URL format is: https://console.aws.amazon.com/console/home?region=<region>#
-      const region = "us-east-1"; // Default region
-      const url = `https://${account.accountId}.signin.aws.amazon.com/console/home?region=${region}`;
+      const roleName = account.roles[0] ?? "AdministratorAccess";
+      const portalUrl = session.startUrl.replace(/\/start\/?$/, "");
+      const url = `${portalUrl}/start/#/console?account_id=${account.accountId}&role_name=${roleName}`;
       
       const { openBrowser } = await import("@/util/browser.js");
       await openBrowser(url);

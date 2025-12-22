@@ -134,10 +134,8 @@ export function AccountListScreen() {
         return
       }
 
-      await aws.getRoleCredentials(s, account.accountId, account.name, roleName, account.region ?? s.defaultRegion)
-
-      const region = account.region ?? s.defaultRegion
-      const url = `https://${account.accountId}.signin.aws.amazon.com/console/home?region=${region}`
+      const portalUrl = s.startUrl.replace(/\/start\/?$/, "")
+      const url = `${portalUrl}/start/#/console?account_id=${account.accountId}&role_name=${roleName}`
 
       const { openBrowser } = await import("@/util/browser")
       await openBrowser(url)
