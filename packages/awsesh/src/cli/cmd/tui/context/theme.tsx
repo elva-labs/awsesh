@@ -6,7 +6,7 @@ import { useConfig } from "./config"
 import { Config } from "@/config/config"
 import { createStore, produce } from "solid-js/store"
 import { useRenderer } from "@opentui/solid"
-import { useKV } from "./kv"
+
 import { Global } from "@/global"
 import aura from "./theme/aura.json" with { type: "json" }
 import ayu from "./theme/ayu.json" with { type: "json" }
@@ -414,14 +414,14 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   name: "Theme",
   init: (props: { mode: "dark" | "light" }) => {
     const config = useConfig()
-    const kv = useKV()
+
     const renderer = useRenderer()
     
     const autoDetectedMode = props.mode
     
     const [store, setStore] = createStore({
       themes: DEFAULT_THEMES,
-      mode: config.data.theme_mode ?? kv.get("theme_mode", props.mode),
+      mode: config.data.theme_mode ?? props.mode,
       active: config.data.theme,
       ready: false,
     })
@@ -488,7 +488,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       },
       setMode(mode: "dark" | "light") {
         setStore("mode", mode)
-        kv.set("theme_mode", mode)
         Config.setThemeMode(mode, autoDetectedMode)
       },
       set(theme: string) {
