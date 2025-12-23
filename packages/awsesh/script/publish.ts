@@ -15,12 +15,10 @@ const { binaries } = await import("./build.ts")
   await $`./dist/${name}/bin/awsesh --version`
 }
 
-if (!Script.preview) {
-  for (const key of Object.keys(binaries)) {
-    if (key.includes("linux")) {
-      await $`tar -czf ../../${key}.tar.gz *`.cwd(`dist/${key}/bin`)
-    } else {
-      await $`zip -r ../../${key}.zip *`.cwd(`dist/${key}/bin`)
-    }
+for (const key of Object.keys(binaries)) {
+  if (key.includes("linux")) {
+    await $`tar -czf ../../${key}.tar.gz *`.cwd(`dist/${key}/bin`)
+  } else {
+    await $`zip -r ../../${key}.zip *`.cwd(`dist/${key}/bin`)
   }
 }
