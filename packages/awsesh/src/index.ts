@@ -8,6 +8,7 @@ import { auth } from "./cli/cmd/auth.js"
 import { whoami } from "./cli/cmd/whoami.js"
 import { session } from "./cli/cmd/session.js"
 import { migrate } from "./cli/cmd/migrate.js"
+import { config, data } from "./cli/cmd/open.js"
 import { TuiCommand } from "./cli/cmd/tui/thread.js"
 
 declare const AWSESH_VERSION: string
@@ -45,6 +46,8 @@ const cli = yargs(hideBin(process.argv))
   .command(auth)
   .command(whoami)
   .command(migrate)
+  .command(config)
+  .command(data)
   .demandCommand(0, 1, "")
   .fail((msg, err) => {
     if (msg) {
