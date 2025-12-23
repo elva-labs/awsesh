@@ -147,6 +147,23 @@ export function createAwsesh(options: AwseshOptions) {
         )
         return data?.[sessionName]?.[accountName] ?? {}
       },
+      remove: async (sessionName: string, accountName: string, roleName: string): Promise<void> => {
+        await storage.update<Record<string, Record<string, Record<string, string>>>>(
+          "preference/profile-names",
+          (draft) => {
+            if (draft[sessionName]?.[accountName]?.[roleName]) {
+              delete draft[sessionName][accountName][roleName]
+              if (Object.keys(draft[sessionName][accountName]).length === 0) {
+                delete draft[sessionName][accountName]
+              }
+              if (Object.keys(draft[sessionName]).length === 0) {
+                delete draft[sessionName]
+              }
+            }
+            return draft
+          }
+        )
+      },
     },
 
     preferredRoles: {
@@ -208,6 +225,12 @@ export function createAwsesh(options: AwseshOptions) {
           if (!existing || !Array.isArray(existing)) return []
           const now = new Date()
           return existing.filter((c) => new Date(c.expiration) > now)
+        })
+      },
+      remove: async (accountId: string, roleName: string): Promise<void> => {
+        await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
+          if (!existing || !Array.isArray(existing)) return []
+          return existing.filter((c) => !(c.accountId === accountId && c.roleName === roleName))
         })
       },
     },

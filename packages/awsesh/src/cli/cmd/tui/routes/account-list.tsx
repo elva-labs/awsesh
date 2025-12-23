@@ -100,6 +100,20 @@ export function AccountListScreen() {
       },
     },
     {
+      id: "account.profile.clear",
+      title: "Clear CLI Profile",
+      category: "Account",
+      keybind: "profile_clear",
+      disabled: (() => {
+        const account = selectedAccount()
+        return !account || !getProfileNameForAccount(account)
+      })(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleClearProfile(account)
+      },
+    },
+    {
       id: "nav.back",
       title: "Back to Sessions",
       category: "Navigation",
@@ -325,6 +339,31 @@ export function AccountListScreen() {
         />
       ))
     }
+  }
+
+  const handleClearProfile = async (account: Account) => {
+    const s = session()
+    if (!s) return
+
+    const roleName = getPreferredRole(account)
+    await awsesh.profileNames.remove(s.name, account.name, roleName)
+    await aws.removeCredentials(account.accountId, roleName)
+    setProfileNames((prev) => {
+      const updated = { ...prev }
+      if (updated[account.name]) {
+        const { [roleName]: _, ...rest } = updated[account.name]
+        if (Object.keys(rest).length === 0) {
+          delete updated[account.name]
+        } else {
+          updated[account.name] = rest
+        }
+      }
+      return updated
+    })
+    toast.show({
+      variant: "success",
+      message: "CLI profile cleared",
+    })
   }
 
   const handleAssumeRole = async (account: Account, roleName: string) => {

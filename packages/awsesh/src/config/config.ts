@@ -13,6 +13,7 @@ export interface KeybindsConfig {
   settings: string[]
   browser_open: string[]
   profile_set: string[]
+  profile_clear: string[]
   region_set: string[]
   role_list: string[]
   session_add: string[]
@@ -60,6 +61,7 @@ const defaultKeybinds: KeybindsConfig = {
   settings: ["<leader>+,"],
   browser_open: ["<leader>+o"],
   profile_set: ["<leader>+p"],
+  profile_clear: ["<leader>+c"],
   region_set: ["<leader>+r"],
   role_list: ["<leader>+l"],
   session_add: ["<leader>+a"],

@@ -115,6 +115,22 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         }
       },
 
+      async refreshSessions(): Promise<void> {
+        try {
+          const loadedSessions = await awsesh.sessions.list()
+          setSessions(loadedSessions)
+
+          const status: Record<string, boolean> = {}
+          for (const session of loadedSessions) {
+            const token = await awsesh.tokens.get(session.startUrl)
+            status[session.startUrl] = token !== undefined && awsesh.tokens.isValid(token)
+          }
+          setTokenStatus(status)
+        } catch (e) {
+          setError(`Failed to refresh sessions: ${e}`)
+        }
+      },
+
       async refreshAccounts(): Promise<void> {
         const session = currentSession()
         if (!session) return
@@ -335,6 +351,11 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       async deleteSession(name: string): Promise<void> {
         await awsesh.sessions.remove(name)
         setSessions(sessions().filter((s) => s.name !== name))
+      },
+
+      async removeCredentials(accountId: string, roleName: string): Promise<void> {
+        await awsesh.activeCredentials.remove(accountId, roleName)
+        setActiveCredentials(await awsesh.activeCredentials.list())
       },
     }
   },

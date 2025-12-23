@@ -32,6 +32,7 @@ const keybindDefinitions: KeybindInfo[] = [
   { key: "browser_open", label: "Open in Browser", category: "Actions" },
 
   { key: "profile_set", label: "Set CLI Profile", category: "AWS" },
+  { key: "profile_clear", label: "Clear CLI Profile", category: "AWS" },
   { key: "session_add", label: "Add SSO Session", category: "Sessions" },
   { key: "session_edit", label: "Edit SSO Session", category: "Sessions" },
   { key: "session_delete", label: "Delete SSO Session", category: "Sessions" },
