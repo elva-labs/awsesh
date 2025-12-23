@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+      - tui-rebuild
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Bump major, minor, or patch"
+        required: false
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+      version:
+        description: "Override version (optional)"
+        required: false
+        type: string
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version || inputs.bump }}
+
+permissions:
+  id-token: write
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: github.repository == 'elva-labs/awsesh'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: git fetch --force --tags
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.1"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Git Identity
+        run: |
+          git config --global user.email "gh-bot@elva-group.com"
+          git config --global user.name "elva-bot"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+
+      - name: Install Dependencies
+        run: bun install
+
+      - name: Publish
+        id: publish
+        run: ./script/publish-start.ts
+        env:
+          AWSESH_BUMP: ${{ inputs.bump }}
+          AWSESH_VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: awsesh-cli
+          path: packages/awsesh/dist
+
+    outputs:
+      release: ${{ steps.publish.outputs.release }}
+      tag: ${{ steps.publish.outputs.tag }}
+      version: ${{ steps.publish.outputs.version }}
+
+  publish-release:
+    needs: publish
+    if: needs.publish.outputs.tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.publish.outputs.tag }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.1"
+
+      - name: Setup Git Identity
+        run: |
+          git config --global user.email "gh-bot@elva-group.com"
+          git config --global user.name "elva-bot"
+
+      - run: ./script/publish-complete.ts
+        env:
+          AWSESH_VERSION: ${{ needs.publish.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
