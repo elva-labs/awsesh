@@ -1,16 +1,18 @@
 #!/usr/bin/env bun
 
-import { Script } from "@awsesh/script"
 import { $ } from "bun"
 
-if (!Script.preview) {
-  await $`gh release edit v${Script.version} --draft=false`
+const version = process.env.AWSESH_VERSION
+if (!version) throw new Error("AWSESH_VERSION is required")
+
+const isPreview = version.includes("-")
+
+if (isPreview) {
+  await $`gh release edit v${version} --draft=false --prerelease`
 } else {
-  await $`gh release edit v${Script.version} --draft=false --prerelease`
+  await $`gh release edit v${version} --draft=false`
 }
 
-await $`bun install`
-
-await $`gh release download --pattern "awsesh-linux-*64.tar.gz" --pattern "awsesh-darwin-*64.zip" -D dist`
+await $`gh release download v${version} --pattern "awsesh-linux-*64.tar.gz" --pattern "awsesh-darwin-*64.zip" -D dist`
 
 await import("../packages/awsesh/script/publish-registries.ts")

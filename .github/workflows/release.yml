@@ -104,4 +104,5 @@ jobs:
       - run: ./script/publish-complete.ts
         env:
           AWSESH_VERSION: ${{ needs.publish.outputs.version }}
-          GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
