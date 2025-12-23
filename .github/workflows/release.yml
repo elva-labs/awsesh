@@ -98,6 +98,9 @@ jobs:
           git config --global user.email "gh-bot@elva-group.com"
           git config --global user.name "elva-bot"
 
+      - name: Install Dependencies
+        run: bun install
+
       - run: ./script/publish-complete.ts
         env:
           AWSESH_VERSION: ${{ needs.publish.outputs.version }}
