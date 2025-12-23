@@ -9,6 +9,7 @@ import { KVProvider } from "./context/kv"
 import { ConfigProvider } from "./context/config"
 import { KeybindProvider } from "./context/keybind"
 import { CommandProvider } from "./context/command"
+import { MigrationProvider } from "./context/migration"
 import { DialogProvider } from "./ui/dialog"
 import { ToastProvider } from "./ui/toast"
 import { SessionListScreen } from "./routes/session-list"
@@ -62,9 +63,11 @@ export async function tui(): Promise<void> {
                       <AWSProvider>
                         <DialogProvider>
                           <ToastProvider>
-                            <CommandProvider>
-                              <App />
-                            </CommandProvider>
+                            <MigrationProvider>
+                              <CommandProvider>
+                                <App />
+                              </CommandProvider>
+                            </MigrationProvider>
                           </ToastProvider>
                         </DialogProvider>
                       </AWSProvider>

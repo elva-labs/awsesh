@@ -81,11 +81,16 @@ export const migrate = cmd({
     const oldProfiles = parseINI(profilesContent)
     const profileCount = Object.keys(oldProfiles).length
 
+    const profilesToMigrate = Object.keys(oldProfiles).filter((name) => name !== "metadata")
+
     UI.info("Migration Preview:")
     console.log()
-    UI.info(`  Sessions to migrate: ${profileCount}`)
-    for (const name of Object.keys(oldProfiles)) {
+    UI.info(`  Sessions to migrate: ${profilesToMigrate.length}`)
+    for (const name of profilesToMigrate) {
       UI.info(`    - ${name}`)
+    }
+    if (oldProfiles.metadata) {
+      UI.info("  Skipping: metadata (old metadata section)")
     }
     console.log()
 
@@ -97,7 +102,7 @@ export const migrate = cmd({
 
     UI.warn("This will:")
     UI.info(`  1. Create backup: ${oldProfilesPath}.bak`)
-    UI.info(`  2. Migrate ${profileCount} session(s) to ~/.config/awsesh/sessions/`)
+    UI.info(`  2. Migrate ${profilesToMigrate.length} session(s) to ~/.config/awsesh/sessions/`)
     UI.info("  3. Delete old files: awsesh, awsesh-tokens, awsesh-accounts")
     console.log()
 
@@ -109,7 +114,8 @@ export const migrate = cmd({
     UI.info("Starting migration...")
     console.log()
 
-    for (const [name, oldProfile] of Object.entries(oldProfiles)) {
+    for (const name of profilesToMigrate) {
+      const oldProfile = oldProfiles[name]
       const session: SSOSession = {
         name,
         startUrl: oldProfile.start_url || oldProfile.startUrl || "",
