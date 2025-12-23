@@ -1,26 +1,31 @@
-import { createSignal, Show } from "solid-js"
-import { useTheme } from "../context/theme"
-import { useRoute, useRouteData } from "../context/route"
-import { useAwsesh } from "../context/awsesh"
+import { createSignal, onMount } from "solid-js"
+import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
-import { useKeybind } from "../context/keybind"
-import { useDialog } from "../ui/dialog"
-import { FormField } from "../ui/form-field"
-import { TextAttributes } from "@opentui/core"
+import { useTheme } from "../context/theme"
+import { useAwsesh } from "../context/awsesh"
+import { useAWS } from "../context/aws"
+import { useDialog, type DialogContext } from "../ui/dialog"
 import { useToast } from "../ui/toast"
+import { FormField } from "../ui/form-field"
 import type { SSOSession } from "@awsesh/core"
 
-export function SessionFormScreen() {
-  const { theme } = useTheme()
-  const route = useRoute()
-  const routeData = useRouteData("session-form")
-  const awsesh = useAwsesh()
-  const keybind = useKeybind()
-  const dialog = useDialog()
-  const toast = useToast()
+export type DialogSessionFormProps = {
+  mode: "create" | "edit"
+  session?: SSOSession
+  onSuccess?: () => void
+  onCancel?: () => void
+}
 
-  const isEdit = routeData.mode === "edit"
-  const initialSession = routeData.session
+export function DialogSessionForm(props: DialogSessionFormProps) {
+  const dialog = useDialog()
+  const awsesh = useAwsesh()
+  const aws = useAWS()
+  const toast = useToast()
+  const { theme } = useTheme()
+
+  const isEdit = props.mode === "edit"
+  const initialSession = props.session
+  const originalName = initialSession?.name
 
   const [name, setName] = createSignal(initialSession?.name ?? "")
   const [startUrl, setStartUrl] = createSignal(initialSession?.startUrl ?? "")
@@ -29,12 +34,23 @@ export function SessionFormScreen() {
   const [errors, setErrors] = createSignal<Record<string, string>>({})
   const [focusIndex, setFocusIndex] = createSignal(0)
 
-  let nameInput: any
-  let startUrlInput: any
-  let ssoRegionInput: any
-  let defaultRegionInput: any
+  let nameInput: InputRenderable | undefined
+  let startUrlInput: InputRenderable | undefined
+  let ssoRegionInput: InputRenderable | undefined
+  let defaultRegionInput: InputRenderable | undefined
 
   const inputs = () => [nameInput, startUrlInput, ssoRegionInput, defaultRegionInput]
+
+  onMount(() => {
+    setTimeout(() => {
+      if (nameInput) {
+        nameInput.focus()
+        if (isEdit) {
+          nameInput.cursorPosition = nameInput.value.length
+        }
+      }
+    }, 1)
+  })
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {}
@@ -78,20 +94,23 @@ export function SessionFormScreen() {
     }
 
     try {
+      if (isEdit && originalName && originalName !== session.name) {
+        await awsesh.sessions.remove(originalName)
+      }
       await awsesh.sessions.save(session)
+      await aws.refreshSessions()
       toast.show({
         variant: "success",
         message: isEdit ? "SSO Session updated" : "SSO Session created",
       })
-      route.navigate({ type: "sso-select" })
+      dialog.clear()
+      props.onSuccess?.()
     } catch (e) {
       toast.error(e)
     }
   }
 
   useKeyboard((evt) => {
-    if (dialog.stack.length > 0) return
-
     if (evt.name === "tab") {
       evt.preventDefault()
       const nextIndex = (focusIndex() + 1) % inputs().length
@@ -99,37 +118,29 @@ export function SessionFormScreen() {
       inputs()[nextIndex]?.focus()
     }
 
-    if (keybind.match("back", evt)) {
-      evt.preventDefault()
-      route.navigate({ type: "sso-select" })
-    }
-
-    if (keybind.match("select", evt)) {
+    if (evt.name === "return" && !evt.shift) {
       evt.preventDefault()
       handleSave()
     }
   })
 
   return (
-    <box flexDirection="column" width="100%" height="100%" gap={1}>
-      <box paddingLeft={1} paddingTop={1} flexDirection="row" justifyContent="space-between" paddingRight={1}>
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
+    <box paddingLeft={2} paddingRight={2} gap={1}>
+      <box flexDirection="row" justifyContent="space-between">
+        <text attributes={TextAttributes.BOLD} fg={theme.text}>
           {isEdit ? "Edit SSO Session" : "Add SSO Session"}
         </text>
         <text fg={theme.textMuted}>esc</text>
       </box>
 
-      <box flexDirection="column" paddingLeft={2} paddingRight={2} gap={2}>
+      <box flexDirection="column" gap={1} paddingBottom={1}>
         <FormField
           label="Session Name"
           value={name()}
           onInput={setName}
           error={errors().name}
           placeholder="My Organization"
-          ref={(r) => {
-            nameInput = r
-            setTimeout(() => nameInput?.focus(), 1)
-          }}
+          ref={(r) => { nameInput = r }}
         />
 
         <FormField
@@ -138,7 +149,7 @@ export function SessionFormScreen() {
           onInput={setStartUrl}
           error={errors().startUrl}
           placeholder="https://myorg.awsapps.com/start"
-          ref={(r) => (startUrlInput = r)}
+          ref={(r) => { startUrlInput = r }}
         />
 
         <FormField
@@ -147,7 +158,7 @@ export function SessionFormScreen() {
           onInput={setSsoRegion}
           error={errors().ssoRegion}
           placeholder="us-east-1"
-          ref={(r) => (ssoRegionInput = r)}
+          ref={(r) => { ssoRegionInput = r }}
         />
 
         <FormField
@@ -156,28 +167,39 @@ export function SessionFormScreen() {
           onInput={setDefaultRegion}
           error={errors().defaultRegion}
           placeholder="us-east-1"
-          ref={(r) => (defaultRegionInput = r)}
+          ref={(r) => { defaultRegionInput = r }}
         />
       </box>
 
-      <box paddingLeft={2} paddingTop={1} flexDirection="row" gap={2}>
-        <text>
-          <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>Tab</span>
-          <span style={{ fg: theme.textMuted }}> Next Field</span>
+      <box flexDirection="row" gap={2}>
+        <text fg={theme.text}>
+          {"tab "}
+          <span style={{ fg: theme.textMuted }}>next field</span>
         </text>
-        <text>
-          <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-            {keybind.print("select")}
-          </span>
-          <span style={{ fg: theme.textMuted }}> Save</span>
-        </text>
-        <text>
-          <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>
-            {keybind.print("back")}
-          </span>
-          <span style={{ fg: theme.textMuted }}> Cancel</span>
+        <text fg={theme.text}>
+          {"enter "}
+          <span style={{ fg: theme.textMuted }}>save</span>
         </text>
       </box>
     </box>
   )
+}
+
+DialogSessionForm.show = (
+  dialog: DialogContext,
+  options: { mode: "create" | "edit"; session?: SSOSession }
+) => {
+  return new Promise<boolean>((resolve) => {
+    dialog.replace(
+      () => (
+        <DialogSessionForm
+          mode={options.mode}
+          session={options.session}
+          onSuccess={() => resolve(true)}
+          onCancel={() => resolve(false)}
+        />
+      ),
+      () => resolve(false)
+    )
+  })
 }

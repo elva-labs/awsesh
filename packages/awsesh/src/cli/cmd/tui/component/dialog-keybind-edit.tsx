@@ -142,7 +142,7 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
   }
 
   return (
-    <box paddingLeft={3} paddingRight={2} gap={1}>
+    <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text fg={theme.text} attributes={TextAttributes.BOLD}>
           Edit: {props.label}
@@ -150,9 +150,11 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
         <text fg={theme.textMuted}>esc</text>
       </box>
 
-      <box paddingTop={1}>
-        <text fg={theme.textMuted}>Current bindings:</text>
-        <box paddingLeft={2} paddingTop={0.5}>
+      <box flexDirection="column" gap={1} paddingBottom={1}>
+        <box flexDirection="column">
+          <text fg={theme.accent} attributes={TextAttributes.BOLD}>
+            Current Bindings
+          </text>
           <Show
             when={capturedKeys().length > 0}
             fallback={<text fg={theme.textMuted}>(none - unbound)</text>}
@@ -162,37 +164,43 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
             </text>
           </Show>
         </box>
-      </box>
 
-      <box>
-        <text fg={theme.textMuted}>Default: {defaultBindings.join(", ")}</text>
-      </box>
-
-      <Show when={message()}>
-        <box>
-          <text fg={theme.accent}>{message()}</text>
+        <box flexDirection="column">
+          <text fg={theme.accent} attributes={TextAttributes.BOLD}>
+            Default
+          </text>
+          <text fg={theme.text}>{defaultBindings.join(", ")}</text>
         </box>
-      </Show>
 
-      <box paddingTop={1} paddingBottom={1} gap={0.5}>
-        <text fg={theme.textMuted}>Actions:</text>
+        <Show when={message()}>
+          <box>
+            <text fg={theme.primary}>{message()}</text>
+          </box>
+        </Show>
+      </box>
+
+      <box flexDirection="column" gap={0.5}>
         <text fg={theme.text}>
           <span style={{ fg: theme.accent }}>a</span>
           <span style={{ fg: theme.textMuted }}>/</span>
-          <span style={{ fg: theme.accent }}>enter</span> add keybind
+          <span style={{ fg: theme.accent }}>enter</span>
+          <span style={{ fg: theme.textMuted }}> add keybind</span>
           {"  "}
-          <span style={{ fg: theme.accent }}>l</span> add leader+key
+          <span style={{ fg: theme.accent }}>l</span>
+          <span style={{ fg: theme.textMuted }}> add leader+key</span>
           {"  "}
-          <span style={{ fg: theme.accent }}>d</span> remove last
+          <span style={{ fg: theme.accent }}>d</span>
+          <span style={{ fg: theme.textMuted }}> remove last</span>
         </text>
         <text fg={theme.text}>
-          <span style={{ fg: theme.accent }}>c</span> clear all
+          <span style={{ fg: theme.accent }}>c</span>
+          <span style={{ fg: theme.textMuted }}> clear all</span>
           {"  "}
-          <span style={{ fg: theme.accent }}>r</span> reset to default
+          <span style={{ fg: theme.accent }}>r</span>
+          <span style={{ fg: theme.textMuted }}> reset to default</span>
           {"  "}
-          <span style={{ fg: theme.accent }}>s</span> save
-          {"  "}
-          <span style={{ fg: theme.accent }}>esc</span> back
+          <span style={{ fg: theme.accent }}>s</span>
+          <span style={{ fg: theme.textMuted }}> save</span>
         </text>
       </box>
     </box>

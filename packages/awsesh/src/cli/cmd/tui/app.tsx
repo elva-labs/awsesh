@@ -13,8 +13,6 @@ import { MigrationProvider } from "./context/migration"
 import { DialogProvider } from "./ui/dialog"
 import { ToastProvider } from "./ui/toast"
 import { SessionListScreen } from "./routes/session-list"
-import { SessionFormScreen } from "./routes/session-form"
-import { SessionDeleteConfirmScreen } from "./routes/session-delete-confirm"
 import { AccountListScreen } from "./routes/account-list"
 import { SuccessScreen } from "./routes/success"
 import { Terminal } from "./util/terminal"
@@ -29,12 +27,6 @@ function App() {
       <Switch fallback={<box><text fg={theme.error}>Unknown route: {route.data.type}</text></box>}>
         <Match when={route.data.type === "sso-select"}>
           <SessionListScreen />
-        </Match>
-        <Match when={route.data.type === "session-form"}>
-          <SessionFormScreen />
-        </Match>
-        <Match when={route.data.type === "session-delete-confirm"}>
-          <SessionDeleteConfirmScreen />
         </Match>
         <Match when={route.data.type === "account-select"}>
           <AccountListScreen />
@@ -61,15 +53,15 @@ export async function tui(): Promise<void> {
                   <KeybindProvider>
                     <AwseshProvider>
                       <AWSProvider>
-                        <DialogProvider>
-                          <ToastProvider>
+                        <ToastProvider>
+                          <DialogProvider>
                             <MigrationProvider>
                               <CommandProvider>
                                 <App />
                               </CommandProvider>
                             </MigrationProvider>
-                          </ToastProvider>
-                        </DialogProvider>
+                          </DialogProvider>
+                        </ToastProvider>
                       </AWSProvider>
                     </AwseshProvider>
                   </KeybindProvider>

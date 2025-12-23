@@ -1,4 +1,5 @@
-import { Show, type JSX } from "solid-js"
+import { Show } from "solid-js"
+import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { Input } from "./input"
 
@@ -8,15 +9,17 @@ export interface FormFieldProps {
   placeholder?: string
   error?: string
   onInput?: (value: string) => void
-  ref?: (el: any) => void
+  ref?: (el: InputRenderable) => void
 }
 
 export function FormField(props: FormFieldProps) {
   const { theme } = useTheme()
 
   return (
-    <box flexDirection="column" gap={0.5}>
-      <text fg={theme.text}>{props.label}:</text>
+    <box flexDirection="column">
+      <text fg={theme.accent} attributes={TextAttributes.BOLD}>
+        {props.label}
+      </text>
       <Input
         value={props.value}
         placeholder={props.placeholder}

@@ -12,6 +12,8 @@ import { useExit } from "../context/exit"
 import { useToast } from "../ui/toast"
 import { DialogSettings } from "../component/dialog-settings"
 import { DialogSSOLogin } from "../component/dialog-sso-login"
+import { DialogSessionForm } from "../component/dialog-session-form"
+import { DialogSessionDelete } from "../component/dialog-session-delete"
 import type { SSOSession } from "@awsesh/core"
 
 export function SessionListScreen() {
@@ -33,10 +35,7 @@ export function SessionListScreen() {
       category: "Session",
       keybind: "session_add",
       onSelect: () => {
-        route.navigate({
-          type: "session-form",
-          mode: "create",
-        })
+        DialogSessionForm.show(dialog, { mode: "create" })
       },
     },
     {
@@ -48,11 +47,7 @@ export function SessionListScreen() {
       onSelect: () => {
         const selected = selectedSession()
         if (selected) {
-          route.navigate({
-            type: "session-form",
-            mode: "edit",
-            session: selected,
-          })
+          DialogSessionForm.show(dialog, { mode: "edit", session: selected })
         }
       },
     },
@@ -65,10 +60,7 @@ export function SessionListScreen() {
       onSelect: () => {
         const selected = selectedSession()
         if (selected) {
-          route.navigate({
-            type: "session-delete-confirm",
-            sessionName: selected.name,
-          })
+          DialogSessionDelete.show(dialog, selected.name)
         }
       },
     },

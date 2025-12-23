@@ -1,23 +1,11 @@
 import { createStore } from "solid-js/store";
 import { createSimpleContext } from "./helper";
-import type { SSOSession } from "@awsesh/core";
 
 /**
  * Route types for awsesh TUI navigation
  */
 export type SSOSelectRoute = {
   type: "sso-select";
-};
-
-export type SessionFormRoute = {
-  type: "session-form";
-  mode: "create" | "edit";
-  session?: SSOSession;
-};
-
-export type SessionDeleteConfirmRoute = {
-  type: "session-delete-confirm";
-  sessionName: string;
 };
 
 export type AccountSelectRoute = {
@@ -62,8 +50,6 @@ export type SuccessRoute = {
 
 export type Route =
   | SSOSelectRoute
-  | SessionFormRoute
-  | SessionDeleteConfirmRoute
   | AccountSelectRoute
   | RegionSelectRoute
   | RoleSelectRoute
