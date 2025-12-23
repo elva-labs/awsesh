@@ -348,7 +348,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                                 item.indicator === "default"
                                   ? theme.success
                                   : item.indicator === "active"
-                                    ? theme.info
+                                    ? theme.secondary
                                     : theme.error
                               }
                             >
