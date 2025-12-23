@@ -86,6 +86,15 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
   const selected = createMemo(() => flat()[store.selected])
 
+  let initialNotified = false
+  createEffect(() => {
+    const item = selected()
+    if (item && !initialNotified) {
+      initialNotified = true
+      props.onMove?.(item)
+    }
+  })
+
   createEffect(() => {
     store.filter
     setStore("selected", 0)
