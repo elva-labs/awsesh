@@ -115,7 +115,11 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
       evt.preventDefault()
       const nextIndex = (focusIndex() + 1) % inputs().length
       setFocusIndex(nextIndex)
-      inputs()[nextIndex]?.focus()
+      const input = inputs()[nextIndex]
+      if (input) {
+        input.focus()
+        input.cursorPosition = input.value.length
+      }
     }
 
     if (evt.name === "return" && !evt.shift) {
