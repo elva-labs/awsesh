@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "awsesh",
+      "devDependencies": {
+        "@awsesh/script": "workspace:*",
+      },
     },
     "packages/awsesh": {
       "name": "awsesh",
@@ -48,6 +51,7 @@
       "name": "@awsesh/script",
       "version": "1.0.0",
       "devDependencies": {
+        "@tsconfig/bun": "1.0.9",
         "@types/bun": "1.3.0",
         "typescript": "5.8.2",
       },

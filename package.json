@@ -13,6 +13,9 @@
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test"
   },
+  "devDependencies": {
+    "@awsesh/script": "workspace:*"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/elva-labs/awsesh.git"
