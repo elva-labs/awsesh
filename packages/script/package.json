@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@awsesh/script",
-  "version": "1.0.0-alpha.202512230743",
+  "version": "1.0.0-alpha.202512230753",
   "description": "Build and release scripts for awsesh",
   "type": "module",
   "exports": {
