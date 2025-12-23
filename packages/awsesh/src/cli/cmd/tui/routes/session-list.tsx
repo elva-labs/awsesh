@@ -47,7 +47,10 @@ export function SessionListScreen() {
       onSelect: () => {
         const selected = selectedSession()
         if (selected) {
-          DialogSessionForm.show(dialog, { mode: "edit", session: selected })
+          const freshSession = aws.sessions.find((s) => s.name === selected.name)
+          if (freshSession) {
+            DialogSessionForm.show(dialog, { mode: "edit", session: freshSession })
+          }
         }
       },
     },
