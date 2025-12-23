@@ -31,17 +31,19 @@ process.chdir(dir)
 
 let output = `version=${Script.version}\n`
 
-if (!Script.preview) {
-  await $`git commit -am "release: v${Script.version}"`
-  await $`git tag v${Script.version}`
-  await $`git push origin HEAD --tags --no-verify --force-with-lease`
-  await new Promise((resolve) => setTimeout(resolve, 5_000))
+await $`git commit -am "release: v${Script.version}"`.nothrow()
+await $`git tag v${Script.version}`
+await $`git push origin HEAD --tags --no-verify --force-with-lease`
+await new Promise((resolve) => setTimeout(resolve, 5_000))
 
+if (Script.preview) {
+  await $`gh release create v${Script.version} -d --prerelease --title "v${Script.version}" --generate-notes ./packages/awsesh/dist/*.zip ./packages/awsesh/dist/*.tar.gz`
+} else {
   await $`gh release create v${Script.version} -d --title "v${Script.version}" --generate-notes ./packages/awsesh/dist/*.zip ./packages/awsesh/dist/*.tar.gz`
-  const release = await $`gh release view v${Script.version} --json id,tagName`.json()
-  output += `release=${release.id}\n`
-  output += `tag=${release.tagName}\n`
 }
+const release = await $`gh release view v${Script.version} --json id,tagName`.json()
+output += `release=${release.id}\n`
+output += `tag=${release.tagName}\n`
 
 if (process.env.GITHUB_OUTPUT) {
   await Bun.write(process.env.GITHUB_OUTPUT, output)
