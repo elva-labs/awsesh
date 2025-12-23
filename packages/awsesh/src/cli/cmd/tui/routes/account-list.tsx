@@ -430,6 +430,7 @@ export function AccountListScreen() {
         >
           <KeybindHint keybind={keybind.print("select")} label="Select" />
           <KeybindHint keybind={keybind.print("role_list")} label="Roles" />
+          <KeybindHint keybind={keybind.print("profile_set")} label="Profile" />
           <KeybindHint keybind={keybind.print("back")} label="Back" />
         </Footer>
       }
