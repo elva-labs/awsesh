@@ -1,7 +1,2 @@
-preload = ["@opentui/solid/preload"]
-
 [install]
 optional = true
-
-[test]
-preload = ["./src/util/test-helpers.ts"]
