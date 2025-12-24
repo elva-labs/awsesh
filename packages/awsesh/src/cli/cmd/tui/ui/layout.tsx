@@ -2,6 +2,14 @@ import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createMemo, Show, type JSX, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
+import { useCredentials } from "../context/credentials"
+import { useConfig } from "../context/config"
+import { DateUtil } from "@/util/date"
+
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength - 1)}…`
+}
 
 export interface LayoutProps {
   header?: JSX.Element
@@ -93,26 +101,74 @@ export interface FooterProps {
 
 export function Footer(props: ParentProps<FooterProps>) {
   const { theme } = useTheme()
+  const credentials = useCredentials()
+  const config = useConfig()
 
   return (
-    <box
-      paddingLeft={1}
-      paddingRight={1}
-      borderStyle="single"
-      borderColor={theme.border}
-      border={["top"]}
-      flexDirection="row"
-      justifyContent="space-between"
-      alignItems="center"
-    >
-      <box flexDirection="row" gap={2}>
-        {props.left ?? props.children}
+    <box flexDirection="column">
+      <box
+        paddingLeft={1}
+        paddingRight={1}
+        borderStyle="single"
+        borderColor={theme.border}
+        border={["top", "bottom"]}
+        flexDirection="row"
+        justifyContent="space-between"
+      >
+        <Show
+          when={credentials.active}
+          fallback={
+            <box>
+              <text fg={theme.textMuted}>No active credentials</text>
+            </box>
+          }
+        >
+          {(active) => (
+            <>
+              <box flexDirection="row" gap={2}>
+                <text>
+                  <span style={{ fg: theme.textMuted }}>SSO </span>
+                  <span style={{ fg: theme.text }}>{truncate(active().sessionName, 20)}</span>
+                </text>
+                <text>
+                  <span style={{ fg: theme.textMuted }}>Account </span>
+                  <span style={{ fg: theme.text }}>{truncate(active().accountName, 24)}</span>
+                </text>
+                <Show when={active().profileName !== "default"}>
+                  <text>
+                    <span style={{ fg: theme.textMuted }}>Profile </span>
+                    <span style={{ fg: theme.text }}>{truncate(active().profileName, 20)}</span>
+                  </text>
+                </Show>
+              </box>
+              <box>
+                <text>
+                  <span style={{ fg: theme.textMuted }}>Expires </span>
+                  <span style={{ fg: theme.text }}>
+                    {DateUtil.formatTime(active().expiration, config.data.timeFormat)}
+                  </span>
+                </text>
+              </box>
+            </>
+          )}
+        </Show>
       </box>
-      <Show when={props.right}>
+      <box
+        paddingLeft={1}
+        paddingRight={1}
+        flexDirection="row"
+        justifyContent="space-between"
+        alignItems="center"
+      >
         <box flexDirection="row" gap={2}>
-          {props.right}
+          {props.left ?? props.children}
         </box>
-      </Show>
+        <Show when={props.right}>
+          <box flexDirection="row" gap={2}>
+            {props.right}
+          </box>
+        </Show>
+      </box>
     </box>
   )
 }
