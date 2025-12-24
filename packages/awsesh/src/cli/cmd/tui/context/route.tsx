@@ -13,48 +13,9 @@ export type AccountSelectRoute = {
   sessionName: string;
 };
 
-export type RegionSelectRoute = {
-  type: "region-select";
-  sessionName: string;
-  accountId: string;
-  accountName: string;
-};
-
-export type RoleSelectRoute = {
-  type: "role-select";
-  sessionName: string;
-  accountId: string;
-  accountName: string;
-  region?: string;
-};
-
-export type ProfileNameInputRoute = {
-  type: "profile-name-input";
-  sessionName: string;
-  accountId: string;
-  accountName: string;
-  roleName: string;
-  region?: string;
-};
-
-export type SuccessRoute = {
-  type: "success";
-  sessionName: string; // SSO session name for navigation
-  profileName: string; // This is the CLI profile name - keep as is
-  accountName: string;
-  accountId: string;
-  roleName: string;
-  expiration?: string; // ISO 8601 string
-  region?: string;
-};
-
 export type Route =
   | SSOSelectRoute
-  | AccountSelectRoute
-  | RegionSelectRoute
-  | RoleSelectRoute
-  | ProfileNameInputRoute
-  | SuccessRoute;
+  | AccountSelectRoute;
 
 /**
  * Route context provider for TUI navigation

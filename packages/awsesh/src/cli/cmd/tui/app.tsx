@@ -10,11 +10,11 @@ import { ConfigProvider } from "./context/config"
 import { KeybindProvider } from "./context/keybind"
 import { CommandProvider } from "./context/command"
 import { MigrationProvider } from "./context/migration"
+import { CredentialsProvider } from "./context/credentials"
 import { DialogProvider } from "./ui/dialog"
 import { ToastProvider } from "./ui/toast"
 import { SessionListScreen } from "./routes/session-list"
 import { AccountListScreen } from "./routes/account-list"
-import { SuccessScreen } from "./routes/success"
 import { Terminal } from "./util/terminal"
 
 function App() {
@@ -30,9 +30,6 @@ function App() {
         </Match>
         <Match when={route.data.type === "account-select"}>
           <AccountListScreen />
-        </Match>
-        <Match when={route.data.type === "success"}>
-          <SuccessScreen />
         </Match>
       </Switch>
     </box>
@@ -53,15 +50,17 @@ export async function tui(): Promise<void> {
                   <KeybindProvider>
                     <AwseshProvider>
                       <AWSProvider>
-                        <ToastProvider>
-                          <DialogProvider>
-                            <MigrationProvider>
-                              <CommandProvider>
-                                <App />
-                              </CommandProvider>
-                            </MigrationProvider>
-                          </DialogProvider>
-                        </ToastProvider>
+                        <CredentialsProvider>
+                          <ToastProvider>
+                            <DialogProvider>
+                              <MigrationProvider>
+                                <CommandProvider>
+                                  <App />
+                                </CommandProvider>
+                              </MigrationProvider>
+                            </DialogProvider>
+                          </ToastProvider>
+                        </CredentialsProvider>
                       </AWSProvider>
                     </AwseshProvider>
                   </KeybindProvider>
