@@ -1,10 +1,11 @@
-import { Show, createMemo, createSignal, createResource, createEffect } from "solid-js"
+import { Show, createMemo, createSignal, createEffect } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
 import { useAwsesh } from "../context/awsesh"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
+import { useCredentials } from "../context/credentials"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
 import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
 import { Spinner } from "../ui/spinner"
@@ -24,6 +25,7 @@ export function AccountListScreen() {
   const awsesh = useAwsesh()
   const keybind = useKeybind()
   const command = useCommand()
+  const credentials = useCredentials()
   const toast = useToast()
   const dialog = useDialog()
   const exit = useExit()
@@ -308,8 +310,7 @@ export function AccountListScreen() {
           sanitized
         )
 
-        route.navigate({
-          type: "success",
+        credentials.set({
           sessionName: s.name,
           profileName: result.profileName,
           accountName: account.name,
@@ -317,6 +318,16 @@ export function AccountListScreen() {
           roleName,
           region: account.region ?? s.defaultRegion,
           expiration: result.expiration.toISOString(),
+        })
+
+        toast.show({
+          variant: "success",
+          title: "Credentials Set",
+          message: [
+            { label: "Account", value: account.name },
+            { label: "Role", value: roleName },
+            { label: "Profile", value: sanitized },
+          ],
         })
       } catch (e) {
         toast.error(e)
@@ -379,15 +390,23 @@ export function AccountListScreen() {
         account.region ?? s.defaultRegion
       )
 
-      route.navigate({
-        type: "success",
-        sessionName: routeData.sessionName,
+      credentials.set({
+        sessionName: s.name,
         profileName: result.profileName,
         accountName: account.name,
         accountId: account.accountId,
         roleName,
         region: account.region ?? s.defaultRegion,
         expiration: result.expiration.toISOString(),
+      })
+
+      toast.show({
+        variant: "success",
+        title: "Credentials Set",
+        message: [
+          { label: "Account", value: account.name },
+          { label: "Role", value: roleName },
+        ],
       })
     } catch (e) {
       toast.error(e)

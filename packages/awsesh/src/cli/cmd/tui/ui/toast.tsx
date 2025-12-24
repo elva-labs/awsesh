@@ -1,4 +1,4 @@
-import { createContext, For, onCleanup, Show, useContext, type ParentProps } from "solid-js"
+import { createContext, For, Show, useContext, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useTheme } from "../context/theme"
 import { TextAttributes } from "@opentui/core"
@@ -6,10 +6,15 @@ import { useTerminalDimensions } from "@opentui/solid"
 
 export type ToastVariant = "info" | "success" | "warning" | "error"
 
+export interface ToastLine {
+  label: string
+  value: string
+}
+
 export interface Toast {
   id: string
   title?: string
-  message: string
+  message: string | ToastLine[]
   variant: ToastVariant
   duration: number
 }
@@ -24,7 +29,7 @@ function init() {
   return {
     show(input: {
       title?: string
-      message: string
+      message: string | ToastLine[]
       variant?: ToastVariant
       duration?: number
     }) {
@@ -108,13 +113,26 @@ function ToastContainer() {
               paddingLeft={1}
               paddingRight={1}
               maxWidth={Math.min(50, dimensions().width - 4)}
+              flexDirection="column"
             >
               <Show when={t.title}>
                 <text fg={color()} attributes={TextAttributes.BOLD}>
                   {t.title}
                 </text>
               </Show>
-              <text fg={theme.text}>{t.message}</text>
+              <Show
+                when={Array.isArray(t.message)}
+                fallback={<text fg={theme.text}>{t.message as string}</text>}
+              >
+                <For each={t.message as ToastLine[]}>
+                  {(line) => (
+                    <text>
+                      <span style={{ fg: theme.textMuted }}>{line.label}: </span>
+                      <span style={{ fg: theme.text }}>{line.value}</span>
+                    </text>
+                  )}
+                </For>
+              </Show>
             </box>
           )
         }}
