@@ -30,9 +30,14 @@ export interface KeybindsConfig {
   command_list: string[]
 }
 
+export type DateFormat = "dd/mm/yyyy" | "mm/dd/yyyy"
+export type TimeFormat = "24h" | "12h"
+
 export interface AppConfig {
   theme: string
   theme_mode?: "dark" | "light"
+  dateFormat: DateFormat
+  timeFormat: TimeFormat
   autoAssumeRole: boolean
   cacheAccountDuration: number
   defaultRegion: string
@@ -46,6 +51,8 @@ export type UserKeybindsConfig = Partial<{
 export interface UserConfig {
   theme?: string
   theme_mode?: "dark" | "light"
+  dateFormat?: DateFormat
+  timeFormat?: TimeFormat
   autoAssumeRole?: boolean
   cacheAccountDuration?: number
   defaultRegion?: string
@@ -80,6 +87,8 @@ const defaultKeybinds: KeybindsConfig = {
 
 export const defaultConfig: AppConfig = {
   theme: "system",
+  dateFormat: "dd/mm/yyyy",
+  timeFormat: "24h",
   autoAssumeRole: true,
   cacheAccountDuration: 15,
   defaultRegion: "us-east-1",
@@ -108,6 +117,8 @@ function mergeConfig(defaults: AppConfig, overrides?: UserConfig): AppConfig {
   return {
     theme: overrides.theme ?? defaults.theme,
     theme_mode: overrides.theme_mode,
+    dateFormat: overrides.dateFormat ?? defaults.dateFormat,
+    timeFormat: overrides.timeFormat ?? defaults.timeFormat,
     autoAssumeRole: overrides.autoAssumeRole ?? defaults.autoAssumeRole,
     cacheAccountDuration: overrides.cacheAccountDuration ?? defaults.cacheAccountDuration,
     defaultRegion: overrides.defaultRegion ?? defaults.defaultRegion,
@@ -269,6 +280,52 @@ export namespace Config {
     await Bun.write(path.join(dir, ".keep"), "")
     await Bun.write(configPath, JSON.stringify(merged, null, 2))
     log.info("Theme mode saved", { mode, isDefault })
+  }
+
+  export async function setDateFormat(format: DateFormat): Promise<void> {
+    const isDefault = format === defaultConfig.dateFormat
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const { dateFormat: _, ...rest } = existing
+    const merged: UserConfig = isDefault ? rest : { ...rest, dateFormat: format }
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("Date format saved", { format, isDefault })
+  }
+
+  export async function setTimeFormat(format: TimeFormat): Promise<void> {
+    const isDefault = format === defaultConfig.timeFormat
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const { timeFormat: _, ...rest } = existing
+    const merged: UserConfig = isDefault ? rest : { ...rest, timeFormat: format }
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("Time format saved", { format, isDefault })
   }
 
   export function getDefaults(): AppConfig {
