@@ -17,7 +17,7 @@ import { DialogSessionDelete } from "../component/dialog-session-delete"
 import type { SSOSession } from "@awsesh/core"
 
 export function SessionListScreen() {
-  const { theme, mode, setMode } = useTheme()
+  const { theme } = useTheme()
   const route = useRoute()
   const aws = useAWS()
   const keybind = useKeybind()
@@ -74,15 +74,6 @@ export function SessionListScreen() {
       keybind: "settings",
       onSelect: () => {
         dialog.replace(() => <DialogSettings />)
-      },
-    },
-    {
-      id: "theme.toggle_mode",
-      title: "Toggle appearance",
-      category: "System",
-      onSelect: (ctx) => {
-        setMode(mode() === "dark" ? "light" : "dark")
-        ctx.clear()
       },
     },
     {
