@@ -3,7 +3,7 @@ import { RGBA, type TerminalColors } from "@opentui/core"
 import { createEffect, createMemo } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { useConfig } from "./config"
-import { Config } from "@/config/config"
+import { Config, type ThemeMode } from "@/config/config"
 import { createStore, produce } from "solid-js/store"
 import { useRenderer } from "@opentui/solid"
 
@@ -421,7 +421,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     
     const [store, setStore] = createStore({
       themes: DEFAULT_THEMES,
-      mode: config.data.theme_mode ?? props.mode,
+      modePreference: (config.data.theme_mode ?? "system") as ThemeMode,
       active: config.data.theme,
       ready: false,
     })
@@ -443,6 +443,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         })
     })
 
+    const effectiveMode = createMemo(() => {
+      return store.modePreference === "system" ? autoDetectedMode : store.modePreference
+    })
+
     renderer
       .getPalette({ size: 16 })
       .then((colors) => {
@@ -459,7 +463,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         }
         setStore(
           produce((draft) => {
-            draft.themes.system = generateSystem(colors, store.mode)
+            draft.themes.system = generateSystem(colors, effectiveMode())
             if (store.active === "system") {
               draft.ready = true
             }
@@ -468,7 +472,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       })
 
     const values = createMemo(() => {
-      return resolveTheme(store.themes[store.active] ?? store.themes.opencode, store.mode)
+      return resolveTheme(store.themes[store.active] ?? store.themes.opencode, effectiveMode())
     })
 
     return {
@@ -484,15 +488,21 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         return store.themes
       },
       mode() {
-        return store.mode
+        return effectiveMode()
       },
-      setMode(mode: "dark" | "light") {
-        setStore("mode", mode)
-        Config.setThemeMode(mode, autoDetectedMode)
+      modePreference() {
+        return store.modePreference
+      },
+      setMode(mode: ThemeMode) {
+        setStore("modePreference", mode)
+        Config.setThemeMode(mode)
       },
       set(theme: string) {
         setStore("active", theme)
         Config.setTheme(theme)
+      },
+      preview(theme: string) {
+        setStore("active", theme)
       },
       get ready() {
         return store.ready

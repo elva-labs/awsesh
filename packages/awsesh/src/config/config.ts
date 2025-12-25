@@ -33,9 +33,11 @@ export interface KeybindsConfig {
 export type DateFormat = "dd/mm/yyyy" | "mm/dd/yyyy"
 export type TimeFormat = "24h" | "12h"
 
+export type ThemeMode = "dark" | "light" | "system"
+
 export interface AppConfig {
   theme: string
-  theme_mode?: "dark" | "light"
+  theme_mode?: ThemeMode
   dateFormat: DateFormat
   timeFormat: TimeFormat
   autoAssumeRole: boolean
@@ -50,7 +52,7 @@ export type UserKeybindsConfig = Partial<{
 
 export interface UserConfig {
   theme?: string
-  theme_mode?: "dark" | "light"
+  theme_mode?: ThemeMode
   dateFormat?: DateFormat
   timeFormat?: TimeFormat
   autoAssumeRole?: boolean
@@ -256,11 +258,8 @@ export namespace Config {
     log.info("Theme saved", { theme, isDefault })
   }
 
-  export async function setThemeMode(
-    mode: "dark" | "light",
-    autoDetected: "dark" | "light"
-  ): Promise<void> {
-    const isDefault = mode === autoDetected
+  export async function setThemeMode(mode: ThemeMode): Promise<void> {
+    const isDefault = mode === "system"
 
     const file = Bun.file(configPath)
     let existing: UserConfig = {}

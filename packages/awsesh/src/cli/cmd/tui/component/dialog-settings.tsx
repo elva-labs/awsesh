@@ -5,12 +5,14 @@ import { DialogThemeList } from "./dialog-theme-list"
 import { DialogKeybindList } from "./dialog-keybind-list"
 import { useTheme } from "../context/theme"
 import { useConfig } from "../context/config"
-import { Config } from "@/config/config"
+import { Config, type ThemeMode } from "@/config/config"
+
+const MODE_CYCLE: ThemeMode[] = ["system", "dark", "light"]
 
 export function DialogSettings() {
   const dialog = useDialog()
   const config = useConfig()
-  const { mode, setMode } = useTheme()
+  const { modePreference, setMode } = useTheme()
 
   const options = createMemo<DialogSelectOption<string>[]>(() => [
     {
@@ -23,11 +25,14 @@ export function DialogSettings() {
     },
     {
       title: "Toggle appearance",
-      description: `Current: ${mode()}`,
+      description: `Current: ${modePreference()}`,
       value: "toggle_mode",
       category: "Appearance",
       onSelect: () => {
-        setMode(mode() === "dark" ? "light" : "dark")
+        const current = modePreference()
+        const index = MODE_CYCLE.indexOf(current)
+        const next = MODE_CYCLE[(index + 1) % MODE_CYCLE.length]
+        setMode(next)
       },
     },
     {

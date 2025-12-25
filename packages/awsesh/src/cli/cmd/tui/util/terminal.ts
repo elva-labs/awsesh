@@ -99,7 +99,7 @@ export namespace Terminal {
     if (!result.background) return "dark"
 
     const { r, g, b } = result.background
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b
 
     return luminance > 0.5 ? "light" : "dark"
   }
