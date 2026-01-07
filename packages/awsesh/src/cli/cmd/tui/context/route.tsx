@@ -13,9 +13,14 @@ export type AccountSelectRoute = {
   sessionName: string;
 };
 
+export type CredentialsRoute = {
+  type: "credentials";
+};
+
 export type Route =
   | SSOSelectRoute
-  | AccountSelectRoute;
+  | AccountSelectRoute
+  | CredentialsRoute;
 
 /**
  * Route context provider for TUI navigation

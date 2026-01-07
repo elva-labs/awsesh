@@ -5,6 +5,7 @@ import { useAWS } from "../context/aws"
 import { useAwsesh } from "../context/awsesh"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
+import { useConfig } from "../context/config"
 import { useCredentials } from "../context/credentials"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
 import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
@@ -12,9 +13,11 @@ import { Spinner } from "../ui/spinner"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
 import { DialogPrompt } from "../ui/dialog-prompt"
+import { DialogConfirm } from "../ui/dialog-confirm"
 import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
 import { DialogSettings } from "../component/dialog-settings"
+import { DateUtil } from "@/util/date"
 import type { Account } from "@awsesh/core"
 
 export function AccountListScreen() {
@@ -25,6 +28,7 @@ export function AccountListScreen() {
   const awsesh = useAwsesh()
   const keybind = useKeybind()
   const command = useCommand()
+  const config = useConfig()
   const credentials = useCredentials()
   const toast = useToast()
   const dialog = useDialog()
@@ -118,10 +122,38 @@ export function AccountListScreen() {
     {
       id: "nav.back",
       title: "Back to Sessions",
-      category: "Navigation",
+      category: "Application",
       keybind: "back",
       onSelect: () => {
         route.navigate({ type: "sso-select" })
+      },
+    },
+    {
+      id: "nav.credentials",
+      title: "View Credentials",
+      category: "Application",
+      keybind: "credentials",
+      onSelect: () => {
+        route.navigate({ type: "credentials" })
+      },
+    },
+    {
+      id: "credentials.cleanup",
+      title: "Cleanup Session Credentials",
+      category: "Credentials",
+      keybind: "credentials_cleanup",
+      onSelect: async () => {
+        const s = session()
+        if (!s) return
+        const confirmed = await DialogConfirm.show(
+          dialog,
+          "Cleanup Session Credentials",
+          `Are you sure you want to flush all credentials for "${s.name}"?`
+        )
+        if (confirmed) {
+          await aws.killSSOSession(s.name, s.startUrl)
+          toast.show({ variant: "success", message: `Credentials for "${s.name}" removed` })
+        }
       },
     },
     {
@@ -155,6 +187,21 @@ export function AccountListScreen() {
     return profileNames()[account.name]?.[roleName]
   }
 
+  const getCredentialExpiration = (accountId: string): string | undefined => {
+    const creds = aws.activeCredentials.filter((c) => c.accountId === accountId)
+    if (creds.length === 0) return undefined
+
+    const now = new Date()
+    const validCreds = creds.filter((c) => new Date(c.expiration) > now)
+    if (validCreds.length === 0) return "Expired"
+
+    const sorted = validCreds.sort(
+      (a, b) => new Date(b.expiration).getTime() - new Date(a.expiration).getTime()
+    )
+    const expiration = new Date(sorted[0].expiration)
+    return `Expires ${DateUtil.formatTime(expiration, config.data.timeFormat)}`
+  }
+
   const items = (): FilterableListItem<Account>[] => {
     return aws.accounts.map((account) => {
       const roleName = getPreferredRole(account)
@@ -168,6 +215,7 @@ export function AccountListScreen() {
         subtitle: subtitleParts.join(" · "),
         value: account,
         indicator: aws.getCredentialStatus(account.accountId),
+        footer: getCredentialExpiration(account.accountId),
       }
     })
   }

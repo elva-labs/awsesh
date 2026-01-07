@@ -370,6 +370,59 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         await awsesh.activeCredentials.remove(accountId, roleName)
         setActiveCredentials(await awsesh.activeCredentials.list())
       },
+
+      get activeCredentials() {
+        return activeCredentials()
+      },
+
+      async getTokenExpiration(startUrl: string): Promise<Date | undefined> {
+        const token = await awsesh.tokens.getWithExpired(startUrl)
+        return token?.expiresAt
+      },
+
+      async killSSOSession(sessionName: string, startUrl: string): Promise<void> {
+        await awsesh.tokens.remove(startUrl)
+
+        const creds = activeCredentials().filter((c) => c.sessionName === sessionName)
+        for (const cred of creds) {
+          await awsesh.credentials.removeProfile(cred.profileName)
+          await awsesh.activeCredentials.remove(cred.accountId, cred.roleName)
+        }
+
+        setTokenStatus((prev) => ({ ...prev, [startUrl]: false }))
+        setActiveCredentials(await awsesh.activeCredentials.list())
+      },
+
+      async killCredential(profileName: string, accountId: string, roleName: string): Promise<void> {
+        await awsesh.credentials.removeProfile(profileName)
+        await awsesh.activeCredentials.remove(accountId, roleName)
+        setActiveCredentials(await awsesh.activeCredentials.list())
+      },
+
+      async killAllSessions(): Promise<void> {
+        for (const session of sessions()) {
+          await awsesh.tokens.remove(session.startUrl)
+        }
+
+        const creds = activeCredentials()
+        for (const cred of creds) {
+          await awsesh.credentials.removeProfile(cred.profileName)
+        }
+
+        await awsesh.activeCredentials.cleanup()
+
+        const status: Record<string, boolean> = {}
+        for (const session of sessions()) {
+          status[session.startUrl] = false
+        }
+        setTokenStatus(status)
+        setActiveCredentials([])
+      },
+
+      async refreshActiveCredentials(): Promise<void> {
+        const creds = await awsesh.activeCredentials.list()
+        setActiveCredentials(creds)
+      },
     }
   },
 })

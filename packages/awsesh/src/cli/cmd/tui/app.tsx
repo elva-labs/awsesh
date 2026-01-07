@@ -15,6 +15,7 @@ import { DialogProvider } from "./ui/dialog";
 import { ToastProvider } from "./ui/toast";
 import { SessionListScreen } from "./routes/session-list";
 import { AccountListScreen } from "./routes/account-list";
+import { CredentialsScreen } from "./routes/credentials";
 import { Terminal } from "./util/terminal";
 import { getAwsesh } from "@/instance";
 import { printSessionInfo } from "@/util/styled-output";
@@ -43,6 +44,9 @@ function App() {
         </Match>
         <Match when={route.data.type === "account-select"}>
           <AccountListScreen />
+        </Match>
+        <Match when={route.data.type === "credentials"}>
+          <CredentialsScreen />
         </Match>
       </Switch>
     </box>

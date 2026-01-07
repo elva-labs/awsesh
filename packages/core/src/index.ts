@@ -93,6 +93,17 @@ export function createAwsesh(options: AwseshOptions) {
           startUrl: data.startUrl,
         }
       },
+      getWithExpired: async (startUrl: string): Promise<TokenCache | undefined> => {
+        const hash = hashUrl(startUrl)
+        const data = await storage.read<TokenCacheStored>(`token/${hash}`)
+        if (!data) return undefined
+
+        return {
+          token: data.token,
+          expiresAt: new Date(data.expiresAt),
+          startUrl: data.startUrl,
+        }
+      },
       save: async (startUrl: string, token: string, expiresAt: Date): Promise<void> => {
         const hash = hashUrl(startUrl)
         await storage.write<TokenCacheStored>(`token/${hash}`, {
@@ -100,6 +111,10 @@ export function createAwsesh(options: AwseshOptions) {
           expiresAt: expiresAt.toISOString(),
           startUrl,
         })
+      },
+      remove: async (startUrl: string): Promise<void> => {
+        const hash = hashUrl(startUrl)
+        await storage.remove(`token/${hash}`)
       },
       isValid: (cache: TokenCache): boolean => {
         return cache.expiresAt > new Date()
@@ -193,6 +208,15 @@ export function createAwsesh(options: AwseshOptions) {
           credentials: creds,
           region,
         })
+      },
+      removeProfile: async (profileName: string) => {
+        await Credentials.removeProfile({
+          awsDir,
+          profileName,
+        })
+      },
+      listProfiles: async () => {
+        return Credentials.listProfiles(awsDir)
       },
     },
 

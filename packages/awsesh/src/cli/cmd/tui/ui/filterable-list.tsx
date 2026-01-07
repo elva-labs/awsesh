@@ -299,8 +299,14 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                       if (props.current === undefined) return false
                       return item.value === props.current
                     })
-                    const isFirst = createMemo(() => index() === 0 && itemIndex() === 0)
-                    const showSeparator = createMemo(() => !isFirst() && item.subtitle)
+                    const isFirstGlobal = createMemo(() => index() === 0 && itemIndex() === 0)
+                    const isFirstInCategory = createMemo(() => itemIndex() === 0)
+                    const showSeparator = createMemo(() => {
+                      if (!item.subtitle) return false
+                      if (isFirstGlobal() && !category) return false
+                      if (isFirstInCategory() && category) return true
+                      return true
+                    })
 
                     return (
                       <>

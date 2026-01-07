@@ -134,12 +134,10 @@ export function Footer(props: ParentProps<FooterProps>) {
                   <span style={{ fg: theme.textMuted }}>Account </span>
                   <span style={{ fg: theme.text }}>{truncate(active().accountName, 24)}</span>
                 </text>
-                <Show when={active().profileName !== "default"}>
-                  <text>
-                    <span style={{ fg: theme.textMuted }}>Profile </span>
-                    <span style={{ fg: theme.text }}>{truncate(active().profileName, 20)}</span>
-                  </text>
-                </Show>
+                <text>
+                  <span style={{ fg: theme.textMuted }}>Profile </span>
+                  <span style={{ fg: theme.text }}>{truncate(active().profileName, 20)}</span>
+                </text>
               </box>
               <box>
                 <text>

@@ -1,9 +1,10 @@
-import { Show, createSignal } from "solid-js"
+import { Show, createSignal, createEffect, on } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute } from "../context/route"
 import { useAWS } from "../context/aws"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
+import { useConfig } from "../context/config"
 import { useKeyboard } from "@opentui/solid"
 import { FilterableList, type FilterableListItem } from "../ui/filterable-list"
 import { Layout, Header, Footer, KeybindHint } from "../ui/layout"
@@ -14,6 +15,8 @@ import { DialogSettings } from "../component/dialog-settings"
 import { DialogSSOLogin } from "../component/dialog-sso-login"
 import { DialogSessionForm } from "../component/dialog-session-form"
 import { DialogSessionDelete } from "../component/dialog-session-delete"
+import { DialogConfirm } from "../ui/dialog-confirm"
+import { DateUtil } from "@/util/date"
 import type { SSOSession } from "@awsesh/core"
 
 export function SessionListScreen() {
@@ -22,11 +25,25 @@ export function SessionListScreen() {
   const aws = useAWS()
   const keybind = useKeybind()
   const command = useCommand()
+  const config = useConfig()
   const dialog = useDialog()
   const exit = useExit()
   const toast = useToast()
 
   const [selectedSession, setSelectedSession] = createSignal<SSOSession | null>(null)
+  const [tokenExpirations, setTokenExpirations] = createSignal<Record<string, Date>>({})
+
+  createEffect(on(() => aws.sessions, async (sessions) => {
+    if (sessions.length === 0) return
+    const expirations: Record<string, Date> = {}
+    for (const session of sessions) {
+      const expiration = await aws.getTokenExpiration(session.startUrl)
+      if (expiration) {
+        expirations[session.startUrl] = expiration
+      }
+    }
+    setTokenExpirations(expirations)
+  }))
 
   command.register(() => [
     {
@@ -68,6 +85,52 @@ export function SessionListScreen() {
       },
     },
     {
+      id: "session.kill_credentials",
+      title: "Kill Session Credentials",
+      category: "Credentials",
+      keybind: "session_kill",
+      disabled: !selectedSession(),
+      onSelect: async () => {
+        const selected = selectedSession()
+        if (!selected) return
+        const confirmed = await DialogConfirm.show(
+          dialog,
+          "Kill Session Credentials",
+          `Remove all CLI credentials for "${selected.name}"?`
+        )
+        if (confirmed) {
+          await aws.killSSOSession(selected.name, selected.startUrl)
+          toast.show({ variant: "success", message: `Killed credentials for "${selected.name}"` })
+        }
+      },
+    },
+    {
+      id: "credentials.cleanup",
+      title: "Cleanup All Credentials",
+      category: "Credentials",
+      keybind: "credentials_cleanup",
+      onSelect: async () => {
+        const confirmed = await DialogConfirm.show(
+          dialog,
+          "Cleanup Credentials",
+          "Are you sure you want to flush all active credentials?"
+        )
+        if (confirmed) {
+          await aws.killAllSessions()
+          toast.show({ variant: "success", message: "All credentials removed" })
+        }
+      },
+    },
+    {
+      id: "nav.credentials",
+      title: "View Credentials",
+      category: "Application",
+      keybind: "credentials",
+      onSelect: () => {
+        route.navigate({ type: "credentials" })
+      },
+    },
+    {
       id: "settings",
       title: "Settings",
       category: "Application",
@@ -87,6 +150,14 @@ export function SessionListScreen() {
     },
   ])
 
+  const getExpirationFooter = (session: SSOSession): string | undefined => {
+    const expiration = tokenExpirations()[session.startUrl]
+    if (!expiration) return undefined
+    const now = new Date()
+    if (expiration <= now) return "Expired"
+    return `Expires ${DateUtil.formatTime(expiration, config.data.timeFormat)}`
+  }
+
   const items = (): FilterableListItem<SSOSession>[] => {
     return aws.sessions.map((session) => ({
       id: session.name,
@@ -94,6 +165,7 @@ export function SessionListScreen() {
       subtitle: session.startUrl,
       value: session,
       indicator: aws.isSessionActive(session.startUrl) ? "active" : "inactive",
+      footer: getExpirationFooter(session),
     }))
   }
 

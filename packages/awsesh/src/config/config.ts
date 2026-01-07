@@ -19,6 +19,9 @@ export interface KeybindsConfig {
   session_add: string[]
   session_edit: string[]
   session_delete: string[]
+  credentials: string[]
+  session_kill: string[]
+  credentials_cleanup: string[]
   nav_up: string[]
   nav_down: string[]
   nav_left: string[]
@@ -70,12 +73,15 @@ const defaultKeybinds: KeybindsConfig = {
   settings: ["<leader>+,"],
   browser_open: ["<leader>+o"],
   profile_set: ["<leader>+p"],
-  profile_clear: ["<leader>+c"],
+  profile_clear: ["<leader>+C"],
   region_set: ["<leader>+r"],
   role_list: ["<leader>+l"],
   session_add: ["<leader>+a"],
   session_edit: ["<leader>+e"],
   session_delete: ["<leader>+d"],
+  credentials: ["<leader>+c"],
+  session_kill: ["<leader>+k"],
+  credentials_cleanup: ["<leader>+K"],
   nav_up: ["up", "k"],
   nav_down: ["down", "j"],
   nav_left: ["left", "h"],

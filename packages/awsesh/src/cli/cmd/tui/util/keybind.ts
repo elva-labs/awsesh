@@ -20,8 +20,8 @@ export namespace Keybind {
   }
 
   export function parse(str: string): Info {
-    const normalized = str.toLowerCase().replace(/<leader>\+?/g, "leader+")
-    const parts = normalized.split("+").filter((p) => p.length > 0)
+    const withLeader = str.replace(/<leader>\+?/gi, "leader+")
+    const parts = withLeader.split("+").filter((p) => p.length > 0)
     const result: Info = {
       ctrl: false,
       shift: false,
@@ -31,12 +31,18 @@ export namespace Keybind {
     }
 
     for (const part of parts) {
-      if (part === "ctrl") result.ctrl = true
-      else if (part === "shift") result.shift = true
-      else if (part === "meta" || part === "cmd") result.meta = true
-      else if (part === "leader") result.leader = true
-      else if (part === "space") result.name = "space"
-      else result.name = part
+      const lower = part.toLowerCase()
+      if (lower === "ctrl") result.ctrl = true
+      else if (lower === "shift") result.shift = true
+      else if (lower === "meta" || lower === "cmd") result.meta = true
+      else if (lower === "leader") result.leader = true
+      else if (lower === "space") result.name = "space"
+      else {
+        if (part.length === 1 && part !== part.toLowerCase()) {
+          result.shift = true
+        }
+        result.name = lower
+      }
     }
 
     return result
@@ -56,9 +62,15 @@ export namespace Keybind {
     const parts: string[] = []
     if (keybind.leader) parts.push("<leader>")
     if (keybind.ctrl) parts.push("ctrl")
-    if (keybind.shift) parts.push("shift")
     if (keybind.meta) parts.push("meta")
-    if (keybind.name) parts.push(keybind.name)
+    if (keybind.name) {
+      if (keybind.shift && keybind.name.length === 1) {
+        parts.push(keybind.name.toUpperCase())
+      } else {
+        if (keybind.shift) parts.push("shift")
+        parts.push(keybind.name)
+      }
+    }
     return parts.join("+")
   }
 
