@@ -27,12 +27,30 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   const initialSession = props.session
   const originalName = initialSession?.name
 
+  const extractOrgName = (url: string): string => {
+    const match = url.match(/^https:\/\/([^.]+)\.awsapps\.com\/start\/?$/)
+    return match ? match[1] : url
+  }
+
+  const buildStartUrl = (orgName: string): string => {
+    if (!orgName.trim()) return ""
+    if (orgName.startsWith("https://")) return orgName
+    return `https://${orgName}.awsapps.com/start`
+  }
+
+  const isValidRegion = (region: string): boolean => {
+    const regionPattern = /^[a-z]{2}(-[a-z]+-\d+|-(north|south|east|west|central|northeast|southeast|northwest|southwest)-\d+)$/
+    return regionPattern.test(region)
+  }
+
   const [name, setName] = createSignal(initialSession?.name ?? "")
-  const [startUrl, setStartUrl] = createSignal(initialSession?.startUrl ?? "")
+  const [orgName, setOrgName] = createSignal(initialSession?.startUrl ? extractOrgName(initialSession.startUrl) : "")
   const [ssoRegion, setSsoRegion] = createSignal(initialSession?.ssoRegion ?? "us-east-1")
   const [defaultRegion, setDefaultRegion] = createSignal(initialSession?.defaultRegion ?? "us-east-1")
   const [errors, setErrors] = createSignal<Record<string, string>>({})
   const [focusIndex, setFocusIndex] = createSignal(0)
+
+  const startUrl = () => buildStartUrl(orgName())
 
   let nameInput: InputRenderable | undefined
   let startUrlInput: InputRenderable | undefined
@@ -56,21 +74,23 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
     const newErrors: Record<string, string> = {}
 
     if (!name().trim()) {
-      newErrors.name = "Session name is required"
+      newErrors.name = "Required"
     }
 
-    if (!startUrl().trim()) {
-      newErrors.startUrl = "SSO Start URL is required"
-    } else if (!startUrl().startsWith("https://")) {
-      newErrors.startUrl = "Start URL must be a valid HTTPS URL"
+    if (!orgName().trim()) {
+      newErrors.orgName = "Required"
     }
 
     if (!ssoRegion().trim()) {
-      newErrors.ssoRegion = "SSO Region is required"
+      newErrors.ssoRegion = "Required"
+    } else if (!isValidRegion(ssoRegion().trim())) {
+      newErrors.ssoRegion = "Invalid region format"
     }
 
     if (!defaultRegion().trim()) {
-      newErrors.defaultRegion = "Default Region is required"
+      newErrors.defaultRegion = "Required"
+    } else if (!isValidRegion(defaultRegion().trim())) {
+      newErrors.defaultRegion = "Invalid region format"
     }
 
     setErrors(newErrors)
@@ -78,13 +98,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   }
 
   const handleSave = async () => {
-    if (!validate()) {
-      toast.show({
-        variant: "error",
-        message: "Please fix validation errors",
-      })
-      return
-    }
+    if (!validate()) return
 
     const session: SSOSession = {
       name: name().trim(),
@@ -113,7 +127,10 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   useKeyboard((evt) => {
     if (evt.name === "tab") {
       evt.preventDefault()
-      const nextIndex = (focusIndex() + 1) % inputs().length
+      const len = inputs().length
+      const nextIndex = evt.shift
+        ? (focusIndex() - 1 + len) % len
+        : (focusIndex() + 1) % len
       setFocusIndex(nextIndex)
       const input = inputs()[nextIndex]
       if (input) {
@@ -148,11 +165,12 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
         />
 
         <FormField
-          label="SSO Start URL"
-          value={startUrl()}
-          onInput={setStartUrl}
-          error={errors().startUrl}
-          placeholder="https://myorg.awsapps.com/start"
+          label="Organization"
+          value={orgName()}
+          onInput={setOrgName}
+          error={errors().orgName}
+          placeholder="myorg"
+          hint={`https://${orgName().trim() || "myorg"}.awsapps.com/start`}
           ref={(r) => { startUrlInput = r }}
         />
 

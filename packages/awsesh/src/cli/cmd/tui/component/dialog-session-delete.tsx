@@ -1,7 +1,6 @@
 import { TextAttributes } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useTheme } from "../context/theme"
-import { useAwsesh } from "../context/awsesh"
 import { useAWS } from "../context/aws"
 import { useDialog, type DialogContext } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -14,15 +13,13 @@ export type DialogSessionDeleteProps = {
 
 export function DialogSessionDelete(props: DialogSessionDeleteProps) {
   const dialog = useDialog()
-  const awsesh = useAwsesh()
   const aws = useAWS()
   const toast = useToast()
   const { theme } = useTheme()
 
   const handleDelete = async () => {
     try {
-      await awsesh.sessions.remove(props.sessionName)
-      await aws.refreshSessions()
+      await aws.deleteSession(props.sessionName)
       toast.show({
         variant: "success",
         message: `SSO Session "${props.sessionName}" deleted`,

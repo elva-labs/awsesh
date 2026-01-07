@@ -26,6 +26,7 @@ export function Input(props: InputProps) {
 
   return (
     <input
+      height={1}
       value={props.value}
       placeholder={props.placeholder}
       onInput={(e) => props.onInput?.(e)}
