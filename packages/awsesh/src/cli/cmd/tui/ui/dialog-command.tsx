@@ -2,7 +2,7 @@ import { RGBA, TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/solid"
 import { useDialog } from "./dialog"
 import { useKeybind } from "../context/keybind"
 import { Locale } from "../util/locale"
@@ -16,6 +16,7 @@ export function DialogCommand(props: DialogCommandProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
   const keybind = useKeybind()
+  const renderer = useRenderer()
   const [store, setStore] = createStore({
     selected: 0,
   })
@@ -116,6 +117,7 @@ export function DialogCommand(props: DialogCommandProps) {
                     <box
                       flexDirection="row"
                       onMouseUp={() => {
+                        if (renderer.getSelection()?.getSelectedText()) return
                         dialog.clear()
                         option.onSelect?.(dialog)
                       }}

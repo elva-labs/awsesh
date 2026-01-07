@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes } from "@opentui/core"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useRenderer } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useAWS } from "../context/aws"
 import { useDialog, type DialogContext } from "../ui/dialog"
@@ -20,6 +20,7 @@ export function DialogSSOLogin(props: DialogSSOLoginProps) {
   const dialog = useDialog()
   const aws = useAWS()
   const { theme } = useTheme()
+  const renderer = useRenderer()
 
   const [loginInfo, setLoginInfo] = createSignal<SSOLoginInfo | null>(null)
   const [timeRemaining, setTimeRemaining] = createSignal(0)
@@ -114,6 +115,7 @@ export function DialogSSOLogin(props: DialogSSOLoginProps) {
   })
 
   const handleLinkClick = async () => {
+    if (renderer.getSelection()?.getSelectedText()) return
     const info = loginInfo()
     if (info) {
       await openBrowser(info.verificationUriComplete)

@@ -12,10 +12,12 @@ export function Dialog(
 ) {
   const dimensions = useTerminalDimensions()
   const { theme } = useTheme()
+  const renderer = useRenderer()
 
   return (
     <box
       onMouseUp={async () => {
+        if (renderer.getSelection()) return
         props.onClose?.()
       }}
       width={dimensions().width}
@@ -29,6 +31,7 @@ export function Dialog(
     >
       <box
         onMouseUp={async (e) => {
+          if (renderer.getSelection()) return
           e.stopPropagation()
         }}
         width={props.size === "large" ? 80 : 60}

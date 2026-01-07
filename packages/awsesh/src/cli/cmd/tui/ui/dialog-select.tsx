@@ -3,7 +3,7 @@ import { useTheme } from "../context/theme"
 import { entries, filter, flatMap, groupBy, pipe } from "remeda"
 import { batch, createEffect, createMemo, For, onMount, Show, type JSX, on } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/solid"
 import * as fuzzysort from "fuzzysort"
 import { isDeepEqual } from "remeda"
 import { useDialog, type DialogContext } from "./dialog"
@@ -46,6 +46,7 @@ function selectedForeground(theme: ReturnType<typeof useTheme>["theme"]): RGBA {
 export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  const renderer = useRenderer()
   const [store, setStore] = createStore({
     selected: 0,
     filter: "",
@@ -256,6 +257,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       id={JSON.stringify(option.value)}
                       flexDirection="row"
                       onMouseUp={() => {
+                        if (renderer.getSelection()?.getSelectedText()) return
                         option.onSelect?.(dialog)
                         props.onSelect?.(option)
                       }}

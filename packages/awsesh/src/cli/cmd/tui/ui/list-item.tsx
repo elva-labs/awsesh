@@ -1,4 +1,5 @@
 import { Show, type JSX } from "solid-js"
+import { useRenderer } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { TextAttributes, RGBA } from "@opentui/core"
 import { Locale } from "../util/locale"
@@ -16,11 +17,13 @@ export interface ListItemProps {
 
 export function ListItem(props: ListItemProps) {
   const { theme } = useTheme()
+  const renderer = useRenderer()
 
   return (
     <box
       flexDirection="row"
       onMouseUp={() => {
+        if (renderer.getSelection()?.getSelectedText()) return
         if (!props.disabled) props.onSelect?.()
       }}
       backgroundColor={props.active ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}

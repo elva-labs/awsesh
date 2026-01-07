@@ -2,7 +2,7 @@ import { RGBA, TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { createMemo, For } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useRenderer } from "@opentui/solid"
 import { useDialog, type DialogContext } from "../ui/dialog"
 import { useKeybind } from "../context/keybind"
 
@@ -22,6 +22,7 @@ export function DialogCredentialActions(props: DialogCredentialActionsProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
   const keybind = useKeybind()
+  const renderer = useRenderer()
   const [store, setStore] = createStore({
     selected: 0,
   })
@@ -79,6 +80,7 @@ export function DialogCredentialActions(props: DialogCredentialActionsProps) {
               <box
                 flexDirection="row"
                 onMouseUp={() => {
+                  if (renderer.getSelection()?.getSelectedText()) return
                   dialog.clear()
                   if (option.id === "refresh") props.onRefresh?.()
                   if (option.id === "kill") props.onKill?.()

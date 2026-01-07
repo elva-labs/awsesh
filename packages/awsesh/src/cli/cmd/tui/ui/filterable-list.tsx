@@ -1,6 +1,6 @@
 import { batch, createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
@@ -43,6 +43,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
   const keybind = useKeybind()
   const command = useCommand()
   const dialog = useDialog()
+  const renderer = useRenderer()
   const [store, setStore] = createStore({
     selected: 0,
     filter: "",
@@ -321,6 +322,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                           id={item.id}
                           flexDirection="column"
                           onMouseUp={() => {
+                            if (renderer.getSelection()?.getSelectedText()) return
                             if (!item.disabled) props.onSelect?.(item)
                           }}
                           onMouseOver={() => {

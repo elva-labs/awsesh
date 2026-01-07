@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useRenderer } from "@opentui/solid"
 
 export type DialogAlertProps = {
   title: string
@@ -12,6 +12,7 @@ export type DialogAlertProps = {
 export function DialogAlert(props: DialogAlertProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  const renderer = useRenderer()
 
   useKeyboard((evt) => {
     if (evt.name === "return" || evt.name === "escape") {
@@ -35,6 +36,7 @@ export function DialogAlert(props: DialogAlertProps) {
           paddingRight={1}
           backgroundColor={theme.primary}
           onMouseUp={() => {
+            if (renderer.getSelection()?.getSelectedText()) return
             props.onClose?.()
             dialog.clear()
           }}

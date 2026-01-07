@@ -1,4 +1,5 @@
-import { render, useTerminalDimensions } from "@opentui/solid";
+import { render, useTerminalDimensions, useRenderer } from "@opentui/solid";
+import { copyToClipboard } from "@/util/clipboard";
 import { Switch, Match } from "solid-js";
 import { RouteProvider, useRoute } from "./context/route";
 import { AwseshProvider } from "./context/awsesh";
@@ -12,7 +13,7 @@ import { CommandProvider } from "./context/command";
 import { MigrationProvider } from "./context/migration";
 import { CredentialsProvider } from "./context/credentials";
 import { DialogProvider } from "./ui/dialog";
-import { ToastProvider } from "./ui/toast";
+import { ToastProvider, useToast } from "./ui/toast";
 import { SessionListScreen } from "./routes/session-list";
 import { AccountListScreen } from "./routes/account-list";
 import { CredentialsScreen } from "./routes/credentials";
@@ -25,12 +26,39 @@ function App() {
   const route = useRoute();
   const { theme } = useTheme();
   const dimensions = useTerminalDimensions();
+  const renderer = useRenderer();
+  const toast = useToast();
+
+  renderer.console.onCopySelection = async (text: string) => {
+    if (!text || text.length === 0) return;
+    const base64 = Buffer.from(text).toString("base64");
+    const osc52 = `\x1b]52;c;${base64}\x07`;
+    const finalOsc52 = process.env.TMUX ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
+    // @ts-expect-error writeOut is not in type definitions
+    renderer.writeOut(finalOsc52);
+    await copyToClipboard(text);
+    toast.show({ message: "Copied to clipboard", variant: "info" });
+    renderer.clearSelection();
+  };
 
   return (
     <box
       width={dimensions().width}
       height={dimensions().height}
       backgroundColor={theme.background}
+      onMouseUp={async () => {
+        const text = renderer.getSelection()?.getSelectedText();
+        if (text && text.length > 0) {
+          const base64 = Buffer.from(text).toString("base64");
+          const osc52 = `\x1b]52;c;${base64}\x07`;
+          const finalOsc52 = process.env.TMUX ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
+          // @ts-expect-error writeOut is not in type definitions
+          renderer.writeOut(finalOsc52);
+          await copyToClipboard(text);
+          toast.show({ message: "Copied to clipboard", variant: "info" });
+          renderer.clearSelection();
+        }
+      }}
     >
       <Switch
         fallback={
@@ -115,6 +143,14 @@ export async function tui(): Promise<void> {
         gatherStats: false,
         exitOnCtrlC: false,
         useKittyKeyboard: {},
+        consoleOptions: {
+          keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
+          onCopySelection: (text) => {
+            copyToClipboard(text).catch((error) => {
+              console.error(`Failed to copy console selection to clipboard: ${error}`);
+            });
+          },
+        },
       },
     );
   });
