@@ -19,8 +19,8 @@
   "dependencies": {
     "@awsesh/core": "workspace:*",
     "@awsesh/script": "workspace:*",
-    "@opentui/core": "0.1.62",
-    "@opentui/solid": "0.1.62",
+    "@opentui/core": "0.1.69",
+    "@opentui/solid": "0.1.69",
     "fuzzysort": "^3.1.0",
     "open": "10.1.2",
     "remeda": "^2.32.0",
