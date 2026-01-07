@@ -1,6 +1,7 @@
 import { cmd } from "./cmd"
 import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
+import { printSessionInfo } from "@/util/styled-output"
 
 export const whoami = cmd({
   command: "whoami",
@@ -8,21 +9,22 @@ export const whoami = cmd({
   builder: (yargs) => yargs,
   handler: async () => {
     const awsesh = getAwsesh()
-    const lastSelected = await awsesh.lastSelected.get()
+    const lastSet = await awsesh.lastSetCredential.get()
 
-    if (!lastSelected.session || !lastSelected.account || !lastSelected.role) {
+    if (!lastSet) {
       UI.info("No AWS credentials currently configured.")
       UI.info("Run 'awsesh' to configure your AWS credentials.")
       return
     }
 
-    UI.info("Current AWS Identity:\n")
-    console.log(`  SSO Session: ${lastSelected.session}`)
-    console.log(`  Account:     ${lastSelected.account}`)
-    console.log(`  Role:        ${lastSelected.role}`)
-
-    const profileName = `${lastSelected.account}-${lastSelected.role}`
-    console.log(`\n  AWS Profile: ${profileName}`)
-    console.log(`  Credentials: ~/.aws/credentials (section [${profileName}])`)
+    const session = await awsesh.sessions.get(lastSet.sessionName)
+    printSessionInfo({
+      sessionName: lastSet.sessionName,
+      accountName: lastSet.accountName,
+      accountId: lastSet.accountId,
+      roleName: lastSet.roleName,
+      region: lastSet.region ?? session?.defaultRegion ?? "unknown",
+      profileName: lastSet.profileName,
+    })
   },
 })
