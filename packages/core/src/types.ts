@@ -70,3 +70,13 @@ export interface ActiveCredential {
   expiration: string
   isDefault: boolean
 }
+
+export interface LastSetCredential {
+  profileName: string
+  accountId: string
+  accountName: string
+  roleName: string
+  sessionName: string
+  region?: string
+  setAt: string
+}

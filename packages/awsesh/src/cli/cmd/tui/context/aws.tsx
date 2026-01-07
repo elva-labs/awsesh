@@ -3,7 +3,8 @@ import { createSimpleContext } from "./helper"
 import { useAwsesh } from "./awsesh"
 import { Global } from "@/global"
 import { Log } from "@/util/log"
-import type { SSOSession, Account, SSOLoginInfo, ActiveCredential, TokenResult } from "@awsesh/core"
+import type { SSOSession, Account, SSOLoginInfo, ActiveCredential, TokenResult, LastSetCredential } from "@awsesh/core"
+import { markCredentialsSet } from "./session-state"
 
 const log = Log.create({ service: "aws-context" })
 
@@ -319,6 +320,18 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
             account: accountName,
             role: roleName,
           })
+
+          const lastSet: LastSetCredential = {
+            profileName,
+            accountId,
+            accountName,
+            roleName,
+            sessionName: session.name,
+            region: targetRegion,
+            setAt: new Date().toISOString(),
+          }
+          await awsesh.lastSetCredential.save(lastSet)
+          markCredentialsSet()
 
           return { expiration: credentials.expiration, profileName }
         } catch (e) {

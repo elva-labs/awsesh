@@ -18,6 +18,7 @@ import type {
   RoleCredentials,
   LastSelected,
   ActiveCredential,
+  LastSetCredential,
 } from "./types"
 
 interface TokenCacheStored {
@@ -232,6 +233,18 @@ export function createAwsesh(options: AwseshOptions) {
           if (!existing || !Array.isArray(existing)) return []
           return existing.filter((c) => !(c.accountId === accountId && c.roleName === roleName))
         })
+      },
+    },
+
+    lastSetCredential: {
+      get: async (): Promise<LastSetCredential | undefined> => {
+        return storage.read<LastSetCredential>("credentials/last-set")
+      },
+      save: async (credential: LastSetCredential): Promise<void> => {
+        await storage.write("credentials/last-set", credential)
+      },
+      clear: async (): Promise<void> => {
+        await storage.remove("credentials/last-set")
       },
     },
   }
