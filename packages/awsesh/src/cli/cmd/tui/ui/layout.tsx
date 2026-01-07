@@ -5,6 +5,7 @@ import { useTheme } from "../context/theme"
 import { useCredentials } from "../context/credentials"
 import { useConfig } from "../context/config"
 import { DateUtil } from "@/util/date"
+import { Installation } from "@/installation"
 
 function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text
@@ -62,10 +63,12 @@ export interface HeaderProps {
   title: string
   subtitle?: string
   right?: JSX.Element
+  showVersion?: boolean
 }
 
 export function Header(props: HeaderProps) {
   const { theme } = useTheme()
+  const showVersion = createMemo(() => props.showVersion ?? true)
 
   return (
     <box
@@ -87,9 +90,14 @@ export function Header(props: HeaderProps) {
           <text fg={theme.textMuted}>{props.subtitle}</text>
         </Show>
       </box>
-      <Show when={props.right}>
-        <box>{props.right}</box>
-      </Show>
+      <box flexDirection="row" gap={2} alignItems="center">
+        <Show when={props.right}>
+          {props.right}
+        </Show>
+        <Show when={showVersion()}>
+          <text fg={theme.textMuted}>{Installation.VERSION}</text>
+        </Show>
+      </box>
     </box>
   )
 }

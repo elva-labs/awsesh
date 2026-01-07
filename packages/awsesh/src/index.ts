@@ -11,14 +11,13 @@ import { migrate } from "./cli/cmd/migrate.js"
 import { config, data } from "./cli/cmd/open.js"
 import { TuiCommand } from "./cli/cmd/tui/thread.js"
 
-declare const AWSESH_VERSION: string
-const VERSION = typeof AWSESH_VERSION !== "undefined" ? AWSESH_VERSION : "1.0.0-dev"
+import { Installation } from "./installation"
 
 const cli = yargs(hideBin(process.argv))
   .scriptName("awsesh")
   .help("help", "show help")
   .alias("help", "h")
-  .version("version", VERSION)
+  .version("version", Installation.VERSION)
   .alias("version", "v")
   .option("print-logs", {
     describe: "print logs to stderr",
@@ -36,7 +35,7 @@ const cli = yargs(hideBin(process.argv))
     })
     
     Log.Default.info("awsesh started", {
-      version: VERSION,
+      version: Installation.VERSION,
       args: process.argv.slice(2),
     })
   })
