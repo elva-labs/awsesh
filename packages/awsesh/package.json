@@ -10,8 +10,8 @@
     "sesh": "./src/index.ts"
   },
   "scripts": {
-    "dev": "bun run --conditions=browser src/index.ts",
-    "dev:watch": "bun --watch --conditions=browser src/index.ts",
+    "dev": "AWSESH_DEV=1 bun run --conditions=browser src/index.ts",
+    "dev:watch": "AWSESH_DEV=1 bun --watch --conditions=browser src/index.ts",
     "start": "bun run --conditions=browser src/index.ts",
     "build": "bun run ./script/build.ts",
     "typecheck": "tsc --noEmit"

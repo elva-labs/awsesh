@@ -32,6 +32,10 @@ const cli = yargs(args)
     describe: "print logs to stderr",
     type: "boolean",
   })
+  .option("log-file", {
+    describe: "write logs to file (auto-enabled in dev mode)",
+    type: "boolean",
+  })
   .option("log-level", {
     describe: "log level",
     type: "string",
@@ -41,11 +45,13 @@ const cli = yargs(args)
     await Log.init({
       level: (opts.logLevel as Log.Level) || "INFO",
       print: opts.printLogs || false,
+      file: opts.logFile,
     })
     
     Log.Default.info("awsesh started", {
       version: Installation.VERSION,
       args: process.argv.slice(2),
+      logFile: Log.file(),
     })
   })
   .usage("")

@@ -8,6 +8,7 @@ export namespace Log {
   let currentLevel: Level = "INFO"
   let printToStderr = false
   let logFilePath: string | undefined
+  let fileLoggingEnabled = false
   
   const levelPriority: Record<Level, number> = {
     DEBUG: 0,
@@ -16,18 +17,28 @@ export namespace Log {
     ERROR: 3,
   }
   
-  export async function init(opts: { level: Level; print?: boolean }) {
-    currentLevel = opts.level
-    printToStderr = opts.print || false
-    
-    // Create log file path
-    const logDir = path.join(Global.Path.data, "logs")
-    await fs.mkdir(logDir, { recursive: true })
-    logFilePath = path.join(logDir, `awsesh-${Date.now()}.log`)
+  export function isDev(): boolean {
+    return process.env.AWSESH_DEV === "1" || process.env.NODE_ENV === "development"
   }
   
-  export function file(): string {
-    return logFilePath || "no log file"
+  export async function init(opts: { level: Level; print?: boolean; file?: boolean }) {
+    currentLevel = opts.level
+    printToStderr = opts.print || false
+    fileLoggingEnabled = opts.file ?? isDev()
+    
+    if (fileLoggingEnabled) {
+      const logDir = path.join(Global.Path.data, "logs")
+      await fs.mkdir(logDir, { recursive: true })
+      logFilePath = path.join(logDir, `awsesh-${Date.now()}.log`)
+    }
+  }
+  
+  export function file(): string | undefined {
+    return logFilePath
+  }
+  
+  export function isFileLoggingEnabled(): boolean {
+    return fileLoggingEnabled
   }
   
   function shouldLog(level: Level): boolean {
