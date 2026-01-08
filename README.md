@@ -29,7 +29,7 @@ brew install awsesh
 
 ```sh
 brew tap elva-labs/elva
-brew install awsesh --HEAD
+brew install awsesh-beta
 ```
 
 ### Pre-built Binaries
