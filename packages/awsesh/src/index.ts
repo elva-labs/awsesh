@@ -10,6 +10,10 @@ import { session } from "./cli/cmd/session.js"
 import { migrate } from "./cli/cmd/migrate.js"
 import { config, data } from "./cli/cmd/open.js"
 import { TuiCommand } from "./cli/cmd/tui/thread.js"
+import { sessions } from "./cli/cmd/sessions.js"
+import { accounts } from "./cli/cmd/accounts.js"
+import { credentials } from "./cli/cmd/credentials.js"
+import { set } from "./cli/cmd/set.js"
 
 import { Installation } from "./installation"
 
@@ -41,6 +45,10 @@ const cli = yargs(hideBin(process.argv))
   })
   .usage(`\n${UI.logo()}`)
   .command(TuiCommand)
+  .command(set)
+  .command(sessions)
+  .command(accounts)
+  .command(credentials)
   .command(session)
   .command(auth)
   .command(whoami)
