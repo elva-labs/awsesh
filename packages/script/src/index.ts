@@ -29,7 +29,6 @@ const CHANNEL = await (async () => {
   const branch = await $`git branch --show-current`.text().then((x) => x.trim())
   if (branch === "main") return "latest"
   if (branch === "beta") return "beta"
-  if (branch === "tui-rebuild") return "alpha"
   return branch
 })()
 
