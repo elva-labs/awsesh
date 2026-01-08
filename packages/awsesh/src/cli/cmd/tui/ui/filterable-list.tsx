@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/solid"
 import { useTheme } from "../context/theme"
@@ -21,6 +21,7 @@ export interface FilterableListProps<T> {
   showFilter?: boolean
   current?: T
   maxHeight?: number
+  initialId?: string
 }
 
 export type IndicatorState = "active" | "default" | "inactive"
@@ -88,19 +89,49 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
   const selected = createMemo(() => flat()[store.selected])
 
   let initialNotified = false
-  createEffect(() => {
-    const item = selected()
-    if (item && !initialNotified) {
-      initialNotified = true
-      props.onMove?.(item)
+  let initialIdApplied = false
+  let defaultTimer: ReturnType<typeof setTimeout> | null = null
+  createEffect(on(
+    () => [flat(), props.initialId] as const,
+    ([items, initialId]) => {
+      if (items.length === 0) return
+      if (initialIdApplied) return
+      if (initialId) {
+        if (defaultTimer) {
+          clearTimeout(defaultTimer)
+          defaultTimer = null
+        }
+        const idx = items.findIndex((x) => x.id === initialId)
+        if (idx !== -1) {
+          initialIdApplied = true
+          initialNotified = true
+          moveTo(idx)
+          return
+        }
+      }
+      if (!initialNotified && !defaultTimer) {
+        defaultTimer = setTimeout(() => {
+          if (initialIdApplied || initialNotified) return
+          initialNotified = true
+          const item = selected()
+          if (item) props.onMove?.(item)
+        }, 50)
+      }
     }
+  ))
+
+  onCleanup(() => {
+    if (defaultTimer) clearTimeout(defaultTimer)
   })
 
-  createEffect(() => {
-    store.filter
-    setStore("selected", 0)
-    if (scroll) scroll.scrollTo(0)
-  })
+  createEffect(on(
+    () => store.filter,
+    () => {
+      setStore("selected", 0)
+      if (scroll) scroll.scrollTo(0)
+    },
+    { defer: true }
+  ))
 
   createEffect(() => {
     if (input) {

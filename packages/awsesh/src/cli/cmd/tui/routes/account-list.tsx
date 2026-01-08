@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, createEffect } from "solid-js"
+import { Show, createMemo, createSignal, createEffect, onMount } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
@@ -37,8 +37,14 @@ export function AccountListScreen() {
   const [selectedAccount, setSelectedAccount] = createSignal<Account | null>(null)
   const [preferredRoles, setPreferredRoles] = createSignal<Record<string, string>>({})
   const [profileNames, setProfileNames] = createSignal<Record<string, Record<string, string>>>({})
+  const [lastAccountId, setLastAccountId] = createSignal<string | undefined>(undefined)
 
   const session = createMemo(() => aws.sessions.find((s) => s.name === routeData.sessionName))
+
+  onMount(async () => {
+    const last = await awsesh.lastAccountPerSession.get(routeData.sessionName)
+    setLastAccountId(last)
+  })
 
   createEffect(async () => {
     const s = session()
@@ -466,6 +472,8 @@ export function AccountListScreen() {
     const s = session()
     if (!s) return
 
+    await awsesh.lastAccountPerSession.save(s.name, account.accountId)
+
     if (account.roles.length > 0) {
       const roleName = getPreferredRole(account)
       await handleAssumeRole(account, roleName)
@@ -507,6 +515,7 @@ export function AccountListScreen() {
         onSelect={handleSelect}
         onMove={handleItemMove}
         emptyMessage="No accounts found"
+        initialId={lastAccountId()}
       />
 
       <Show when={aws.error}>

@@ -17,6 +17,7 @@ import type {
   AccountCache,
   RoleCredentials,
   LastSelected,
+  LastSelectedPerSession,
   ActiveCredential,
   LastSetCredential,
 } from "./types"
@@ -136,6 +137,33 @@ export function createAwsesh(options: AwseshOptions) {
           ...existing,
           ...selected,
         }))
+      },
+    },
+
+    lastSession: {
+      get: async (): Promise<string | undefined> => {
+        const data = await storage.read<{ session: string }>("preference/last-session")
+        return data?.session
+      },
+      save: async (sessionName: string): Promise<void> => {
+        await storage.write("preference/last-session", { session: sessionName })
+      },
+    },
+
+    lastAccountPerSession: {
+      get: async (sessionName: string): Promise<string | undefined> => {
+        const data = await storage.read<LastSelectedPerSession>("preference/last-accounts")
+        return data?.[sessionName]
+      },
+      save: async (sessionName: string, accountId: string): Promise<void> => {
+        await storage.update<LastSelectedPerSession>("preference/last-accounts", (draft) => {
+          draft[sessionName] = accountId
+          return draft
+        })
+      },
+      getAll: async (): Promise<LastSelectedPerSession> => {
+        const data = await storage.read<LastSelectedPerSession>("preference/last-accounts")
+        return data ?? {}
       },
     },
 

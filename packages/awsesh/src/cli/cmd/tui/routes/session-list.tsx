@@ -1,7 +1,8 @@
-import { Show, createSignal, createEffect, on } from "solid-js"
+import { Show, createSignal, createEffect, on, onMount } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute } from "../context/route"
 import { useAWS } from "../context/aws"
+import { useAwsesh } from "../context/awsesh"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
 import { useConfig } from "../context/config"
@@ -23,6 +24,7 @@ export function SessionListScreen() {
   const { theme } = useTheme()
   const route = useRoute()
   const aws = useAWS()
+  const awsesh = useAwsesh()
   const keybind = useKeybind()
   const command = useCommand()
   const config = useConfig()
@@ -32,6 +34,12 @@ export function SessionListScreen() {
 
   const [selectedSession, setSelectedSession] = createSignal<SSOSession | null>(null)
   const [tokenExpirations, setTokenExpirations] = createSignal<Record<string, Date>>({})
+  const [lastSessionName, setLastSessionName] = createSignal<string | undefined>(undefined)
+
+  onMount(async () => {
+    const last = await awsesh.lastSession.get()
+    setLastSessionName(last)
+  })
 
   createEffect(on(() => aws.sessions, async (sessions) => {
     if (sessions.length === 0) return
@@ -183,6 +191,8 @@ export function SessionListScreen() {
   const handleSelect = async (item: FilterableListItem<SSOSession>) => {
     const session = item.value
 
+    await awsesh.lastSession.save(session.name)
+
     if (aws.isSessionActive(session.startUrl)) {
       await aws.loadAccounts(session)
       route.navigate({
@@ -238,6 +248,7 @@ export function SessionListScreen() {
           items={items()}
           onSelect={handleSelect}
           onMove={handleItemMove}
+          initialId={lastSessionName()}
         />
       </Show>
 

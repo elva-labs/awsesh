@@ -61,6 +61,10 @@ export interface LastSelected {
   role?: string
 }
 
+export interface LastSelectedPerSession {
+  [sessionName: string]: string
+}
+
 export interface ActiveCredential {
   profileName: string
   accountId: string
