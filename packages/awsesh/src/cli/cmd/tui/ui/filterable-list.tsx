@@ -258,7 +258,21 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
       <Show when={props.showFilter !== false}>
         <box flexDirection="column">
-          <box paddingLeft={1} paddingRight={1} height={1}>
+          <box
+            paddingLeft={1}
+            paddingRight={1}
+            height={1}
+            onMouseUp={() => {
+              if (renderer.getSelection()?.getSelectedText()) return
+              setStore("filterActive", true)
+              setTimeout(() => {
+                input?.focus()
+                if (input && store.filter) {
+                  input.cursorPosition = store.filter.length
+                }
+              }, 1)
+            }}
+          >
             <input
             value={store.filter}
             onInput={(e) => {

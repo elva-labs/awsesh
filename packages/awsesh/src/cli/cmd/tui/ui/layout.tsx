@@ -1,6 +1,6 @@
 import { TextAttributes } from "@opentui/core"
-import { useTerminalDimensions } from "@opentui/solid"
-import { createMemo, Show, type JSX, type ParentProps } from "solid-js"
+import { useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { createMemo, createSignal, Show, type JSX, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useCredentials } from "../context/credentials"
 import { useConfig } from "../context/config"
@@ -182,15 +182,34 @@ export function Footer(props: ParentProps<FooterProps>) {
 export interface KeybindHintProps {
   keybind: string
   label: string
+  onClick?: () => void
 }
 
 export function KeybindHint(props: KeybindHintProps) {
   const { theme } = useTheme()
+  const renderer = useRenderer()
+  const [hover, setHover] = createSignal(false)
+  const clickable = () => !!props.onClick
 
   return (
-    <text>
-      <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>{props.keybind}</span>
-      <span style={{ fg: theme.textMuted }}> {props.label}</span>
-    </text>
+    <box
+      onMouseOver={() => clickable() && setHover(true)}
+      onMouseOut={() => setHover(false)}
+      onMouseUp={() => {
+        if (!clickable()) return
+        if (renderer.getSelection()?.getSelectedText()) return
+        props.onClick?.()
+      }}
+      backgroundColor={hover() ? theme.accent : undefined}
+    >
+      <text>
+        <span style={{ fg: hover() ? theme.background : theme.text, attributes: TextAttributes.BOLD }}>
+          {props.keybind}
+        </span>
+        <span style={{ fg: hover() ? theme.background : theme.textMuted }}>
+          {" "}{props.label}
+        </span>
+      </text>
+    </box>
   )
 }

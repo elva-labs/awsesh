@@ -506,12 +506,15 @@ export function AccountListScreen() {
       }
       footer={
         <Footer
-          right={<KeybindHint keybind={keybind.print("command_list")} label="More" />}
+          right={<KeybindHint keybind={keybind.print("command_list")} label="More" onClick={() => command.show()} />}
         >
-          <KeybindHint keybind={keybind.print("select")} label="Select" />
-          <KeybindHint keybind={keybind.print("role_list")} label="Roles" />
-          <KeybindHint keybind={keybind.print("profile_set")} label="Profile" />
-          <KeybindHint keybind={keybind.print("back")} label="Back" />
+          <KeybindHint keybind={keybind.print("select")} label="Select" onClick={() => {
+            const account = selectedAccount()
+            if (account) handleSelect({ id: account.accountId, title: account.name, value: account })
+          }} />
+          <KeybindHint keybind={keybind.print("role_list")} label="Roles" onClick={() => command.trigger("account.roles")} />
+          <KeybindHint keybind={keybind.print("profile_set")} label="Profile" onClick={() => command.trigger("account.profile")} />
+          <KeybindHint keybind={keybind.print("back")} label="Back" onClick={() => command.trigger("nav.back")} />
         </Footer>
       }
     >

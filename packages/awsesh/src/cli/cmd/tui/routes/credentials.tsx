@@ -167,13 +167,16 @@ export function CredentialsScreen() {
       footer={
         <Footer
           right={
-            <KeybindHint keybind={keybind.print("command_list")} label="More" />
+            <KeybindHint keybind={keybind.print("command_list")} label="More" onClick={() => command.show()} />
           }
         >
-          <KeybindHint keybind={keybind.print("select")} label="Select" />
-          <KeybindHint keybind={keybind.print("session_kill")} label="Kill" />
-          <KeybindHint keybind={keybind.print("credentials_cleanup")} label="Kill All" />
-          <KeybindHint keybind={keybind.print("back")} label="Back" />
+          <KeybindHint keybind={keybind.print("select")} label="Select" onClick={() => {
+            const item = selectedItem()
+            if (item) handleSelect({ id: `${item.profileName}-${item.accountId}-${item.roleName}`, title: item.accountName, value: item })
+          }} />
+          <KeybindHint keybind={keybind.print("session_kill")} label="Kill" onClick={() => command.trigger("credential.kill")} />
+          <KeybindHint keybind={keybind.print("credentials_cleanup")} label="Kill All" onClick={() => command.trigger("credentials.cleanup")} />
+          <KeybindHint keybind={keybind.print("back")} label="Back" onClick={() => command.trigger("nav.back")} />
         </Footer>
       }
     >

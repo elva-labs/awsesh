@@ -1,5 +1,5 @@
 import { createSignal, onMount } from "solid-js"
-import { TextAttributes, type InputRenderable } from "@opentui/core"
+import type { InputRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useAwsesh } from "../context/awsesh"
@@ -7,6 +7,7 @@ import { useAWS } from "../context/aws"
 import { useDialog, type DialogContext } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { FormField } from "../ui/form-field"
+import { DialogBase, DialogButton, DialogFooter } from "../ui/dialog-base"
 import type { SSOSession } from "@awsesh/core"
 
 export type DialogSessionFormProps = {
@@ -124,6 +125,11 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
     }
   }
 
+  const handleCancel = () => {
+    dialog.clear()
+    props.onCancel?.()
+  }
+
   useKeyboard((evt) => {
     if (evt.name === "tab") {
       evt.preventDefault()
@@ -146,14 +152,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          {isEdit ? "Edit SSO Session" : "Add SSO Session"}
-        </text>
-        <text fg={theme.textMuted}>esc</text>
-      </box>
-
+    <DialogBase title={isEdit ? "Edit SSO Session" : "Add SSO Session"}>
       <box flexDirection="column" gap={1} paddingBottom={1}>
         <FormField
           label="Session Name"
@@ -193,17 +192,21 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
         />
       </box>
 
-      <box flexDirection="row" gap={2}>
-        <text fg={theme.text}>
-          {"tab "}
-          <span style={{ fg: theme.textMuted }}>next field</span>
-        </text>
-        <text fg={theme.text}>
-          {"enter "}
-          <span style={{ fg: theme.textMuted }}>save</span>
-        </text>
-      </box>
-    </box>
+      <DialogFooter align="space-between">
+        <text fg={theme.textMuted}>tab to navigate fields</text>
+        <box flexDirection="row" gap={1}>
+          <DialogButton
+            label="Cancel"
+            onClick={handleCancel}
+          />
+          <DialogButton
+            label="Save"
+            variant="primary"
+            onClick={handleSave}
+          />
+        </box>
+      </DialogFooter>
+    </DialogBase>
   )
 }
 

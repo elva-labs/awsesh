@@ -223,13 +223,16 @@ export function SessionListScreen() {
       footer={
         <Footer
           right={
-            <KeybindHint keybind={keybind.print("command_list")} label="More" />
+            <KeybindHint keybind={keybind.print("command_list")} label="More" onClick={() => command.show()} />
           }
         >
-          <KeybindHint keybind={keybind.print("select")} label="Select" />
-          <KeybindHint keybind={keybind.print("session_add")} label="Add" />
-          <KeybindHint keybind={keybind.print("session_edit")} label="Edit" />
-          <KeybindHint keybind={keybind.print("quit")} label="Quit" />
+          <KeybindHint keybind={keybind.print("select")} label="Select" onClick={() => {
+            const session = selectedSession()
+            if (session) handleSelect({ id: session.name, title: session.name, value: session })
+          }} />
+          <KeybindHint keybind={keybind.print("session_add")} label="Add" onClick={() => command.trigger("session.add")} />
+          <KeybindHint keybind={keybind.print("session_edit")} label="Edit" onClick={() => command.trigger("session.edit")} />
+          <KeybindHint keybind={keybind.print("quit")} label="Quit" onClick={() => command.trigger("app.quit")} />
         </Footer>
       }
     >

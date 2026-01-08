@@ -1,8 +1,7 @@
-import { TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
 import { createSignal, onMount, Show, type JSX } from "solid-js"
-import { useKeyboard } from "@opentui/solid"
+import { DialogBase, DialogButton, DialogFooter } from "./dialog-base"
 
 export type DialogPromptProps = {
   title: string
@@ -15,6 +14,7 @@ export type DialogPromptProps = {
 }
 
 export function DialogPrompt(props: DialogPromptProps) {
+  const dialog = useDialog()
   const { theme } = useTheme()
   const [value, setValue] = createSignal(props.value ?? "")
   let input: any
@@ -22,6 +22,12 @@ export function DialogPrompt(props: DialogPromptProps) {
   const handleSubmit = () => {
     const finalValue = value() || props.defaultValue || ""
     props.onConfirm?.(finalValue)
+    dialog.clear()
+  }
+
+  const handleCancel = () => {
+    props.onCancel?.()
+    dialog.clear()
   }
 
   onMount(() => {
@@ -31,13 +37,7 @@ export function DialogPrompt(props: DialogPromptProps) {
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          {props.title}
-        </text>
-        <text fg={theme.textMuted}>esc</text>
-      </box>
+    <DialogBase title={props.title}>
       <box gap={1}>
         <Show when={props.description}>{props.description!()}</Show>
         <input
@@ -57,13 +57,20 @@ export function DialogPrompt(props: DialogPromptProps) {
           ref={(r) => (input = r)}
         />
       </box>
-      <box paddingBottom={1} flexDirection="row" gap={2}>
-        <text fg={theme.text}>
-          {"enter "}
-          <span style={{ fg: theme.textMuted }}>submit</span>
-        </text>
-      </box>
-    </box>
+      <DialogFooter align="right">
+        <box flexDirection="row" gap={1}>
+          <DialogButton
+            label="Cancel"
+            onClick={handleCancel}
+          />
+          <DialogButton
+            label="Submit"
+            variant="primary"
+            onClick={handleSubmit}
+          />
+        </box>
+      </DialogFooter>
+    </DialogBase>
   )
 }
 
@@ -83,11 +90,8 @@ DialogPrompt.show = (
           onConfirm={(value) => {
             resultValue = value
             confirmed = true
-            dialog.clear()
           }}
-          onCancel={() => {
-            dialog.clear()
-          }}
+          onCancel={() => {}}
         />
       ),
       () => {

@@ -1,9 +1,10 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes } from "@opentui/core"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useRenderer } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useAWS } from "../context/aws"
 import { useDialog, type DialogContext } from "../ui/dialog"
+import { DialogBase, DialogButton, DialogFooter } from "../ui/dialog-base"
 import { Spinner } from "../ui/spinner"
 import { Locale } from "../util/locale"
 import { copyToClipboard } from "@/util/clipboard"
@@ -104,15 +105,10 @@ export function DialogSSOLogin(props: DialogSSOLoginProps) {
     }
   }
 
-  useKeyboard((evt) => {
-    if (evt.name === "escape") {
-      cleanup()
-      dialog.clear()
-    }
-    if (evt.name === "c" && loginInfo()) {
-      handleCopy()
-    }
-  })
+  const handleCancel = () => {
+    cleanup()
+    dialog.clear()
+  }
 
   const handleLinkClick = async () => {
     if (renderer.getSelection()?.getSelectedText()) return
@@ -123,12 +119,7 @@ export function DialogSSOLogin(props: DialogSSOLoginProps) {
   }
 
   return (
-    <box flexDirection="column" gap={1} paddingLeft={2} paddingRight={2}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD}>Authenticate with AWS SSO</text>
-        <text fg={theme.textMuted}>esc</text>
-      </box>
-
+    <DialogBase title="Authenticate with AWS SSO">
       <Show when={status() === "loading"}>
         <box flexDirection="row" gap={1} alignItems="center" justifyContent="center">
           <Spinner />
@@ -162,7 +153,7 @@ export function DialogSSOLogin(props: DialogSSOLoginProps) {
               </text>
             </box>
             <text fg={theme.textMuted} marginTop={1}>
-              Code copied to clipboard. Press 'c' to copy again.
+              Code copied to clipboard
             </text>
           </box>
 
@@ -184,7 +175,19 @@ export function DialogSSOLogin(props: DialogSSOLoginProps) {
           </Show>
         </box>
       </Show>
-    </box>
+
+      <DialogFooter align="space-between">
+        <DialogButton
+          label="Copy code"
+          keybind="c"
+          onClick={handleCopy}
+        />
+        <DialogButton
+          label="Cancel"
+          onClick={handleCancel}
+        />
+      </DialogFooter>
+    </DialogBase>
   )
 }
 

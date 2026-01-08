@@ -121,6 +121,10 @@ export function DialogCommand(props: DialogCommandProps) {
                         dialog.clear()
                         option.onSelect?.(dialog)
                       }}
+                      onMouseOver={() => {
+                        const idx = flat().findIndex((x) => x.id === option.id)
+                        if (idx !== -1) setStore("selected", idx)
+                      }}
                       backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
                       paddingLeft={1}
                       paddingRight={1}

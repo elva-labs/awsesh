@@ -5,6 +5,7 @@ import { createStore } from "solid-js/store"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import { useDialog, type DialogContext } from "../ui/dialog"
 import { useKeybind } from "../context/keybind"
+import { DialogBase } from "../ui/dialog-base"
 
 interface ActionOption {
   id: string
@@ -41,6 +42,12 @@ export function DialogCredentialActions(props: DialogCredentialActionsProps) {
     setStore("selected", next)
   }
 
+  function handleSelect(option: ActionOption) {
+    dialog.clear()
+    if (option.id === "refresh") props.onRefresh?.()
+    if (option.id === "kill") props.onKill?.()
+  }
+
   useKeyboard((evt) => {
     if (evt.name === "up" || (evt.ctrl && evt.name === "p") || evt.name === "k") {
       evt.preventDefault()
@@ -54,25 +61,14 @@ export function DialogCredentialActions(props: DialogCredentialActionsProps) {
     }
     if (evt.name === "return") {
       evt.preventDefault()
-      const option = selected()
-      dialog.clear()
-      if (option.id === "refresh") props.onRefresh?.()
-      if (option.id === "kill") props.onKill?.()
+      handleSelect(selected())
       return
     }
   })
 
   return (
-    <box gap={1}>
-      <box paddingLeft={3} paddingRight={2}>
-        <box flexDirection="row" justifyContent="space-between">
-          <text fg={theme.text} attributes={TextAttributes.BOLD}>
-            {props.credentialName}
-          </text>
-          <text fg={theme.textMuted}>esc</text>
-        </box>
-      </box>
-      <box paddingLeft={2} paddingRight={2}>
+    <DialogBase title={props.credentialName}>
+      <box>
         <For each={options}>
           {(option, index) => {
             const active = createMemo(() => index() === store.selected)
@@ -81,9 +77,10 @@ export function DialogCredentialActions(props: DialogCredentialActionsProps) {
                 flexDirection="row"
                 onMouseUp={() => {
                   if (renderer.getSelection()?.getSelectedText()) return
-                  dialog.clear()
-                  if (option.id === "refresh") props.onRefresh?.()
-                  if (option.id === "kill") props.onKill?.()
+                  handleSelect(option)
+                }}
+                onMouseOver={() => {
+                  setStore("selected", index())
                 }}
                 backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
                 paddingLeft={1}
@@ -105,7 +102,7 @@ export function DialogCredentialActions(props: DialogCredentialActionsProps) {
           }}
         </For>
       </box>
-    </box>
+    </DialogBase>
   )
 }
 

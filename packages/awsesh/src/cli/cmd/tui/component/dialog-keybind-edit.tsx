@@ -4,6 +4,7 @@ import { useKeyboard } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useConfig, type KeybindsConfig } from "../context/config"
 import { Config } from "@/config/config"
+import { DialogBase, DialogButton, DialogFooter } from "../ui/dialog-base"
 
 interface DialogKeybindEditProps {
   keybindKey: keyof KeybindsConfig
@@ -42,6 +43,45 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
 
   function formatBindingForDisplay(binding: string): string {
     return binding
+  }
+
+  function handleAddKeybind() {
+    setIsCapturing(true)
+    setMessage("Press any key combination...")
+  }
+
+  function handleAddLeader() {
+    setIsCapturingLeader(true)
+    setMessage("Press key for <leader>+key binding...")
+  }
+
+  function handleRemoveLast() {
+    if (capturedKeys().length > 0) {
+      const current = capturedKeys()
+      setCapturedKeys(current.slice(0, -1))
+      setMessage("Removed last keybind")
+    }
+  }
+
+  function handleClear() {
+    setCapturedKeys([])
+    setMessage("Cleared all keybinds")
+  }
+
+  function handleReset() {
+    setCapturedKeys([...defaultBindings])
+    setMessage("Reset to defaults")
+  }
+
+  async function handleSave() {
+    const bindings = capturedKeys()
+    await Config.setKeybind(props.keybindKey, bindings)
+    config.set("keybinds", {
+      ...config.data.keybinds,
+      [props.keybindKey]: bindings,
+    })
+    props.onSave()
+    props.onBack()
   }
 
   useKeyboard((evt) => {
@@ -88,68 +128,44 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
     }
 
     if (evt.name === "a" || evt.name === "return") {
-      setIsCapturing(true)
-      setMessage("Press any key combination...")
+      handleAddKeybind()
       evt.preventDefault()
       return
     }
 
     if (evt.name === "l") {
-      setIsCapturingLeader(true)
-      setMessage("Press key for <leader>+key binding...")
+      handleAddLeader()
       evt.preventDefault()
       return
     }
 
-    if (evt.name === "d" && capturedKeys().length > 0) {
-      const current = capturedKeys()
-      setCapturedKeys(current.slice(0, -1))
-      setMessage("Removed last keybind")
+    if (evt.name === "d") {
+      handleRemoveLast()
       evt.preventDefault()
       return
     }
 
     if (evt.name === "r") {
-      setCapturedKeys([...defaultBindings])
-      setMessage("Reset to defaults")
+      handleReset()
       evt.preventDefault()
       return
     }
 
     if (evt.name === "s" || (evt.ctrl && evt.name === "s")) {
-      saveAndBack()
+      handleSave()
       evt.preventDefault()
       return
     }
 
     if (evt.name === "c") {
-      setCapturedKeys([])
-      setMessage("Cleared all keybinds")
+      handleClear()
       evt.preventDefault()
       return
     }
   })
 
-  async function saveAndBack() {
-    const bindings = capturedKeys()
-    await Config.setKeybind(props.keybindKey, bindings)
-    config.set("keybinds", {
-      ...config.data.keybinds,
-      [props.keybindKey]: bindings,
-    })
-    props.onSave()
-    props.onBack()
-  }
-
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
-          Edit: {props.label}
-        </text>
-        <text fg={theme.textMuted}>esc</text>
-      </box>
-
+    <DialogBase title={`Edit: ${props.label}`} onClose={props.onBack}>
       <box flexDirection="column" gap={1} paddingBottom={1}>
         <box flexDirection="column">
           <text fg={theme.accent} attributes={TextAttributes.BOLD}>
@@ -169,40 +185,28 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
           <text fg={theme.accent} attributes={TextAttributes.BOLD}>
             Default
           </text>
-          <text fg={theme.text}>{defaultBindings.join(", ")}</text>
+          <text fg={theme.textMuted}>{defaultBindings.join(", ")}</text>
         </box>
 
         <Show when={message()}>
-          <box>
-            <text fg={theme.primary}>{message()}</text>
-          </box>
+          <text fg={theme.primary}>{message()}</text>
         </Show>
       </box>
 
-      <box flexDirection="column" gap={0.5}>
-        <text fg={theme.text}>
-          <span style={{ fg: theme.accent }}>a</span>
-          <span style={{ fg: theme.textMuted }}>/</span>
-          <span style={{ fg: theme.accent }}>enter</span>
-          <span style={{ fg: theme.textMuted }}> add keybind</span>
-          {"  "}
-          <span style={{ fg: theme.accent }}>l</span>
-          <span style={{ fg: theme.textMuted }}> add leader+key</span>
-          {"  "}
-          <span style={{ fg: theme.accent }}>d</span>
-          <span style={{ fg: theme.textMuted }}> remove last</span>
-        </text>
-        <text fg={theme.text}>
-          <span style={{ fg: theme.accent }}>c</span>
-          <span style={{ fg: theme.textMuted }}> clear all</span>
-          {"  "}
-          <span style={{ fg: theme.accent }}>r</span>
-          <span style={{ fg: theme.textMuted }}> reset to default</span>
-          {"  "}
-          <span style={{ fg: theme.accent }}>s</span>
-          <span style={{ fg: theme.textMuted }}> save</span>
-        </text>
-      </box>
-    </box>
+      <DialogFooter direction="column" align="left">
+        <box flexDirection="row" gap={1}>
+          <DialogButton label="Add" keybind="a" onClick={handleAddKeybind} />
+          <DialogButton label="Leader+" keybind="l" onClick={handleAddLeader} />
+          <DialogButton label="Remove" keybind="d" onClick={handleRemoveLast} />
+        </box>
+        <box flexDirection="row" justifyContent="space-between" width="100%">
+          <box flexDirection="row" gap={1}>
+            <DialogButton label="Clear" keybind="c" onClick={handleClear} />
+            <DialogButton label="Reset" keybind="r" onClick={handleReset} />
+          </box>
+          <DialogButton label="Save" keybind="s" variant="primary" onClick={handleSave} />
+        </box>
+      </DialogFooter>
+    </DialogBase>
   )
 }

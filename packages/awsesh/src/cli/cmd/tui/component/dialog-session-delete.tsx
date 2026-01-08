@@ -1,9 +1,9 @@
-import { TextAttributes } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useAWS } from "../context/aws"
 import { useDialog, type DialogContext } from "../ui/dialog"
 import { useToast } from "../ui/toast"
+import { DialogBase, DialogButton, DialogFooter } from "../ui/dialog-base"
 
 export type DialogSessionDeleteProps = {
   sessionName: string
@@ -31,6 +31,11 @@ export function DialogSessionDelete(props: DialogSessionDeleteProps) {
     }
   }
 
+  const handleCancel = () => {
+    dialog.clear()
+    props.onCancel?.()
+  }
+
   useKeyboard((evt) => {
     if (evt.name === "d") {
       evt.preventDefault()
@@ -39,14 +44,7 @@ export function DialogSessionDelete(props: DialogSessionDeleteProps) {
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.error} attributes={TextAttributes.BOLD}>
-          Delete SSO Session?
-        </text>
-        <text fg={theme.textMuted}>esc</text>
-      </box>
-
+    <DialogBase title="Delete SSO Session?" titleColor={theme.error}>
       <box flexDirection="column">
         <text fg={theme.text}>
           Are you sure you want to delete "{props.sessionName}"?
@@ -54,17 +52,21 @@ export function DialogSessionDelete(props: DialogSessionDeleteProps) {
         <text fg={theme.warning}>This action cannot be undone.</text>
       </box>
 
-      <box flexDirection="row" gap={2}>
-        <text fg={theme.text}>
-          <span style={{ fg: theme.error }}>d</span>
-          <span style={{ fg: theme.textMuted }}> delete</span>
-        </text>
-        <text fg={theme.text}>
-          <span style={{ fg: theme.accent }}>esc</span>
-          <span style={{ fg: theme.textMuted }}> cancel</span>
-        </text>
-      </box>
-    </box>
+      <DialogFooter align="right">
+        <box flexDirection="row" gap={1}>
+          <DialogButton
+            label="Cancel"
+            onClick={handleCancel}
+          />
+          <DialogButton
+            label="Delete"
+            keybind="d"
+            variant="danger"
+            onClick={handleDelete}
+          />
+        </box>
+      </DialogFooter>
+    </DialogBase>
   )
 }
 

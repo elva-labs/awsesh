@@ -1,7 +1,7 @@
-import { TextAttributes } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "../ui/dialog"
+import { DialogBase, DialogButton, DialogFooter } from "../ui/dialog-base"
 
 export type DialogCredentialsCleanupProps = {
   onConfirm?: () => void
@@ -17,6 +17,11 @@ export function DialogCredentialsCleanup(props: DialogCredentialsCleanupProps) {
     props.onConfirm?.()
   }
 
+  const handleCancel = () => {
+    dialog.clear()
+    props.onCancel?.()
+  }
+
   useKeyboard((evt) => {
     if (evt.name === "y") {
       evt.preventDefault()
@@ -25,14 +30,7 @@ export function DialogCredentialsCleanup(props: DialogCredentialsCleanupProps) {
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.error} attributes={TextAttributes.BOLD}>
-          Cleanup All Credentials?
-        </text>
-        <text fg={theme.textMuted}>esc</text>
-      </box>
-
+    <DialogBase title="Cleanup All Credentials?" titleColor={theme.error}>
       <box flexDirection="column">
         <text fg={theme.text}>
           Are you sure you want to flush all active credentials?
@@ -40,17 +38,21 @@ export function DialogCredentialsCleanup(props: DialogCredentialsCleanupProps) {
         <text fg={theme.warning}>This will remove all CLI credentials.</text>
       </box>
 
-      <box flexDirection="row" gap={2}>
-        <text fg={theme.text}>
-          <span style={{ fg: theme.error }}>y</span>
-          <span style={{ fg: theme.textMuted }}> confirm</span>
-        </text>
-        <text fg={theme.text}>
-          <span style={{ fg: theme.accent }}>esc</span>
-          <span style={{ fg: theme.textMuted }}> cancel</span>
-        </text>
-      </box>
-    </box>
+      <DialogFooter align="right">
+        <box flexDirection="row" gap={1}>
+          <DialogButton
+            label="Cancel"
+            onClick={handleCancel}
+          />
+          <DialogButton
+            label="Confirm"
+            keybind="y"
+            variant="danger"
+            onClick={handleConfirm}
+          />
+        </box>
+      </DialogFooter>
+    </DialogBase>
   )
 }
 
