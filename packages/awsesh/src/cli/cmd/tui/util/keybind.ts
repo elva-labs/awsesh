@@ -11,7 +11,7 @@ export namespace Keybind {
 
   export function fromParsedKey(key: ParsedKey, leader = false): Info {
     return {
-      name: key.name,
+      name: key.name === " " ? "space" : key.name,
       ctrl: key.ctrl,
       meta: key.meta,
       shift: key.shift,
@@ -36,7 +36,7 @@ export namespace Keybind {
       else if (lower === "shift") result.shift = true
       else if (lower === "meta" || lower === "cmd") result.meta = true
       else if (lower === "leader") result.leader = true
-      else if (lower === "space") result.name = "space"
+      else if (lower === "space" || lower === " ") result.name = "space"
       else {
         if (part.length === 1 && part !== part.toLowerCase()) {
           result.shift = true
@@ -64,11 +64,12 @@ export namespace Keybind {
     if (keybind.ctrl) parts.push("ctrl")
     if (keybind.meta) parts.push("meta")
     if (keybind.name) {
-      if (keybind.shift && keybind.name.length === 1) {
-        parts.push(keybind.name.toUpperCase())
+      const name = keybind.name === " " ? "space" : keybind.name
+      if (keybind.shift && name.length === 1) {
+        parts.push(name.toUpperCase())
       } else {
         if (keybind.shift) parts.push("shift")
-        parts.push(keybind.name)
+        parts.push(name)
       }
     }
     return parts.join("+")

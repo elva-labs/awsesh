@@ -42,7 +42,8 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
   }
 
   function formatBindingForDisplay(binding: string): string {
-    return binding
+    if (binding === " ") return "space"
+    return binding.replace(/^" "$/, "space").replace(/\+" "/, "+space")
   }
 
   function handleAddKeybind() {
@@ -185,7 +186,7 @@ export function DialogKeybindEdit(props: DialogKeybindEditProps) {
           <text fg={theme.accent} attributes={TextAttributes.BOLD}>
             Default
           </text>
-          <text fg={theme.textMuted}>{defaultBindings.join(", ")}</text>
+          <text fg={theme.textMuted}>{defaultBindings.map(formatBindingForDisplay).join(", ")}</text>
         </box>
 
         <Show when={message()}>
