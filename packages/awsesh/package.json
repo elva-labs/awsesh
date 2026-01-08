@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "awsesh",
-  "version": "1.0.0-alpha.202601080928",
+  "version": "1.0.0-beta.202601081433",
   "description": "AWS SSO session manager with OpenTUI",
   "type": "module",
   "private": true,
