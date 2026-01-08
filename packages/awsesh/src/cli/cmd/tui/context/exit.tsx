@@ -9,8 +9,8 @@ export const { use: useExit, provider: ExitProvider } = createSimpleContext({
       renderer.destroy();
       await input?.onExit?.();
       await new Promise<void>((resolve) => {
-        process.stdout.write("", () => resolve())
-      })
+        process.stdout.write("", () => resolve());
+      });
       process.exit(0);
     };
   },

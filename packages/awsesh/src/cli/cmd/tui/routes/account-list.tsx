@@ -374,6 +374,11 @@ export function AccountListScreen() {
           expiration: result.expiration.toISOString(),
         })
 
+        setProfileNames((prev) => ({
+          ...prev,
+          [account.name]: { ...prev[account.name], [roleName]: sanitized },
+        }))
+
         toast.show({
           variant: "success",
           title: "Credentials Set",

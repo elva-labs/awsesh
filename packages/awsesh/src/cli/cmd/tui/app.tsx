@@ -87,13 +87,12 @@ async function printLastSetCredential(): Promise<void> {
   const awsesh = getAwsesh();
   const lastSet = await awsesh.lastSetCredential.get();
   if (lastSet) {
-    const session = await awsesh.sessions.get(lastSet.sessionName);
     printSessionInfo({
       sessionName: lastSet.sessionName,
       accountName: lastSet.accountName,
       accountId: lastSet.accountId,
       roleName: lastSet.roleName,
-      region: lastSet.region ?? session?.defaultRegion ?? "unknown",
+      region: lastSet.region ?? "unknown",
       profileName: lastSet.profileName,
     });
   }

@@ -1,3 +1,5 @@
+import fs from "node:fs"
+
 const RESET = "\x1b[0m"
 const DIM = "\x1b[2m"
 const GRAY = "\x1b[38;2;107;114;128m"
@@ -22,5 +24,5 @@ export function printSessionInfo(info: SessionInfo): void {
   }
   lines.push("")
 
-  process.stdout.write(lines.join("\n"))
+  fs.writeSync(1, `${lines.join("\n")}\n`)
 }
