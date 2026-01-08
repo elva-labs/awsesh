@@ -1,4 +1,5 @@
 import { cmd } from "./cmd"
+import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
 
 export const sessions = cmd({
@@ -19,10 +20,10 @@ export const sessions = cmd({
 
     if (sessionList.length === 0) {
       if (json) {
-        console.log(JSON.stringify([]))
+        UI.println(JSON.stringify([]))
       } else {
-        console.log("No SSO sessions configured.")
-        console.log("Run 'awsesh' to create a new session.")
+        UI.println("No SSO sessions configured.")
+        UI.println("Run 'awsesh' to create a new session.")
       }
       return
     }
@@ -41,22 +42,21 @@ export const sessions = cmd({
           }
         })
       )
-      console.log(JSON.stringify(output, null, 2))
+      UI.println(JSON.stringify(output, null, 2))
       return
     }
 
-    console.log()
+    UI.println()
     for (const session of sessionList) {
       const token = await awsesh.tokens.get(session.startUrl)
-      const status = token ? "\x1b[32m●\x1b[0m" : "\x1b[90m○\x1b[0m"
-      console.log(`${status} ${session.name}`)
-      console.log(`  \x1b[90mStart URL:\x1b[0m ${session.startUrl}`)
-      console.log(`  \x1b[90mSSO Region:\x1b[0m ${session.ssoRegion}`)
-      console.log(`  \x1b[90mDefault Region:\x1b[0m ${session.defaultRegion}`)
+      UI.println(UI.bullet(session.name, token ? "active" : "inactive"))
+      UI.println(UI.kv("Start URL", session.startUrl))
+      UI.println(UI.kv("SSO Region", session.ssoRegion))
+      UI.println(UI.kv("Default Region", session.defaultRegion))
       if (token) {
-        console.log(`  \x1b[90mToken expires:\x1b[0m ${token.expiresAt.toLocaleString()}`)
+        UI.println(UI.kv("Token expires", token.expiresAt.toLocaleString()))
       }
-      console.log()
+      UI.println()
     }
   },
 })

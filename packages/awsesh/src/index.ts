@@ -6,7 +6,7 @@ import { UI } from "./cli/ui"
 
 import { auth } from "./cli/cmd/auth.js"
 import { whoami } from "./cli/cmd/whoami.js"
-import { session } from "./cli/cmd/session.js"
+
 import { migrate } from "./cli/cmd/migrate.js"
 import { config, data } from "./cli/cmd/open.js"
 import { TuiCommand } from "./cli/cmd/tui/thread.js"
@@ -17,7 +17,12 @@ import { set } from "./cli/cmd/set.js"
 
 import { Installation } from "./installation"
 
-const cli = yargs(hideBin(process.argv))
+const args = hideBin(process.argv)
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(UI.logo())
+}
+
+const cli = yargs(args)
   .scriptName("awsesh")
   .help("help", "show help")
   .alias("help", "h")
@@ -43,13 +48,12 @@ const cli = yargs(hideBin(process.argv))
       args: process.argv.slice(2),
     })
   })
-  .usage(`\n${UI.logo()}`)
+  .usage("")
   .command(TuiCommand)
   .command(set)
   .command(sessions)
   .command(accounts)
   .command(credentials)
-  .command(session)
   .command(auth)
   .command(whoami)
   .command(migrate)

@@ -1,5 +1,6 @@
 import * as prompts from "@clack/prompts"
 import { cmd } from "./cmd"
+import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
 import { authenticate } from "./util/auth"
 
@@ -27,15 +28,15 @@ export const accounts = cmd({
     if (!selectedSession) {
       const sessionList = await awsesh.sessions.list()
       if (sessionList.length === 0) {
-        console.error("No SSO sessions configured.")
-        console.error("Run 'awsesh' to create a new session.")
+        UI.error("No SSO sessions configured.")
+        UI.println("Run 'awsesh' to create a new session.")
         process.exit(1)
       }
 
       if (sessionList.length === 1) {
         selectedSession = sessionList[0].name
       } else {
-        console.log()
+        UI.println()
         const result = await prompts.select({
           message: "Select SSO session",
           options: sessionList.map((s) => ({
@@ -54,8 +55,8 @@ export const accounts = cmd({
 
     const session = await awsesh.sessions.get(selectedSession)
     if (!session) {
-      console.error(`SSO session '${selectedSession}' not found.`)
-      console.error("Run 'awsesh sessions' to see available sessions.")
+      UI.error(`SSO session '${selectedSession}' not found.`)
+      UI.println("Run 'awsesh sessions' to see available sessions.")
       process.exit(1)
     }
 
@@ -64,24 +65,23 @@ export const accounts = cmd({
 
     if (accountList.length === 0) {
       if (json) {
-        console.log(JSON.stringify([]))
+        UI.println(JSON.stringify([]))
       } else {
-        console.log("No accounts found for this session.")
+        UI.println("No accounts found for this session.")
       }
       return
     }
 
     if (json) {
-      console.log(JSON.stringify(accountList, null, 2))
+      UI.println(JSON.stringify(accountList, null, 2))
       return
     }
 
-    console.log()
-    console.log(`\x1b[90mAccounts for\x1b[0m ${session.name}:\n`)
+    UI.section(`Accounts for ${session.name}`)
     for (const account of accountList) {
-      console.log(`  ${account.name}`)
-      console.log(`    \x1b[90mAccount ID:\x1b[0m ${account.accountId}`)
-      console.log()
+      UI.println(`  ${account.name}`)
+      UI.println(UI.kv("Account ID", account.accountId, 4))
+      UI.println()
     }
   },
 })

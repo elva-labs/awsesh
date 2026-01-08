@@ -1,5 +1,6 @@
 import * as prompts from "@clack/prompts"
 import { cmd } from "./cmd"
+import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
 import { authenticate } from "./util/auth"
 import type { SSOSession, Account } from "@awsesh/core"
@@ -59,8 +60,8 @@ export const set = cmd({
 
     const sessionList = await awsesh.sessions.list()
     if (sessionList.length === 0) {
-      console.error("No SSO sessions configured.")
-      console.error("Run 'awsesh' to create a new session.")
+      UI.error("No SSO sessions configured.")
+      UI.println("Run 'awsesh' to create a new session.")
       process.exit(1)
     }
 
@@ -72,7 +73,7 @@ export const set = cmd({
         session = sessionList[0]
         selectedSessionName = session.name
       } else {
-        console.log()
+        UI.println()
         const lastSession = await awsesh.lastSession.get()
         const sortedSessions = [...sessionList].sort((a, b) => {
           if (a.name === lastSession) return -1
@@ -100,8 +101,8 @@ export const set = cmd({
     }
 
     if (!session) {
-      console.error(`SSO session '${selectedSessionName}' not found.`)
-      console.error("Run 'awsesh sessions' to see available sessions.")
+      UI.error(`SSO session '${selectedSessionName}' not found.`)
+      UI.println("Run 'awsesh sessions' to see available sessions.")
       process.exit(1)
     }
 
@@ -111,7 +112,7 @@ export const set = cmd({
     const accountList = await awsesh.sso.listAccounts(session, token.token)
 
     if (accountList.length === 0) {
-      console.error("No accounts found for this session.")
+      UI.error("No accounts found for this session.")
       process.exit(1)
     }
 
@@ -126,7 +127,7 @@ export const set = cmd({
         return a.name.localeCompare(b.name)
       })
 
-      console.log()
+      UI.println()
       const result = await prompts.select({
         message: "Select account",
         options: sortedAccounts.map((a) => ({
@@ -148,8 +149,8 @@ export const set = cmd({
     }
 
     if (!account) {
-      console.error(`Account '${selectedAccountName}' not found.`)
-      console.error("Run 'awsesh accounts' to see available accounts.")
+      UI.error(`Account '${selectedAccountName}' not found.`)
+      UI.println("Run 'awsesh accounts' to see available accounts.")
       process.exit(1)
     }
 
@@ -158,7 +159,7 @@ export const set = cmd({
     const roleList = await awsesh.sso.listRoles(session, token.token, account.accountId)
 
     if (roleList.length === 0) {
-      console.error(`No roles found for account '${account.name}'.`)
+      UI.error(`No roles found for account '${account.name}'.`)
       process.exit(1)
     }
 
@@ -180,7 +181,7 @@ export const set = cmd({
             return a.localeCompare(b)
           })
 
-          console.log()
+          UI.println()
           const result = await prompts.select({
             message: "Select role",
             options: sortedRoles.map((r) => ({
@@ -203,8 +204,8 @@ export const set = cmd({
         if (matchedRole) {
           selectedRole = matchedRole
         } else {
-          console.error(`Role '${selectedRole}' not found for account '${account.name}'.`)
-          console.error(`Available roles: ${roleList.join(", ")}`)
+          UI.error(`Role '${selectedRole}' not found for account '${account.name}'.`)
+          UI.println(`Available roles: ${roleList.join(", ")}`)
           process.exit(1)
         }
       }
@@ -214,7 +215,7 @@ export const set = cmd({
 
     if (typedArgs.browser) {
       const url = awsesh.sso.getAccountUrl(session, account.accountId, token.token, selectedRole)
-      console.log()
+      UI.println()
       prompts.log.info("Opening AWS console in browser...")
       const { openBrowser } = await import("@/util/browser")
       await openBrowser(url)
@@ -263,20 +264,20 @@ export const set = cmd({
     spinner.stop("Credentials set")
 
     if (typedArgs.eval) {
-      console.log()
-      console.log(`export AWS_REGION='${effectiveRegion}'`)
-      console.log(`export AWS_ACCESS_KEY_ID='${creds.accessKeyId}'`)
-      console.log(`export AWS_SECRET_ACCESS_KEY='${creds.secretAccessKey}'`)
-      console.log(`export AWS_SESSION_TOKEN='${creds.sessionToken}'`)
-      console.log(`export AWS_SESSION_EXPIRATION='${creds.expiration.toISOString()}'`)
+      UI.println()
+      UI.println(`export AWS_REGION='${effectiveRegion}'`)
+      UI.println(`export AWS_ACCESS_KEY_ID='${creds.accessKeyId}'`)
+      UI.println(`export AWS_SECRET_ACCESS_KEY='${creds.secretAccessKey}'`)
+      UI.println(`export AWS_SESSION_TOKEN='${creds.sessionToken}'`)
+      UI.println(`export AWS_SESSION_EXPIRATION='${creds.expiration.toISOString()}'`)
     } else {
-      console.log()
-      console.log(`  \x1b[90mProfile:\x1b[0m ${profileName}`)
-      console.log(`  \x1b[90mRegion:\x1b[0m ${effectiveRegion}`)
-      console.log(`  \x1b[90mAccount:\x1b[0m ${account.name} (${account.accountId})`)
-      console.log(`  \x1b[90mRole:\x1b[0m ${selectedRole}`)
-      console.log(`  \x1b[90mExpires:\x1b[0m ${creds.expiration.toLocaleString()}`)
-      console.log()
+      UI.println()
+      UI.println(UI.kv("Profile", profileName))
+      UI.println(UI.kv("Region", effectiveRegion))
+      UI.println(UI.kv("Account", `${account.name} (${account.accountId})`))
+      UI.println(UI.kv("Role", selectedRole))
+      UI.println(UI.kv("Expires", creds.expiration.toLocaleString()))
+      UI.println()
     }
   },
 })

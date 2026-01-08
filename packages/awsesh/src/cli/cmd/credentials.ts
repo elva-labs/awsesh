@@ -1,4 +1,5 @@
 import { cmd } from "./cmd"
+import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
 
 export const credentials = cmd({
@@ -41,16 +42,16 @@ export const credentials = cmd({
 
     if (credentialsList.length === 0) {
       if (json) {
-        console.log(JSON.stringify([]))
+        UI.println(JSON.stringify([]))
       } else {
-        console.log("No active credentials.")
-        console.log("Run 'awsesh set' to set credentials.")
+        UI.println("No active credentials.")
+        UI.println("Run 'awsesh set' to set credentials.")
       }
       return
     }
 
     if (json) {
-      console.log(JSON.stringify(credentialsList, null, 2))
+      UI.println(JSON.stringify(credentialsList, null, 2))
       return
     }
 
@@ -61,10 +62,8 @@ export const credentials = cmd({
       grouped.set(cred.sessionName, existing)
     }
 
-    console.log()
     for (const [sessionName, creds] of grouped) {
-      console.log(`\x1b[36m${sessionName}\x1b[0m`)
-      console.log()
+      UI.section(sessionName)
 
       for (const cred of creds) {
         const expiration = new Date(cred.expiration)
@@ -72,23 +71,19 @@ export const credentials = cmd({
         const isExpired = expiration <= now
         const timeLeft = Math.round((expiration.getTime() - now.getTime()) / 1000 / 60)
 
-        const status = isExpired
-          ? "\x1b[31m●\x1b[0m"
-          : cred.isDefault
-            ? "\x1b[32m●\x1b[0m"
-            : "\x1b[90m○\x1b[0m"
+        const status = isExpired ? "error" : cred.isDefault ? "active" : "inactive"
 
         const expiryText = isExpired
-          ? "\x1b[31mexpired\x1b[0m"
+          ? UI.red("expired")
           : timeLeft < 60
-            ? `\x1b[33m${timeLeft}m remaining\x1b[0m`
-            : `\x1b[90m${Math.round(timeLeft / 60)}h remaining\x1b[0m`
+            ? UI.yellow(`${timeLeft}m remaining`)
+            : UI.dim(`${Math.round(timeLeft / 60)}h remaining`)
 
-        console.log(`  ${status} ${cred.accountName} / ${cred.roleName}`)
-        console.log(`    \x1b[90mProfile:\x1b[0m ${cred.profileName}`)
-        console.log(`    \x1b[90mAccount ID:\x1b[0m ${cred.accountId}`)
-        console.log(`    \x1b[90mExpires:\x1b[0m ${expiryText}`)
-        console.log()
+        UI.println(`  ${UI.bullet(`${cred.accountName} / ${cred.roleName}`, status)}`)
+        UI.println(UI.kv("Profile", cred.profileName, 4))
+        UI.println(UI.kv("Account ID", cred.accountId, 4))
+        UI.println(UI.kv("Expires", expiryText, 4))
+        UI.println()
       }
     }
   },
