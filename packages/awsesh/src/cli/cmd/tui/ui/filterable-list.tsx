@@ -141,11 +141,11 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
   let commandsSuspended = false
   createEffect(() => {
-    const hasFilter = store.filter.length > 0
-    if (hasFilter && !commandsSuspended) {
+    const shouldSuspend = store.filterActive
+    if (shouldSuspend && !commandsSuspended) {
       command.suspend(true)
       commandsSuspended = true
-    } else if (!hasFilter && commandsSuspended) {
+    } else if (!shouldSuspend && commandsSuspended) {
       command.suspend(false)
       commandsSuspended = false
     }
