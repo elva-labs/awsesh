@@ -18,7 +18,8 @@ import { set } from "./cli/cmd/set.js"
 import { Installation } from "./installation"
 
 const args = hideBin(process.argv)
-if (args.includes("--help") || args.includes("-h")) {
+const showHelp = args.includes("--help") || args.includes("-h") || args[0] === "help"
+if (showHelp) {
   console.log(UI.logo())
 }
 
