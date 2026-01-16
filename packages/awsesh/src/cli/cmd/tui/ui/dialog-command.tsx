@@ -1,4 +1,4 @@
-import { RGBA, TextAttributes } from "@opentui/core"
+import { RGBA, TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -50,11 +50,31 @@ export function DialogCommand(props: DialogCommandProps) {
 
   const selected = createMemo(() => flat()[store.selected])
 
+  let scroll: ScrollBoxRenderable
+
   function move(direction: number) {
     let next = store.selected + direction
     if (next < 0) next = flat().length - 1
     if (next >= flat().length) next = 0
+    moveTo(next)
+  }
+
+  function moveTo(next: number) {
     setStore("selected", next)
+    if (!scroll) return
+    const item = flat()[next]
+    if (!item) return
+    const target = scroll.getChildren().find((child) => child.id === item.id)
+    if (!target) return
+    const y = target.y - scroll.y
+    if (y + target.height > scroll.height) {
+      scroll.scrollBy(y + target.height - scroll.height)
+    } else if (y < 0) {
+      scroll.scrollBy(y)
+      if (next === 0) {
+        scroll.scrollTo(0)
+      }
+    }
   }
 
   useKeyboard((evt) => {
@@ -99,7 +119,7 @@ export function DialogCommand(props: DialogCommandProps) {
           <text fg={theme.textMuted}>esc</text>
         </box>
       </box>
-      <scrollbox paddingLeft={2} paddingRight={2} scrollbarOptions={{ visible: false }} maxHeight={height()}>
+      <scrollbox paddingLeft={2} paddingRight={2} scrollbarOptions={{ visible: false }} maxHeight={height()} ref={(r) => { scroll = r as ScrollBoxRenderable }}>
         <For each={grouped()}>
           {([category, options], index) => (
             <>
@@ -115,6 +135,7 @@ export function DialogCommand(props: DialogCommandProps) {
                   const active = createMemo(() => option.id === selected()?.id)
                   return (
                     <box
+                      id={option.id}
                       flexDirection="row"
                       onMouseUp={() => {
                         if (renderer.getSelection()?.getSelectedText()) return
