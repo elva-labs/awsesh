@@ -1,5 +1,19 @@
 # (AW)Sesh 🔐
 
+## Beta testing of new version available!
+
+Currently I'm testinga new version of awsesh on the beta branch.
+It's a major rewrite to TypeScript and an API-based architecture that makes it ripe for plugin-ability and scripting as well.
+Please check it out if you are new here!
+
+```sh
+brew tap elva-labs/elva
+brew install awsesh-beta
+```
+[Link to branch here](https://github.com/elva-labs/awsesh/tree/beta)
+
+## What is it?
+
 Sesh is a simple to use AWS session manager with charm! ✨💕
 
 Sesh is made to easily manage your AWS SSO sessions and accounts.
