@@ -1,7 +1,7 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { batch, createContext, Show, useContext, type JSX, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
-import { RGBA, type Renderable } from "@opentui/core"
+import { RGBA, type Renderable, type InputRenderable } from "@opentui/core"
 import { createStore } from "solid-js/store"
 
 export function Dialog(
@@ -65,7 +65,7 @@ function init() {
   })
 
   const renderer = useRenderer()
-  let focus: InputRenderable | null
+  let focus: Renderable | null
 
   function refocus() {
     setTimeout(() => {

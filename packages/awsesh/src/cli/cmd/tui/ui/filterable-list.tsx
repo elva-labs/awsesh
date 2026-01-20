@@ -5,7 +5,7 @@ import { useTheme } from "../context/theme"
 import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
 import { useDialog } from "./dialog"
-import { TextAttributes, RGBA, type InputRenderable, type ScrollBoxRenderable, type ParsedKey } from "@opentui/core"
+import { TextAttributes, RGBA, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { Locale } from "../util/locale"
 import * as fuzzysort from "fuzzysort"
 
@@ -282,7 +282,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                 props.onFilter?.(e)
               })
             }}
-            onKeyDown={(evt: ParsedKey) => {
+            onKeyDown={(evt) => {
               if (evt.name === "return") {
                 evt.preventDefault()
                 setStore("filterActive", false)
