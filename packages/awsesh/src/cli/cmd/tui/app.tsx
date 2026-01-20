@@ -1,10 +1,10 @@
-import { render, useTerminalDimensions, useRenderer } from "@opentui/solid";
+import { render, useTerminalDimensions, useRenderer, useKeyboard } from "@opentui/solid";
 import { copyToClipboard } from "@/util/clipboard";
 import { Switch, Match } from "solid-js";
 import { RouteProvider, useRoute } from "./context/route";
 import { AwseshProvider } from "./context/awsesh";
 import { AWSProvider } from "./context/aws";
-import { ExitProvider } from "./context/exit";
+import { ExitProvider, useExit } from "./context/exit";
 import { ThemeProvider, useTheme } from "./context/theme";
 import { KVProvider } from "./context/kv";
 import { ConfigProvider } from "./context/config";
@@ -28,6 +28,14 @@ function App() {
   const dimensions = useTerminalDimensions();
   const renderer = useRenderer();
   const toast = useToast();
+  const exit = useExit();
+
+  useKeyboard((evt) => {
+    if (evt.ctrl && evt.name === "c") {
+      evt.preventDefault();
+      exit();
+    }
+  });
 
   renderer.console.onCopySelection = async (text: string) => {
     if (!text || text.length === 0) return;
@@ -138,7 +146,7 @@ export async function tui(): Promise<void> {
       {
         targetFps: 60,
         gatherStats: false,
-        exitOnCtrlC: true,
+        exitOnCtrlC: false,
         useKittyKeyboard: {},
         consoleOptions: {
           keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
