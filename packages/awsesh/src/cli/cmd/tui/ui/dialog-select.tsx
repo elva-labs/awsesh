@@ -73,7 +73,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     const result = pipe(
       props.options,
       filter((x) => x.disabled !== true),
-      (x) => (!needle ? x : fuzzysort.go(needle, x, { keys: ["title", "category"] }).map((x) => x.obj))
+      (x) => (!needle ? x : fuzzysort.go(needle.replace(/\s+/g, ""), x, { keys: ["title", "category"].map(k => (item: DialogSelectOption<T>) => (item[k as keyof DialogSelectOption<T>] ?? "").toString().toLowerCase().replace(/\s+/g, "")) }).map((x) => x.obj))
     )
     return result
   })
@@ -214,12 +214,18 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           <text fg={theme.textMuted}>esc</text>
         </box>
         <box paddingTop={1} paddingBottom={1}>
-          <input
+           <input
             onInput={(e) => {
               batch(() => {
                 setStore("filter", e)
                 props.onFilter?.(e)
               })
+            }}
+            onKeyDown={(evt) => {
+              if (evt.name === "space") {
+                evt.preventDefault()
+                return
+              }
             }}
             focusedBackgroundColor={theme.background}
             cursorColor={theme.primary}

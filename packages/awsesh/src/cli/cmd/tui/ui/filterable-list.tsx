@@ -58,7 +58,8 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     const needle = store.filter.toLowerCase()
     const items = props.items.filter((x) => !x.disabled)
     if (!needle) return items
-    return fuzzysort.go(needle, items, { keys: ["title", "category", "description"] }).map((x) => x.obj)
+    const needleNoSpaces = needle.replace(/\s+/g, "")
+    return fuzzysort.go(needleNoSpaces, items, { keys: ["title", "category", "description"].map(k => (item: FilterableListItem<T>) => (item[k as keyof FilterableListItem<T>] ?? "").toString().toLowerCase().replace(/\s+/g, "")) }).map((x) => x.obj)
   })
 
   const grouped = createMemo(() => {
@@ -283,6 +284,10 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
               })
             }}
             onKeyDown={(evt) => {
+              if (evt.name === "space") {
+                evt.preventDefault()
+                return
+              }
               if (evt.name === "return") {
                 evt.preventDefault()
                 setStore("filterActive", false)

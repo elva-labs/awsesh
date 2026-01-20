@@ -138,7 +138,7 @@ export async function tui(): Promise<void> {
       {
         targetFps: 60,
         gatherStats: false,
-        exitOnCtrlC: false,
+        exitOnCtrlC: true,
         useKittyKeyboard: {},
         consoleOptions: {
           keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],

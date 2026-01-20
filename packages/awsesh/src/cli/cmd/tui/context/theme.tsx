@@ -28,7 +28,6 @@ import mercury from "./theme/mercury.json" with { type: "json" }
 import monokai from "./theme/monokai.json" with { type: "json" }
 import nightowl from "./theme/nightowl.json" with { type: "json" }
 import nord from "./theme/nord.json" with { type: "json" }
-import oc1 from "./theme/oc-1.json" with { type: "json" }
 import oneDark from "./theme/one-dark.json" with { type: "json" }
 import onedarkpro from "./theme/onedarkpro.json" with { type: "json" }
 import opencode from "./theme/opencode.json" with { type: "json" }
@@ -155,7 +154,6 @@ export const DEFAULT_THEMES: Record<string, ThemeJson> = {
   monokai,
   nightowl,
   nord,
-  "oc-1": oc1,
   "one-dark": oneDark,
   onedarkpro,
   opencode,
