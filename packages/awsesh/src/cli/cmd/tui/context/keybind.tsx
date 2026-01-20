@@ -52,10 +52,6 @@ export const { use: useKeybind, provider: KeybindProvider } = createSimpleContex
 
     useKeyboard(async (evt) => {
       if (!store.leader && result.match("leader", evt)) {
-        const focused = renderer.currentFocusedRenderable
-        if (focused && "value" in focused) {
-          return
-        }
         leader(true)
         return
       }
