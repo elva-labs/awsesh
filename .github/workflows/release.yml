@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lambda, arm]
     if: github.repository == 'elva-labs/awsesh'
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +80,7 @@ jobs:
   publish-release:
     needs: publish
     if: needs.publish.outputs.tag
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lambda, arm]
     steps:
       - uses: actions/checkout@v4
         with:
