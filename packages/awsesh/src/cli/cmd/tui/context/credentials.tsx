@@ -1,6 +1,9 @@
 import { createContext, useContext, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useAwsesh } from "./awsesh"
+import { Log } from "@/util/log"
+
+const log = Log.create({ service: "credentials-context" })
 
 export interface ActiveCredentials {
   sessionName: string
@@ -18,21 +21,25 @@ function init(awsesh: ReturnType<typeof useAwsesh>) {
   })
 
   ;(async () => {
-    const active = await awsesh.activeCredentials.list()
-    if (active.length > 0) {
-      const sorted = active.sort(
-        (a, b) => new Date(b.expiration).getTime() - new Date(a.expiration).getTime()
-      )
-      const mostRecent = sorted[0]
-      setStore("active", {
-        sessionName: mostRecent.sessionName,
-        profileName: mostRecent.profileName,
-        accountName: mostRecent.accountName,
-        accountId: mostRecent.accountId,
-        roleName: mostRecent.roleName,
-        region: "",
-        expiration: mostRecent.expiration,
-      })
+    try {
+      const active = await awsesh.activeCredentials.list()
+      if (active.length > 0) {
+        const sorted = active.sort(
+          (a, b) => new Date(b.expiration).getTime() - new Date(a.expiration).getTime()
+        )
+        const mostRecent = sorted[0]
+        setStore("active", {
+          sessionName: mostRecent.sessionName,
+          profileName: mostRecent.profileName,
+          accountName: mostRecent.accountName,
+          accountId: mostRecent.accountId,
+          roleName: mostRecent.roleName,
+          region: "",
+          expiration: mostRecent.expiration,
+        })
+      }
+    } catch (e) {
+      log.error("Failed to load active credentials", { error: e })
     }
   })()
 

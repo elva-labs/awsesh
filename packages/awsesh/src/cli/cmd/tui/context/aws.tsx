@@ -267,7 +267,11 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           await new Promise((resolve) =>
             setTimeout(resolve, loginInfo.interval * 1000)
           )
-          tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+          try {
+            tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+          } catch (e) {
+            log.error("Failed to poll for token", { error: e, sessionName: session.name })
+          }
         }
 
         await awsesh.tokens.save(session.startUrl, tokenResult.token, tokenResult.expiresAt)
