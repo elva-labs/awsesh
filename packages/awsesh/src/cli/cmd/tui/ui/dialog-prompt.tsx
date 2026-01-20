@@ -2,6 +2,7 @@ import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
 import { createSignal, onMount, Show, type JSX } from "solid-js"
 import { DialogBase, DialogButton, DialogFooter } from "./dialog-base"
+import type { InputRenderable, ParsedKey } from "@opentui/core"
 
 export type DialogPromptProps = {
   title: string
@@ -17,7 +18,7 @@ export function DialogPrompt(props: DialogPromptProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
   const [value, setValue] = createSignal(props.value ?? "")
-  let input: any
+  let input: InputRenderable
 
   const handleSubmit = () => {
     const finalValue = value() || props.defaultValue || ""
@@ -42,8 +43,9 @@ export function DialogPrompt(props: DialogPromptProps) {
         <Show when={props.description}>{props.description!()}</Show>
         <input
           value={value()}
+          focused
           onInput={(e) => setValue(e)}
-          onKeyDown={(evt: any) => {
+          onKeyDown={(evt: ParsedKey) => {
             if (evt.name === "return" && !evt.shift) {
               evt.preventDefault()
               handleSubmit()
