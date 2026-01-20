@@ -284,10 +284,6 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
               })
             }}
             onKeyDown={(evt) => {
-              if (evt.name === "space") {
-                evt.preventDefault()
-                return
-              }
               if (evt.name === "return") {
                 evt.preventDefault()
                 setStore("filterActive", false)

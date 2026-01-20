@@ -221,12 +221,6 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 props.onFilter?.(e)
               })
             }}
-            onKeyDown={(evt) => {
-              if (evt.name === "space") {
-                evt.preventDefault()
-                return
-              }
-            }}
             focusedBackgroundColor={theme.background}
             cursorColor={theme.primary}
             focusedTextColor={theme.textMuted}
