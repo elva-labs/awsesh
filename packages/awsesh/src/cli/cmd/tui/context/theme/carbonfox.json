@@ -1,0 +1,225 @@
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "defs": {
+    "carbonfoxBg": "#161616",
+    "carbonfoxBgLight": "#262626",
+    "carbonfoxFg": "#f2f4f8",
+    "carbonfoxFgMuted": "#8d8d8d",
+    "carbonfoxPrimary": "#33b1ff",
+    "carbonfoxSecondary": "#be95ff",
+    "carbonfoxAccent": "#4589ff",
+    "carbonfoxError": "#ff8389",
+    "carbonfoxWarning": "#f1c21b",
+    "carbonfoxSuccess": "#42be65",
+    "carbonfoxInfo": "#78a9ff",
+    "carbonfoxString": "#42be65",
+    "carbonfoxPrimitive": "#ff8389",
+    "carbonfoxProperty": "#78a9ff",
+    "carbonfoxType": "#08bdba",
+    "carbonfoxConstant": "#be95ff",
+    "carbonfoxKeyword": "#8d8d8d",
+    "carbonfoxComment": "#6f6f6f"
+  },
+  "theme": {
+    "primary": {
+      "dark": "carbonfoxPrimary",
+      "light": "#0072c3"
+    },
+    "secondary": {
+      "dark": "carbonfoxSecondary",
+      "light": "#6929c4"
+    },
+    "accent": {
+      "dark": "carbonfoxAccent",
+      "light": "#0f62fe"
+    },
+    "error": {
+      "dark": "carbonfoxError",
+      "light": "#da1e28"
+    },
+    "warning": {
+      "dark": "carbonfoxWarning",
+      "light": "#f1c21b"
+    },
+    "success": {
+      "dark": "carbonfoxSuccess",
+      "light": "#198038"
+    },
+    "info": {
+      "dark": "carbonfoxInfo",
+      "light": "#0043ce"
+    },
+    "text": {
+      "dark": "carbonfoxFg",
+      "light": "#161616"
+    },
+    "textMuted": {
+      "dark": "carbonfoxFgMuted",
+      "light": "#525252"
+    },
+    "background": {
+      "dark": "carbonfoxBg",
+      "light": "#ffffff"
+    },
+    "backgroundPanel": {
+      "dark": "carbonfoxBgLight",
+      "light": "#f4f4f4"
+    },
+    "backgroundElement": {
+      "dark": "#0d0d0d",
+      "light": "#e8e8e8"
+    },
+    "border": {
+      "dark": "#525252",
+      "light": "#d0d0d0"
+    },
+    "borderActive": {
+      "dark": "carbonfoxAccent",
+      "light": "#0f62fe"
+    },
+    "borderSubtle": {
+      "dark": "#393939",
+      "light": "#e8e8e8"
+    },
+    "diffAdded": {
+      "dark": "carbonfoxSuccess",
+      "light": "#198038"
+    },
+    "diffRemoved": {
+      "dark": "carbonfoxError",
+      "light": "#da1e28"
+    },
+    "diffContext": {
+      "dark": "carbonfoxFgMuted",
+      "light": "#525252"
+    },
+    "diffHunkHeader": {
+      "dark": "carbonfoxFgMuted",
+      "light": "#525252"
+    },
+    "diffHighlightAdded": {
+      "dark": "carbonfoxSuccess",
+      "light": "#198038"
+    },
+    "diffHighlightRemoved": {
+      "dark": "carbonfoxError",
+      "light": "#da1e28"
+    },
+    "diffAddedBg": {
+      "dark": "#0e3a22",
+      "light": "#e8f5e8"
+    },
+    "diffRemovedBg": {
+      "dark": "#4d1a1f",
+      "light": "#f5e8e8"
+    },
+    "diffContextBg": {
+      "dark": "carbonfoxBg",
+      "light": "#f8f8f8"
+    },
+    "diffLineNumber": {
+      "dark": "carbonfoxFgMuted",
+      "light": "#808080"
+    },
+    "diffAddedLineNumberBg": {
+      "dark": "#0d3a22",
+      "light": "#e0ffe0"
+    },
+    "diffRemovedLineNumberBg": {
+      "dark": "#3d1a1f",
+      "light": "#ffe0e0"
+    },
+    "markdownText": {
+      "dark": "carbonfoxFg",
+      "light": "#161616"
+    },
+    "markdownHeading": {
+      "dark": "carbonfoxPrimary",
+      "light": "#0043ce"
+    },
+    "markdownLink": {
+      "dark": "carbonfoxInfo",
+      "light": "#0043ce"
+    },
+    "markdownLinkText": {
+      "dark": "carbonfoxPrimary",
+      "light": "#0072c3"
+    },
+    "markdownCode": {
+      "dark": "carbonfoxSuccess",
+      "light": "#198038"
+    },
+    "markdownBlockQuote": {
+      "dark": "carbonfoxFgMuted",
+      "light": "#525252"
+    },
+    "markdownEmph": {
+      "dark": "carbonfoxSecondary",
+      "light": "#6929c4"
+    },
+    "markdownStrong": {
+      "dark": "carbonfoxFg",
+      "light": "#161616"
+    },
+    "markdownHorizontalRule": {
+      "dark": "#393939",
+      "light": "#c6c6c6"
+    },
+    "markdownListItem": {
+      "dark": "carbonfoxPrimary",
+      "light": "#0072c3"
+    },
+    "markdownListEnumeration": {
+      "dark": "carbonfoxInfo",
+      "light": "#36a3d9"
+    },
+    "markdownImage": {
+      "dark": "carbonfoxInfo",
+      "light": "#0043ce"
+    },
+    "markdownImageText": {
+      "dark": "carbonfoxPrimary",
+      "light": "#0072c3"
+    },
+    "markdownCodeBlock": {
+      "dark": "carbonfoxFg",
+      "light": "#393939"
+    },
+    "syntaxComment": {
+      "dark": "carbonfoxComment",
+      "light": "#525252"
+    },
+    "syntaxKeyword": {
+      "dark": "carbonfoxKeyword",
+      "light": "#525252"
+    },
+    "syntaxFunction": {
+      "dark": "carbonfoxInfo",
+      "light": "#0043ce"
+    },
+    "syntaxVariable": {
+      "dark": "carbonfoxFg",
+      "light": "#161616"
+    },
+    "syntaxString": {
+      "dark": "carbonfoxString",
+      "light": "#198038"
+    },
+    "syntaxNumber": {
+      "dark": "carbonfoxConstant",
+      "light": "#6929c4"
+    },
+    "syntaxType": {
+      "dark": "carbonfoxType",
+      "light": "#007d79"
+    },
+    "syntaxOperator": {
+      "dark": "carbonfoxInfo",
+      "light": "#0043ce"
+    },
+    "syntaxPunctuation": {
+      "dark": "carbonfoxFg",
+      "light": "#161616"
+    }
+  }
+}

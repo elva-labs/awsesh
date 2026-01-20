@@ -2,8 +2,11 @@
   "$schema": "https://opencode.ai/theme.json",
   "defs": {
     "vesperBg": "#101010",
+    "vesperBgLight": "#141414",
     "vesperFg": "#FFF",
+    "vesperFgLight": "#101010",
     "vesperComment": "#8b8b8b",
+    "vesperCommentLight": "#A0A0A0",
     "vesperKeyword": "#A0A0A0",
     "vesperFunction": "#FFC799",
     "vesperString": "#99FFE4",
@@ -11,20 +14,21 @@
     "vesperError": "#FF8080",
     "vesperWarning": "#FFC799",
     "vesperSuccess": "#99FFE4",
-    "vesperMuted": "#A0A0A0"
+    "vesperMuted": "#A0A0A0",
+    "vesperPrimary": "#FFC799"
   },
   "theme": {
     "primary": {
-      "dark": "#FFC799",
-      "light": "#FFC799"
+      "dark": "vesperPrimary",
+      "light": "vesperPrimary"
     },
     "secondary": {
-      "dark": "#99FFE4",
-      "light": "#99FFE4"
+      "dark": "vesperSuccess",
+      "light": "vesperSuccess"
     },
     "accent": {
-      "dark": "#FFC799",
-      "light": "#FFC799"
+      "dark": "vesperPrimary",
+      "light": "vesperPrimary"
     },
     "error": {
       "dark": "vesperError",
@@ -39,12 +43,12 @@
       "light": "vesperSuccess"
     },
     "info": {
-      "dark": "#FFC799",
-      "light": "#FFC799"
+      "dark": "vesperPrimary",
+      "light": "vesperPrimary"
     },
     "text": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "textMuted": {
       "dark": "vesperMuted",
@@ -55,20 +59,20 @@
       "light": "#FFF"
     },
     "backgroundPanel": {
-      "dark": "vesperBg",
-      "light": "#F0F0F0"
+      "dark": "vesperBgLight",
+      "light": "#F8F8F8"
     },
     "backgroundElement": {
-      "dark": "vesperBg",
-      "light": "#E0E0E0"
+      "dark": "#0C0C0C",
+      "light": "#F0F0F0"
     },
     "border": {
       "dark": "#282828",
       "light": "#D0D0D0"
     },
     "borderActive": {
-      "dark": "#FFC799",
-      "light": "#FFC799"
+      "dark": "vesperPrimary",
+      "light": "vesperPrimary"
     },
     "borderSubtle": {
       "dark": "#1C1C1C",
@@ -124,15 +128,15 @@
     },
     "markdownText": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "markdownHeading": {
-      "dark": "#FFC799",
-      "light": "#FFC799"
+      "dark": "vesperPrimary",
+      "light": "vesperPrimary"
     },
     "markdownLink": {
-      "dark": "#FFC799",
-      "light": "#FFC799"
+      "dark": "vesperPrimary",
+      "light": "vesperPrimary"
     },
     "markdownLinkText": {
       "dark": "vesperMuted",
@@ -144,15 +148,15 @@
     },
     "markdownBlockQuote": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "markdownEmph": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "markdownStrong": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "markdownHorizontalRule": {
       "dark": "#65737E",
@@ -160,15 +164,15 @@
     },
     "markdownListItem": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "markdownListEnumeration": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "markdownImage": {
-      "dark": "#FFC799",
-      "light": "#FFC799"
+      "dark": "vesperPrimary",
+      "light": "vesperPrimary"
     },
     "markdownImageText": {
       "dark": "vesperMuted",
@@ -176,11 +180,11 @@
     },
     "markdownCodeBlock": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "syntaxComment": {
       "dark": "vesperComment",
-      "light": "vesperComment"
+      "light": "vesperCommentLight"
     },
     "syntaxKeyword": {
       "dark": "vesperKeyword",
@@ -192,7 +196,7 @@
     },
     "syntaxVariable": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     },
     "syntaxString": {
       "dark": "vesperString",
@@ -212,7 +216,7 @@
     },
     "syntaxPunctuation": {
       "dark": "vesperFg",
-      "light": "vesperBg"
+      "light": "vesperFgLight"
     }
   }
 }
