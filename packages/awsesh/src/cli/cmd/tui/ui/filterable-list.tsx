@@ -275,6 +275,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
           >
             <input
             value={store.filter}
+            focused={store.filterActive}
             onInput={(e) => {
               batch(() => {
                 setStore("filter", e)
