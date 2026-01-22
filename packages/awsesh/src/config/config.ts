@@ -74,7 +74,7 @@ const defaultKeybinds: KeybindsConfig = {
   browser_open: ["o"],
   profile_set: ["p"],
   profile_clear: ["<leader>+C"],
-  region_set: ["g"],
+  region_set: ["<leader>+r"],
   role_list: ["r"],
   session_add: ["a"],
   session_edit: ["e"],

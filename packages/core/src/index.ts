@@ -228,6 +228,24 @@ export function createAwsesh(options: AwseshOptions) {
       },
     },
 
+    preferredRegions: {
+      get: async (sessionName: string, accountId: string): Promise<string | undefined> => {
+        const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-regions")
+        return data?.[sessionName]?.[accountId]
+      },
+      save: async (sessionName: string, accountId: string, region: string): Promise<void> => {
+        await storage.update<Record<string, Record<string, string>>>("preference/preferred-regions", (draft) => {
+          if (!draft[sessionName]) draft[sessionName] = {}
+          draft[sessionName][accountId] = region
+          return draft
+        })
+      },
+      getAll: async (sessionName: string): Promise<Record<string, string>> => {
+        const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-regions")
+        return data?.[sessionName] ?? {}
+      },
+    },
+
     credentials: {
       write: async (profileName: string, creds: RoleCredentials, region?: string) => {
         await Credentials.write({
