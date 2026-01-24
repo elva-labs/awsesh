@@ -388,9 +388,15 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         await awsesh.tokens.remove(startUrl)
 
         const creds = activeCredentials().filter((c) => c.sessionName === sessionName)
+        const lastSet = await awsesh.lastSetCredential.get()
+        
         for (const cred of creds) {
           await awsesh.credentials.removeProfile(cred.profileName)
           await awsesh.activeCredentials.remove(cred.accountId, cred.roleName)
+        }
+
+        if (lastSet && lastSet.sessionName === sessionName) {
+          await awsesh.lastSetCredential.clear()
         }
 
         setTokenStatus((prev) => ({ ...prev, [startUrl]: false }))
@@ -400,6 +406,12 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       async killCredential(profileName: string, accountId: string, roleName: string): Promise<void> {
         await awsesh.credentials.removeProfile(profileName)
         await awsesh.activeCredentials.remove(accountId, roleName)
+        
+        const lastSet = await awsesh.lastSetCredential.get()
+        if (lastSet && lastSet.accountId === accountId && lastSet.roleName === roleName) {
+          await awsesh.lastSetCredential.clear()
+        }
+        
         setActiveCredentials(await awsesh.activeCredentials.list())
       },
 
@@ -414,6 +426,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         }
 
         await awsesh.activeCredentials.cleanup()
+        await awsesh.lastSetCredential.clear()
 
         const status: Record<string, boolean> = {}
         for (const session of sessions()) {

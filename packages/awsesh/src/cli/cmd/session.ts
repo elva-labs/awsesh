@@ -136,6 +136,28 @@ export const session = cmd({
         role: selectedRole,
       })
 
+      const profileName = customProfileName || "default"
+
+      await awsesh.activeCredentials.save({
+        profileName,
+        accountId: account.accountId,
+        accountName: account.name,
+        roleName: selectedRole,
+        sessionName: ssoSession,
+        expiration: credentials.expiration.toISOString(),
+        isDefault: !customProfileName,
+      })
+
+      await awsesh.lastSetCredential.save({
+        profileName,
+        accountId: account.accountId,
+        accountName: account.name,
+        roleName: selectedRole,
+        sessionName: ssoSession,
+        region: effectiveRegion,
+        setAt: new Date().toISOString(),
+      })
+
       if (evalMode) {
         console.log(`export AWS_REGION='${effectiveRegion}'`)
         console.log(`export AWS_ACCESS_KEY_ID='${credentials.accessKeyId}'`)
