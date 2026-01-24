@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@awsesh/core",
-  "version": "1.0.0-beta.202601221600",
+  "version": "1.0.0-beta.202601241025",
   "description": "AWS SSO session management SDK",
   "type": "module",
   "exports": {
