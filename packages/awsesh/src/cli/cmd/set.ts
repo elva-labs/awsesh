@@ -261,6 +261,16 @@ export const set = cmd({
       role: selectedRole,
     })
 
+    await awsesh.lastSetCredential.save({
+      profileName,
+      accountId: account.accountId,
+      accountName: account.name,
+      roleName: selectedRole,
+      sessionName: session.name,
+      region: effectiveRegion,
+      setAt: new Date().toISOString(),
+    })
+
     spinner.stop("Credentials set")
 
     if (typedArgs.eval) {
