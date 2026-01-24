@@ -300,7 +300,6 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           const credentials = await awsesh.sso.getCredentials(session, token.token, accountId, roleName)
 
           const targetRegion = region || session.defaultRegion
-          const configuredProfile = await awsesh.profileNames.get(session.name, accountName, roleName)
 
           const result = await awsesh.setCredential({
             credentials,
@@ -309,7 +308,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
             accountName,
             roleName,
             region: targetRegion,
-            profileName: customProfileName || configuredProfile,
+            profileName: customProfileName, // core looks up configured profile if undefined
           })
 
           setActiveCredentials(await awsesh.activeCredentials.list())

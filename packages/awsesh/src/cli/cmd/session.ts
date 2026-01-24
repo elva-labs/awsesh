@@ -120,9 +120,6 @@ export const session = cmd({
 
       const effectiveRegion = region || sessionData.defaultRegion
 
-      const configuredProfile = await awsesh.profileNames.get(ssoSession, accountName, selectedRole)
-      const customProfileName = customProfile || configuredProfile
-
       const result = await awsesh.setCredential({
         credentials,
         sessionName: ssoSession,
@@ -130,7 +127,7 @@ export const session = cmd({
         accountName: account.name,
         roleName: selectedRole,
         region: effectiveRegion,
-        profileName: customProfileName,
+        profileName: customProfile, // core looks up configured profile if undefined
       })
 
       if (evalMode) {

@@ -235,9 +235,6 @@ export const set = cmd({
 
     const effectiveRegion = typedArgs.region || session.defaultRegion
 
-    const configuredProfile = await awsesh.profileNames.get(session.name, account.name, selectedRole)
-    const customProfileName = typedArgs.profile || configuredProfile
-
     const result = await awsesh.setCredential({
       credentials: creds,
       sessionName: session.name,
@@ -245,7 +242,7 @@ export const set = cmd({
       accountName: account.name,
       roleName: selectedRole,
       region: effectiveRegion,
-      profileName: customProfileName,
+      profileName: typedArgs.profile, // core looks up configured profile if undefined
     })
 
     spinner.stop("Credentials set")

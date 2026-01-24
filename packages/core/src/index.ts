@@ -248,6 +248,7 @@ export function createAwsesh(options: AwseshOptions) {
       },
     },
 
+    /** @internal Low-level primitive. Prefer `setCredential()` for most use cases. */
     credentials: {
       write: async (profileName: string, creds: RoleCredentials, region?: string) => {
         await Credentials.write({
@@ -268,6 +269,7 @@ export function createAwsesh(options: AwseshOptions) {
       },
     },
 
+    /** @internal Low-level primitive. Prefer `setCredential()` / `clearCredential()` for most use cases. */
     activeCredentials: {
       list: async (): Promise<ActiveCredential[]> => {
         const data = await storage.read<ActiveCredential[]>("credentials/active")
@@ -308,6 +310,7 @@ export function createAwsesh(options: AwseshOptions) {
       },
     },
 
+    /** @internal Low-level primitive. Prefer `setCredential()` / `clearCredential()` for most use cases. */
     lastSetCredential: {
       get: async (): Promise<LastSetCredential | undefined> => {
         return storage.read<LastSetCredential>("credentials/last-set")
@@ -323,6 +326,7 @@ export function createAwsesh(options: AwseshOptions) {
     /**
      * High-level API: Set credentials with all tracking automatically handled.
      * Writes to ~/.aws/credentials, updates activeCredentials, lastSetCredential, and lastSelected.
+     * If no profileName is provided, looks up the configured profile for this session/account/role.
      */
     async setCredential(options: SetCredentialOptions): Promise<SetCredentialResult> {
       const {
@@ -335,8 +339,14 @@ export function createAwsesh(options: AwseshOptions) {
         profileName: customProfileName,
       } = options
 
-      const profileName = customProfileName || "default"
-      const isDefault = !customProfileName
+      // Look up configured profile if none provided
+      const configuredProfile = customProfileName === undefined
+        ? await storage.read<Record<string, Record<string, Record<string, string>>>>("preference/profile-names")
+            .then(data => data?.[sessionName]?.[accountName]?.[roleName])
+        : undefined
+
+      const profileName = customProfileName || configuredProfile || "default"
+      const isDefault = !customProfileName && !configuredProfile
 
       // 1. Write to ~/.aws/credentials
       await Credentials.write({
