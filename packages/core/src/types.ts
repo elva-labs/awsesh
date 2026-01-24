@@ -84,3 +84,19 @@ export interface LastSetCredential {
   region?: string
   setAt: string
 }
+
+export interface SetCredentialOptions {
+  credentials: RoleCredentials
+  sessionName: string
+  accountId: string
+  accountName: string
+  roleName: string
+  region?: string
+  profileName?: string
+}
+
+export interface SetCredentialResult {
+  profileName: string
+  expiration: Date
+  isDefault: boolean
+}

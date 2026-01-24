@@ -20,6 +20,8 @@ import type {
   LastSelectedPerSession,
   ActiveCredential,
   LastSetCredential,
+  SetCredentialOptions,
+  SetCredentialResult,
 } from "./types"
 
 interface TokenCacheStored {
@@ -316,6 +318,152 @@ export function createAwsesh(options: AwseshOptions) {
       clear: async (): Promise<void> => {
         await storage.remove("credentials/last-set")
       },
+    },
+
+    /**
+     * High-level API: Set credentials with all tracking automatically handled.
+     * Writes to ~/.aws/credentials, updates activeCredentials, lastSetCredential, and lastSelected.
+     */
+    async setCredential(options: SetCredentialOptions): Promise<SetCredentialResult> {
+      const {
+        credentials,
+        sessionName,
+        accountId,
+        accountName,
+        roleName,
+        region,
+        profileName: customProfileName,
+      } = options
+
+      const profileName = customProfileName || "default"
+      const isDefault = !customProfileName
+
+      // 1. Write to ~/.aws/credentials
+      await Credentials.write({
+        awsDir,
+        profileName,
+        credentials,
+        region,
+      })
+
+      // 2. Track active credential
+      await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
+        const list = Array.isArray(existing) ? existing : []
+        const now = new Date()
+        const filtered = list
+          .filter((c) => new Date(c.expiration) > now)
+          .filter((c) => !(c.accountId === accountId && c.roleName === roleName))
+          .map((c) => (isDefault ? { ...c, isDefault: false } : c))
+          .filter((c) => c.isDefault || c.profileName !== "default")
+        return [
+          ...filtered,
+          {
+            profileName,
+            accountId,
+            accountName,
+            roleName,
+            sessionName,
+            expiration: credentials.expiration.toISOString(),
+            isDefault,
+          },
+        ]
+      })
+
+      // 3. Update last set credential (for whoami)
+      await storage.write<LastSetCredential>("credentials/last-set", {
+        profileName,
+        accountId,
+        accountName,
+        roleName,
+        sessionName,
+        region,
+        setAt: new Date().toISOString(),
+      })
+
+      // 4. Update last selected (for UI defaults)
+      await storage.update<LastSelected>("preference/last-selected", (existing) => ({
+        ...existing,
+        session: sessionName,
+        account: accountName,
+        role: roleName,
+      }))
+
+      return {
+        profileName,
+        expiration: credentials.expiration,
+        isDefault,
+      }
+    },
+
+    /**
+     * High-level API: Clear a specific credential.
+     * Removes from activeCredentials and clears lastSetCredential if it matches.
+     */
+    async clearCredential(accountId: string, roleName: string, removeProfile?: string): Promise<void> {
+      // 1. Remove from active credentials tracking
+      await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
+        if (!existing || !Array.isArray(existing)) return []
+        return existing.filter((c) => !(c.accountId === accountId && c.roleName === roleName))
+      })
+
+      // 2. Clear lastSetCredential if it matches
+      const lastSet = await storage.read<LastSetCredential>("credentials/last-set")
+      if (lastSet && lastSet.accountId === accountId && lastSet.roleName === roleName) {
+        await storage.remove("credentials/last-set")
+      }
+
+      // 3. Optionally remove from ~/.aws/credentials
+      if (removeProfile) {
+        await Credentials.removeProfile({ awsDir, profileName: removeProfile })
+      }
+    },
+
+    /**
+     * High-level API: Clear all credentials for a session.
+     * Removes all matching credentials and clears lastSetCredential if it matches.
+     */
+    async clearSessionCredentials(sessionName: string, removeProfiles?: boolean): Promise<void> {
+      const active = await storage.read<ActiveCredential[]>("credentials/active")
+      const sessionCreds = (active || []).filter((c) => c.sessionName === sessionName)
+
+      // 1. Remove profiles from ~/.aws/credentials if requested
+      if (removeProfiles) {
+        for (const cred of sessionCreds) {
+          await Credentials.removeProfile({ awsDir, profileName: cred.profileName })
+        }
+      }
+
+      // 2. Remove from active credentials tracking
+      await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
+        if (!existing || !Array.isArray(existing)) return []
+        return existing.filter((c) => c.sessionName !== sessionName)
+      })
+
+      // 3. Clear lastSetCredential if it matches
+      const lastSet = await storage.read<LastSetCredential>("credentials/last-set")
+      if (lastSet && lastSet.sessionName === sessionName) {
+        await storage.remove("credentials/last-set")
+      }
+    },
+
+    /**
+     * High-level API: Clear all credentials.
+     * Removes all tracked credentials and clears lastSetCredential.
+     */
+    async clearAllCredentials(removeProfiles?: boolean): Promise<void> {
+      // 1. Remove profiles from ~/.aws/credentials if requested
+      if (removeProfiles) {
+        const active = await storage.read<ActiveCredential[]>("credentials/active")
+        for (const cred of active || []) {
+          await Credentials.removeProfile({ awsDir, profileName: cred.profileName })
+        }
+      }
+
+      // 2. Clear active credentials tracking
+      await storage.write<ActiveCredential[]>("credentials/active", [])
+
+      // 3. Clear lastSetCredential
+      await storage.remove("credentials/last-set")
     },
   }
 }

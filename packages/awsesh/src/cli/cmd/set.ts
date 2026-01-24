@@ -237,38 +237,15 @@ export const set = cmd({
 
     const configuredProfile = await awsesh.profileNames.get(session.name, account.name, selectedRole)
     const customProfileName = typedArgs.profile || configuredProfile
-    const profileName = customProfileName || "default"
 
-    if (customProfileName) {
-      await awsesh.credentials.write(customProfileName, creds, effectiveRegion)
-    } else {
-      await awsesh.credentials.write("default", creds, effectiveRegion)
-    }
-
-    await awsesh.activeCredentials.save({
-      profileName,
+    const result = await awsesh.setCredential({
+      credentials: creds,
+      sessionName: session.name,
       accountId: account.accountId,
       accountName: account.name,
       roleName: selectedRole,
-      sessionName: session.name,
-      expiration: creds.expiration.toISOString(),
-      isDefault: !customProfileName,
-    })
-
-    await awsesh.lastSelected.save({
-      session: session.name,
-      account: account.name,
-      role: selectedRole,
-    })
-
-    await awsesh.lastSetCredential.save({
-      profileName,
-      accountId: account.accountId,
-      accountName: account.name,
-      roleName: selectedRole,
-      sessionName: session.name,
       region: effectiveRegion,
-      setAt: new Date().toISOString(),
+      profileName: customProfileName,
     })
 
     spinner.stop("Credentials set")
@@ -282,11 +259,11 @@ export const set = cmd({
       UI.println(`export AWS_SESSION_EXPIRATION='${creds.expiration.toISOString()}'`)
     } else {
       UI.println()
-      UI.println(UI.kv("Profile", profileName))
+      UI.println(UI.kv("Profile", result.profileName))
       UI.println(UI.kv("Region", effectiveRegion))
       UI.println(UI.kv("Account", `${account.name} (${account.accountId})`))
       UI.println(UI.kv("Role", selectedRole))
-      UI.println(UI.kv("Expires", creds.expiration.toLocaleString()))
+      UI.println(UI.kv("Expires", result.expiration.toLocaleString()))
       UI.println()
     }
   },
