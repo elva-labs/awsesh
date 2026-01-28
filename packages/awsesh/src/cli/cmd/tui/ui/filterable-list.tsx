@@ -58,7 +58,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     const needle = store.filter.toLowerCase()
     const items = props.items.filter((x) => !x.disabled)
     if (!needle) return items
-    return fuzzysort.go(needle, items, { keys: ["title", "category", "description"] }).map((x) => x.obj)
+    return fuzzysort.go(needle, items, { keys: ["title", "category", "description", "subtitle"] }).map((x) => x.obj)
   })
 
   const grouped = createMemo(() => {
