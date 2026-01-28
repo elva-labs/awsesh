@@ -1,7 +1,7 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { batch, createContext, Show, useContext, type JSX, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
-import { RGBA } from "@opentui/core"
+import { RGBA, type Renderable, type InputRenderable } from "@opentui/core"
 import { createStore } from "solid-js/store"
 
 export function Dialog(
@@ -65,13 +65,13 @@ function init() {
   })
 
   const renderer = useRenderer()
-  let focus: any | null
+  let focus: Renderable | null
 
   function refocus() {
     setTimeout(() => {
       if (!focus) return
       if (focus.isDestroyed) return
-      function find(item: any): boolean {
+      function find(item: Renderable): boolean {
         for (const child of item.getChildren()) {
           if (child === focus) return true
           if (find(child)) return true
@@ -95,7 +95,7 @@ function init() {
       })
       refocus()
     },
-    replace(input: any, onClose?: () => void) {
+    replace(input: JSX.Element, onClose?: () => void) {
       if (store.stack.length === 0) {
         focus = renderer.currentFocusedRenderable
       }

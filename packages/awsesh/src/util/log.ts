@@ -44,6 +44,41 @@ export namespace Log {
   function shouldLog(level: Level): boolean {
     return levelPriority[level] >= levelPriority[currentLevel]
   }
+
+  function serializeError(err: unknown): object {
+    if (err instanceof Error) {
+      return {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+      }
+    }
+    return { value: String(err) }
+  }
+
+  function safeStringify(obj: any, indent = 2): string {
+    const cache = new Set()
+    const replacer = (key: string, value: any) => {
+      // Handle Error objects specially
+      if (value instanceof Error) {
+        return serializeError(value)
+      }
+      // Handle circular references
+      if (typeof value === "object" && value !== null) {
+        if (cache.has(value)) {
+          return "[Circular]"
+        }
+        cache.add(value)
+      }
+      return value
+    }
+    try {
+      return JSON.stringify(obj, replacer, indent)
+    } catch {
+      // Last resort fallback
+      return JSON.stringify({ error: "Failed to serialize log entry" })
+    }
+  }
   
   async function writeLog(level: Level, service: string, msg: string, data?: any) {
     if (!shouldLog(level)) return
@@ -57,7 +92,7 @@ export namespace Log {
       data,
     }
     
-    const logLine = JSON.stringify(logEntry) + "\n"
+    const logLine = safeStringify(logEntry) + "\n"
     
     // Write to file if available
     if (logFilePath) {

@@ -22,15 +22,17 @@ export type Route =
   | AccountSelectRoute
   | CredentialsRoute;
 
+type RouteStore = SSOSelectRoute | AccountSelectRoute | CredentialsRoute;
+
 /**
  * Route context provider for TUI navigation
  */
 export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
   name: "Route",
   init: () => {
-    const [store, setStore] = createStore<Route>({
+    const [store, setStore] = createStore<RouteStore>({
       type: "sso-select",
-    } as Route);
+    });
 
     return {
       get data() {

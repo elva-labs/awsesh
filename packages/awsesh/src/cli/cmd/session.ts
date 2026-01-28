@@ -120,20 +120,14 @@ export const session = cmd({
 
       const effectiveRegion = region || sessionData.defaultRegion
 
-      // Always write to default profile
-      await awsesh.credentials.write("default", credentials, effectiveRegion)
-
-      // Also write to custom profile if specified or configured
-      const configuredProfile = await awsesh.profileNames.get(ssoSession, accountName, selectedRole)
-      const customProfileName = customProfile || configuredProfile
-      if (customProfileName) {
-        await awsesh.credentials.write(customProfileName, credentials, effectiveRegion)
-      }
-
-      await awsesh.lastSelected.save({
-        session: ssoSession,
-        account: accountName,
-        role: selectedRole,
+      const result = await awsesh.setCredential({
+        credentials,
+        sessionName: ssoSession,
+        accountId: account.accountId,
+        accountName: account.name,
+        roleName: selectedRole,
+        region: effectiveRegion,
+        profileName: customProfile, // core looks up configured profile if undefined
       })
 
       if (evalMode) {
@@ -144,7 +138,7 @@ export const session = cmd({
         console.log(`export AWS_SESSION_EXPIRATION='${credentials.expiration.toISOString()}'`)
       } else {
         UI.success("Credentials configured successfully!")
-        UI.info(`Profile: default${customProfileName ? `, ${customProfileName}` : ""}`)
+        UI.info(`Profile: ${result.profileName}`)
         UI.info(`Region: ${effectiveRegion}`)
         UI.info(`Account: ${accountName} (${account.accountId})`)
         UI.info(`Role: ${selectedRole}`)

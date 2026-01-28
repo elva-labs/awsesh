@@ -73,7 +73,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     const result = pipe(
       props.options,
       filter((x) => x.disabled !== true),
-      (x) => (!needle ? x : fuzzysort.go(needle, x, { keys: ["title", "category"] }).map((x) => x.obj))
+      (x) => (!needle ? x : fuzzysort.go(needle.replace(/\s+/g, ""), x, { keys: ["title", "category"].map(k => (item: DialogSelectOption<T>) => (item[k as keyof DialogSelectOption<T>] ?? "").toString().toLowerCase().replace(/\s+/g, "")) }).map((x) => x.obj))
     )
     return result
   })
@@ -96,7 +96,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   const dimensions = useTerminalDimensions()
   const height = createMemo(() =>
-    Math.min(flat().length + grouped().length * 2 - 1, Math.floor(dimensions().height / 2) - 6)
+    Math.max(5, Math.min(flat().length + grouped().length * 2 - 1, Math.floor(dimensions().height * 0.6) - 6))
   )
 
   const selected = createMemo(() => flat()[store.selected])
@@ -124,7 +124,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   function moveTo(next: number) {
     setStore("selected", next)
-    props.onMove?.(selected()!)
+    const sel = selected()
+    if (sel) props.onMove?.(sel)
 
     const children = scroll.getChildren()
     const target = children.find((child) => child.id === JSON.stringify(selected()?.value))
@@ -213,7 +214,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           <text fg={theme.textMuted}>esc</text>
         </box>
         <box paddingTop={1} paddingBottom={1}>
-          <input
+           <input
             onInput={(e) => {
               batch(() => {
                 setStore("filter", e)
@@ -235,7 +236,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         paddingLeft={2}
         paddingRight={2}
         scrollbarOptions={{ visible: false }}
-        ref={(r: ScrollBoxRenderable) => (scroll = r)}
+        ref={(r: ScrollBoxRenderable) => { scroll = r }}
         maxHeight={height()}
       >
         <For each={grouped()}>

@@ -3,7 +3,7 @@ import { createSimpleContext } from "./helper"
 import { useAwsesh } from "./awsesh"
 import { Global } from "@/global"
 import { Log } from "@/util/log"
-import type { SSOSession, Account, SSOLoginInfo, ActiveCredential, TokenResult, LastSetCredential } from "@awsesh/core"
+import type { SSOSession, Account, SSOLoginInfo, ActiveCredential, TokenResult } from "@awsesh/core"
 import { markCredentialsSet } from "./session-state"
 
 const log = Log.create({ service: "aws-context" })
@@ -267,7 +267,11 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           await new Promise((resolve) =>
             setTimeout(resolve, loginInfo.interval * 1000)
           )
-          tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+          try {
+            tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+          } catch (e) {
+            log.error("Failed to poll for token", { error: e, sessionName: session.name })
+          }
         }
 
         await awsesh.tokens.save(session.startUrl, tokenResult.token, tokenResult.expiresAt)
@@ -297,43 +301,20 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
           const targetRegion = region || session.defaultRegion
 
-          const configuredProfile = await awsesh.profileNames.get(session.name, accountName, roleName)
-          const profileName = customProfileName || configuredProfile || "default"
-          const isDefault = profileName === "default"
-
-          await awsesh.credentials.write(profileName, credentials, targetRegion)
-
-          const activeCredential: ActiveCredential = {
-            profileName,
+          const result = await awsesh.setCredential({
+            credentials,
+            sessionName: session.name,
             accountId,
             accountName,
             roleName,
-            sessionName: session.name,
-            expiration: credentials.expiration.toISOString(),
-            isDefault,
-          }
-          await awsesh.activeCredentials.save(activeCredential)
-          setActiveCredentials(await awsesh.activeCredentials.list())
-
-          await awsesh.lastSelected.save({
-            session: session.name,
-            account: accountName,
-            role: roleName,
+            region: targetRegion,
+            profileName: customProfileName, // core looks up configured profile if undefined
           })
 
-          const lastSet: LastSetCredential = {
-            profileName,
-            accountId,
-            accountName,
-            roleName,
-            sessionName: session.name,
-            region: targetRegion,
-            setAt: new Date().toISOString(),
-          }
-          await awsesh.lastSetCredential.save(lastSet)
+          setActiveCredentials(await awsesh.activeCredentials.list())
           markCredentialsSet()
 
-          return { expiration: credentials.expiration, profileName }
+          return { expiration: result.expiration, profileName: result.profileName }
         } catch (e) {
           setError(`Failed to get credentials: ${e}`)
           throw e
@@ -382,20 +363,14 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
       async killSSOSession(sessionName: string, startUrl: string): Promise<void> {
         await awsesh.tokens.remove(startUrl)
-
-        const creds = activeCredentials().filter((c) => c.sessionName === sessionName)
-        for (const cred of creds) {
-          await awsesh.credentials.removeProfile(cred.profileName)
-          await awsesh.activeCredentials.remove(cred.accountId, cred.roleName)
-        }
+        await awsesh.clearSessionCredentials(sessionName, true)
 
         setTokenStatus((prev) => ({ ...prev, [startUrl]: false }))
         setActiveCredentials(await awsesh.activeCredentials.list())
       },
 
       async killCredential(profileName: string, accountId: string, roleName: string): Promise<void> {
-        await awsesh.credentials.removeProfile(profileName)
-        await awsesh.activeCredentials.remove(accountId, roleName)
+        await awsesh.clearCredential(accountId, roleName, profileName)
         setActiveCredentials(await awsesh.activeCredentials.list())
       },
 
@@ -404,12 +379,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           await awsesh.tokens.remove(session.startUrl)
         }
 
-        const creds = activeCredentials()
-        for (const cred of creds) {
-          await awsesh.credentials.removeProfile(cred.profileName)
-        }
-
-        await awsesh.activeCredentials.cleanup()
+        await awsesh.clearAllCredentials(true)
 
         const status: Record<string, boolean> = {}
         for (const session of sessions()) {

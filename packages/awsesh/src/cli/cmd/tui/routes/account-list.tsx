@@ -17,6 +17,7 @@ import { DialogConfirm } from "../ui/dialog-confirm"
 import { useDialog } from "../ui/dialog"
 import { useExit } from "../context/exit"
 import { DialogSettings } from "../component/dialog-settings"
+import { RegionSelectorDialog } from "../component/region-selector-dialog"
 import { DateUtil } from "@/util/date"
 import type { Account } from "@awsesh/core"
 
@@ -36,6 +37,7 @@ export function AccountListScreen() {
 
   const [selectedAccount, setSelectedAccount] = createSignal<Account | null>(null)
   const [preferredRoles, setPreferredRoles] = createSignal<Record<string, string>>({})
+  const [preferredRegions, setPreferredRegions] = createSignal<Record<string, string>>({})
   const [profileNames, setProfileNames] = createSignal<Record<string, Record<string, string>>>({})
   const [lastAccountId, setLastAccountId] = createSignal<string | undefined>(undefined)
 
@@ -51,6 +53,8 @@ export function AccountListScreen() {
     if (!s) return
     const roles = await awsesh.preferredRoles.getAll(s.name)
     setPreferredRoles(roles)
+    const regions = await awsesh.preferredRegions.getAll(s.name)
+    setPreferredRegions(regions)
   })
 
   const loadProfileNamesForAccount = async (accountName: string) => {
@@ -123,6 +127,17 @@ export function AccountListScreen() {
       onSelect: () => {
         const account = selectedAccount()
         if (account) handleClearProfile(account)
+      },
+    },
+    {
+      id: "account.region",
+      title: "Set Region",
+      category: "Account",
+      keybind: "region_set",
+      disabled: !selectedAccount(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleSetRegion(account)
       },
     },
     {
@@ -211,7 +226,7 @@ export function AccountListScreen() {
   const items = (): FilterableListItem<Account>[] => {
     return aws.accounts.map((account) => {
       const roleName = getPreferredRole(account)
-      const region = account.region ?? session()?.defaultRegion ?? "us-east-1"
+      const region = preferredRegions()[account.accountId] ?? session()?.defaultRegion ?? "us-east-1"
       const customProfile = getProfileNameForAccount(account)
       const subtitleParts = [account.accountId, roleName, region]
       if (customProfile) subtitleParts.push(customProfile)
@@ -360,7 +375,7 @@ export function AccountListScreen() {
           account.accountId,
           account.name,
           roleName,
-          account.region ?? s.defaultRegion,
+          preferredRegions()[account.accountId] ?? s.defaultRegion,
           sanitized
         )
 
@@ -370,7 +385,7 @@ export function AccountListScreen() {
           accountName: account.name,
           accountId: account.accountId,
           roleName,
-          region: account.region ?? s.defaultRegion,
+          region: preferredRegions()[account.accountId] ?? s.defaultRegion,
           expiration: result.expiration.toISOString(),
         })
 
@@ -436,6 +451,27 @@ export function AccountListScreen() {
     })
   }
 
+  const handleSetRegion = async (account: Account) => {
+    const s = session()
+    if (!s) return
+
+    const currentRegion = preferredRegions()[account.accountId] ?? s.defaultRegion
+
+    dialog.replace(() => (
+      <RegionSelectorDialog
+        currentRegion={currentRegion}
+        onSelect={async (region) => {
+          await awsesh.preferredRegions.save(s.name, account.accountId, region)
+          setPreferredRegions((prev) => ({ ...prev, [account.accountId]: region }))
+          toast.show({
+            variant: "success",
+            message: `Region set to ${region}`,
+          })
+        }}
+      />
+    ))
+  }
+
   const handleAssumeRole = async (account: Account, roleName: string) => {
     const s = session()
     if (!s) return
@@ -446,7 +482,7 @@ export function AccountListScreen() {
         account.accountId,
         account.name,
         roleName,
-        account.region ?? s.defaultRegion
+        preferredRegions()[account.accountId] ?? s.defaultRegion
       )
 
       credentials.set({

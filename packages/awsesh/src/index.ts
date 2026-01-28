@@ -16,6 +16,7 @@ import { credentials } from "./cli/cmd/credentials.js"
 import { set } from "./cli/cmd/set.js"
 
 import { Installation } from "./installation"
+import { createCliRenderer } from "@opentui/core"
 
 const args = hideBin(process.argv)
 const showHelp = args.includes("--help") || args.includes("-h") || args[0] === "help"
@@ -67,14 +68,15 @@ const cli = yargs(args)
   .command(config)
   .command(data)
   .demandCommand(0, 1, "")
-  .fail((msg, err) => {
+  .fail(async (msg, err) => {
     if (msg) {
       UI.error(msg)
     }
     if (err) {
       UI.error(err.message)
     }
-    process.exit(1)
+    const renderer = await createCliRenderer()
+    renderer.destroy()
   })
   .strict()
 
@@ -84,5 +86,6 @@ try {
   const error = e as Error
   Log.Default.error("Fatal error", { error: error.message, stack: error.stack })
   UI.error(error.message)
-  process.exit(1)
+  const renderer = await createCliRenderer()
+  renderer.destroy()
 }

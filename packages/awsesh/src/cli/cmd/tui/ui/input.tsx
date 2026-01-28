@@ -12,6 +12,7 @@ export interface InputProps {
   focusedTextColor?: RGBA
   cursorColor?: RGBA
   ref?: (el: InputRenderable) => void
+  focused?: boolean
 }
 
 export function Input(props: InputProps) {
@@ -27,6 +28,7 @@ export function Input(props: InputProps) {
   return (
     <input
       height={1}
+      focused={props.focused ?? true}
       value={props.value}
       placeholder={props.placeholder}
       onInput={(e) => props.onInput?.(e)}

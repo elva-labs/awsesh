@@ -1,10 +1,10 @@
-import { render, useTerminalDimensions, useRenderer } from "@opentui/solid";
+import { render, useTerminalDimensions, useRenderer, useKeyboard } from "@opentui/solid";
 import { copyToClipboard } from "@/util/clipboard";
 import { Switch, Match } from "solid-js";
 import { RouteProvider, useRoute } from "./context/route";
 import { AwseshProvider } from "./context/awsesh";
 import { AWSProvider } from "./context/aws";
-import { ExitProvider } from "./context/exit";
+import { ExitProvider, useExit } from "./context/exit";
 import { ThemeProvider, useTheme } from "./context/theme";
 import { KVProvider } from "./context/kv";
 import { ConfigProvider } from "./context/config";
@@ -28,14 +28,21 @@ function App() {
   const dimensions = useTerminalDimensions();
   const renderer = useRenderer();
   const toast = useToast();
+  const exit = useExit();
+
+  useKeyboard((evt) => {
+    if (evt.ctrl && evt.name === "c") {
+      evt.preventDefault();
+      exit();
+    }
+  });
 
   renderer.console.onCopySelection = async (text: string) => {
     if (!text || text.length === 0) return;
     const base64 = Buffer.from(text).toString("base64");
     const osc52 = `\x1b]52;c;${base64}\x07`;
     const finalOsc52 = process.env.TMUX ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
-    // @ts-expect-error writeOut is not in type definitions
-    renderer.writeOut(finalOsc52);
+    (renderer as unknown as { writeOut?: (data: string) => void }).writeOut?.(finalOsc52);
     await copyToClipboard(text);
     toast.show({ message: "Copied to clipboard", variant: "info" });
     renderer.clearSelection();
@@ -52,8 +59,7 @@ function App() {
           const base64 = Buffer.from(text).toString("base64");
           const osc52 = `\x1b]52;c;${base64}\x07`;
           const finalOsc52 = process.env.TMUX ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
-          // @ts-expect-error writeOut is not in type definitions
-          renderer.writeOut(finalOsc52);
+          (renderer as unknown as { writeOut?: (data: string) => void }).writeOut?.(finalOsc52);
           await copyToClipboard(text);
           toast.show({ message: "Copied to clipboard", variant: "info" });
           renderer.clearSelection();

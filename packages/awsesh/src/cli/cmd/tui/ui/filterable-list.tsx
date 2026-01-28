@@ -58,7 +58,8 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     const needle = store.filter.toLowerCase()
     const items = props.items.filter((x) => !x.disabled)
     if (!needle) return items
-    return fuzzysort.go(needle, items, { keys: ["title", "category", "description", "subtitle"] }).map((x) => x.obj)
+    const needleNoSpaces = needle.replace(/\s+/g, "")
+    return fuzzysort.go(needleNoSpaces, items, { keys: ["title", "category", "description", "subtitle"].map(k => (item: FilterableListItem<T>) => (item[k as keyof FilterableListItem<T>] ?? "").toString().toLowerCase().replace(/\s+/g, "")) }).map((x) => x.obj)
   })
 
   const grouped = createMemo(() => {
@@ -141,11 +142,11 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
   let commandsSuspended = false
   createEffect(() => {
-    const hasFilter = store.filter.length > 0
-    if (hasFilter && !commandsSuspended) {
+    const shouldSuspend = store.filterActive
+    if (shouldSuspend && !commandsSuspended) {
       command.suspend(true)
       commandsSuspended = true
-    } else if (!hasFilter && commandsSuspended) {
+    } else if (!shouldSuspend && commandsSuspended) {
       command.suspend(false)
       commandsSuspended = false
     }
@@ -275,13 +276,14 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
           >
             <input
             value={store.filter}
+            focused={store.filterActive}
             onInput={(e) => {
               batch(() => {
                 setStore("filter", e)
                 props.onFilter?.(e)
               })
             }}
-            onKeyDown={(evt: any) => {
+            onKeyDown={(evt) => {
               if (evt.name === "return") {
                 evt.preventDefault()
                 setStore("filterActive", false)
