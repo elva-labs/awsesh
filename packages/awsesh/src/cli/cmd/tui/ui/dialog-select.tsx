@@ -17,7 +17,6 @@ export interface DialogSelectProps<T> {
   onMove?: (option: DialogSelectOption<T>) => void
   onFilter?: (query: string) => void
   onSelect?: (option: DialogSelectOption<T>) => void
-  onKeydown?: (evt: Parameters<Parameters<typeof useKeyboard>[0]>[0]) => void
   current?: T
 }
 
@@ -161,8 +160,6 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   useKeyboard((evt) => {
-    props.onKeydown?.(evt)
-    if (evt.defaultPrevented) return
     if (evt.name === "up" || (evt.ctrl && evt.name === "p")) move(-1)
     if (evt.name === "down" || (evt.ctrl && evt.name === "n")) move(1)
     if (evt.name === "pageup") move(-10)
