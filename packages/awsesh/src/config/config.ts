@@ -41,6 +41,7 @@ export type ThemeMode = "dark" | "light" | "system"
 export interface AppConfig {
   theme: string
   theme_mode?: ThemeMode
+  transparentBg: boolean
   dateFormat: DateFormat
   timeFormat: TimeFormat
   autoAssumeRole: boolean
@@ -56,6 +57,7 @@ export type UserKeybindsConfig = Partial<{
 export interface UserConfig {
   theme?: string
   theme_mode?: ThemeMode
+  transparentBg?: boolean
   dateFormat?: DateFormat
   timeFormat?: TimeFormat
   autoAssumeRole?: boolean
@@ -95,6 +97,7 @@ const defaultKeybinds: KeybindsConfig = {
 
 export const defaultConfig: AppConfig = {
   theme: "system",
+  transparentBg: true,
   dateFormat: "dd/mm/yyyy",
   timeFormat: "24h",
   autoAssumeRole: true,
@@ -125,6 +128,7 @@ function mergeConfig(defaults: AppConfig, overrides?: UserConfig): AppConfig {
   return {
     theme: overrides.theme ?? defaults.theme,
     theme_mode: overrides.theme_mode,
+    transparentBg: overrides.transparentBg ?? defaults.transparentBg,
     dateFormat: overrides.dateFormat ?? defaults.dateFormat,
     timeFormat: overrides.timeFormat ?? defaults.timeFormat,
     autoAssumeRole: overrides.autoAssumeRole ?? defaults.autoAssumeRole,
@@ -285,6 +289,29 @@ export namespace Config {
     await Bun.write(path.join(dir, ".keep"), "")
     await Bun.write(configPath, JSON.stringify(merged, null, 2))
     log.info("Theme mode saved", { mode, isDefault })
+  }
+
+  export async function setTransparentBg(enabled: boolean): Promise<void> {
+    const isDefault = enabled === defaultConfig.transparentBg
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const { transparentBg: _, ...rest } = existing
+    const merged: UserConfig = isDefault ? rest : { ...rest, transparentBg: enabled }
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("Transparent bg saved", { enabled, isDefault })
   }
 
   export async function setDateFormat(format: DateFormat): Promise<void> {

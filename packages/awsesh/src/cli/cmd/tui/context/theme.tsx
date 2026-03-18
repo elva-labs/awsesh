@@ -1,10 +1,10 @@
 import path from "node:path"
 import { RGBA, type TerminalColors } from "@opentui/core"
-import { createEffect, createMemo } from "solid-js"
+import { createEffect, createMemo, createSignal } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { useConfig } from "./config"
 import { Config, type ThemeMode } from "@/config/config"
-import { createStore, produce } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useRenderer } from "@opentui/solid"
 
 import { Global } from "@/global"
@@ -438,6 +438,17 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       ready: false,
     })
 
+    const [terminalBg, setTerminalBg] = createSignal<RGBA | null>(null)
+    const [terminalBgReady, setTerminalBgReady] = createSignal(false)
+    const [transparentBgEnabled, setTransparentBgEnabled] = createSignal(
+      config.data.transparentBg !== false
+    )
+
+    // Keep signal in sync when config loads from disk
+    createEffect(() => {
+      setTransparentBgEnabled(config.data.transparentBg !== false)
+    })
+
     createEffect(() => {
       getCustomThemes()
         .then((custom) => {
@@ -462,6 +473,11 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     renderer
       .getPalette({ size: 16 })
       .then((colors) => {
+        const bgHex = colors.defaultBackground ?? colors.palette[0]
+        if (bgHex) {
+          setTerminalBg(RGBA.fromHex(bgHex))
+        }
+
         if (!colors.palette[0]) {
           if (store.active === "system") {
             setStore(
@@ -482,17 +498,23 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
           })
         )
       })
+      .finally(() => {
+        setTerminalBgReady(true)
+      })
 
-    const values = createMemo(() => {
-      return resolveTheme(store.themes[store.active] ?? store.themes.opencode, effectiveMode())
+    const [themeValues, setThemeValues] = createStore<Theme>(
+      resolveTheme(store.themes[store.active] ?? store.themes.opencode, autoDetectedMode)
+    )
+
+    createEffect(() => {
+      const resolved = resolveTheme(store.themes[store.active] ?? store.themes.opencode, effectiveMode())
+      const bg = terminalBg()
+      const next = transparentBgEnabled() && bg ? { ...resolved, background: bg } : resolved
+      setThemeValues(reconcile(next))
     })
 
     return {
-      theme: new Proxy(values(), {
-        get(_target, prop) {
-          return values()[prop as keyof Theme]
-        },
-      }),
+      theme: themeValues,
       get selected() {
         return store.active
       },
@@ -513,11 +535,19 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         setStore("active", theme)
         Config.setTheme(theme)
       },
+      toggleTransparentBg() {
+        const next = !transparentBgEnabled()
+        setTransparentBgEnabled(next)
+        config.set("transparentBg", next)
+        Config.setTransparentBg(next)
+      },
       preview(theme: string) {
         setStore("active", theme)
       },
       get ready() {
-        return store.ready
+        if (!store.ready) return false
+        if (transparentBgEnabled() && !terminalBgReady()) return false
+        return true
       },
       get autoDetectedMode() {
         return autoDetectedMode

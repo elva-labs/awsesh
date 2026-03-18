@@ -12,7 +12,7 @@ const MODE_CYCLE: ThemeMode[] = ["system", "dark", "light"]
 export function DialogSettings() {
   const dialog = useDialog()
   const config = useConfig()
-  const { modePreference, setMode } = useTheme()
+  const { modePreference, setMode, toggleTransparentBg } = useTheme()
 
   const options = createMemo<DialogSelectOption<string>[]>(() => [
     {
@@ -33,6 +33,15 @@ export function DialogSettings() {
         const index = MODE_CYCLE.indexOf(current)
         const next = MODE_CYCLE[(index + 1) % MODE_CYCLE.length]
         setMode(next)
+      },
+    },
+    {
+      title: "Transparent background",
+      description: `Current: ${config.data.transparentBg !== false ? "On" : "Off"}`,
+      value: "transparent_bg",
+      category: "Appearance",
+      onSelect: () => {
+        toggleTransparentBg()
       },
     },
     {
