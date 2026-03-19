@@ -97,7 +97,7 @@ const defaultKeybinds: KeybindsConfig = {
 
 export const defaultConfig: AppConfig = {
   theme: "system",
-  transparentBg: true,
+  transparentBg: false,
   dateFormat: "dd/mm/yyyy",
   timeFormat: "24h",
   autoAssumeRole: true,
