@@ -29,7 +29,7 @@ export function Layout(props: ParentProps<LayoutProps>) {
   const contentWidth = createMemo(() => dimensions().width - (showSidebar() ? sidebarWidth() : 0))
 
   return (
-    <box flexDirection="row" width="100%" height="100%">
+    <box flexDirection="row" width="100%" height="100%" backgroundColor={theme.background}>
       <box flexDirection="column" width={contentWidth()} height="100%">
         <Show when={props.header}>
           <box flexShrink={0}>{props.header}</box>
