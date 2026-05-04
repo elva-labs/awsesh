@@ -56,23 +56,21 @@ export function DialogKeybindList() {
   }
 
   function showList() {
-    dialog.replace(<DialogKeybindList />)
+    dialog.replace(DialogKeybindList)
   }
 
   function handleSelect(opt: DialogSelectOption<keyof KeybindsConfig>) {
     const def = keybindDefinitions.find((d) => d.key === opt.value)
     if (!def) return
 
-    dialog.replace(
-      <DialogKeybindEdit
-        keybindKey={def.key}
-        label={def.label}
-        onSave={() => {
-          setRefresh((n) => n + 1)
-        }}
-        onBack={showList}
-      />
-    )
+    dialog.replace(DialogKeybindEdit, {
+      keybindKey: def.key,
+      label: def.label,
+      onSave: () => {
+        setRefresh((n) => n + 1)
+      },
+      onBack: showList,
+    })
   }
 
   return (

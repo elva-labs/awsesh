@@ -86,7 +86,7 @@ function init(dialog: ReturnType<typeof useDialog>, keybind: ReturnType<typeof u
     },
     show() {
       runInOwner(() => {
-        dialog.replace(<DialogCommand options={options()} />)
+        dialog.replace(DialogCommand, { options: options() })
       })
     },
     trigger(id: string) {

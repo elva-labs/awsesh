@@ -1,8 +1,17 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { batch, createContext, Show, useContext, type JSX, type ParentProps } from "solid-js"
+import {
+  batch,
+  createContext,
+  Show,
+  useContext,
+  type Component,
+  type JSX,
+  type ParentProps,
+} from "solid-js"
 import { useTheme } from "../context/theme"
 import { RGBA, type Renderable, type InputRenderable } from "@opentui/core"
 import { createStore } from "solid-js/store"
+import { createDialogRender } from "./dialog-render"
 
 export function Dialog(
   props: ParentProps<{
@@ -48,7 +57,7 @@ export function Dialog(
 function init() {
   const [store, setStore] = createStore({
     stack: [] as {
-      element: JSX.Element
+      render: () => JSX.Element
       onClose?: () => void
     }[],
     size: "medium" as "medium" | "large",
@@ -95,7 +104,7 @@ function init() {
       })
       refocus()
     },
-    replace(input: JSX.Element, onClose?: () => void) {
+    replace<P extends Record<string, any>>(component: Component<P>, props?: P, onClose?: () => void) {
       if (store.stack.length === 0) {
         focus = renderer.currentFocusedRenderable
       }
@@ -105,7 +114,22 @@ function init() {
       setStore("size", "medium")
       setStore("stack", [
         {
-          element: input,
+          render: createDialogRender(component, props),
+          onClose,
+        },
+      ])
+    },
+    replaceRender(render: () => JSX.Element, onClose?: () => void) {
+      if (store.stack.length === 0) {
+        focus = renderer.currentFocusedRenderable
+      }
+      for (const item of store.stack) {
+        if (item.onClose) item.onClose()
+      }
+      setStore("size", "medium")
+      setStore("stack", [
+        {
+          render,
           onClose,
         },
       ])
@@ -128,13 +152,15 @@ const ctx = createContext<DialogContext>()
 
 export function DialogProvider(props: ParentProps) {
   const value = init()
+  const current = () => value.stack.at(-1)
+
   return (
     <ctx.Provider value={value}>
       {props.children}
       <box position="absolute">
-        <Show when={value.stack.length}>
+        <Show when={current()}>
           <Dialog onClose={() => value.clear()} size={value.size}>
-            {value.stack.at(-1)!.element}
+            {current()!.render()}
           </Dialog>
         </Show>
       </box>

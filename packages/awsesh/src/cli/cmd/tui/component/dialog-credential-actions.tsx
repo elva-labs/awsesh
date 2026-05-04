@@ -113,10 +113,7 @@ DialogCredentialActions.show = (
   onKill: () => void
 ) => {
   dialog.replace(
-    <DialogCredentialActions
-      credentialName={credentialName}
-      onRefresh={onRefresh}
-      onKill={onKill}
-    />
+    DialogCredentialActions,
+    { credentialName, onRefresh, onKill },
   )
 }

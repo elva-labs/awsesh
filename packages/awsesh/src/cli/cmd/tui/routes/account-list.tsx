@@ -188,7 +188,7 @@ export function AccountListScreen() {
       category: "Application",
       keybind: "settings",
       onSelect: () => {
-        dialog.replace(<DialogSettings />)
+        dialog.replace(DialogSettings)
       },
     },
     {
@@ -305,7 +305,7 @@ export function AccountListScreen() {
       }
     }
 
-    dialog.replace(
+    dialog.replaceRender(() => (
       <DialogSelect
         title="Select Role"
         options={account.roles.map((role) => ({
@@ -322,7 +322,7 @@ export function AccountListScreen() {
           })
         }}
       />
-    )
+    ))
   }
 
   const handleSetProfile = async (account: Account) => {
@@ -416,7 +416,7 @@ export function AccountListScreen() {
     if (account.roles.length === 1) {
       await selectRoleAndSetProfile(account.roles[0])
     } else {
-      dialog.replace(
+      dialog.replaceRender(() => (
         <DialogSelect
           title="Select Role for CLI Profile"
           options={account.roles.map((role) => ({
@@ -427,7 +427,7 @@ export function AccountListScreen() {
             selectRoleAndSetProfile(option.value)
           }}
         />
-      )
+      ))
     }
   }
 
@@ -462,19 +462,17 @@ export function AccountListScreen() {
 
     const currentRegion = preferredRegions()[account.accountId] ?? s.defaultRegion
 
-    dialog.replace(
-      <RegionSelectorDialog
-        currentRegion={currentRegion}
-        onSelect={async (region) => {
-          await awsesh.preferredRegions.save(s.name, account.accountId, region)
-          setPreferredRegions((prev) => ({ ...prev, [account.accountId]: region }))
-          toast.show({
-            variant: "success",
-            message: `Region set to ${region}`,
-          })
-        }}
-      />
-    )
+    dialog.replace(RegionSelectorDialog, {
+      currentRegion,
+      onSelect: async (region: string) => {
+        await awsesh.preferredRegions.save(s.name, account.accountId, region)
+        setPreferredRegions((prev) => ({ ...prev, [account.accountId]: region }))
+        toast.show({
+          variant: "success",
+          message: `Region set to ${region}`,
+        })
+      },
+    })
   }
 
   const handleAssumeRole = async (account: Account, roleName: string) => {

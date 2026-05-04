@@ -216,13 +216,14 @@ DialogSessionForm.show = (
 ) => {
   return new Promise<boolean>((resolve) => {
     dialog.replace(
-      <DialogSessionForm
-        mode={options.mode}
-        session={options.session}
-        onSuccess={() => resolve(true)}
-        onCancel={() => resolve(false)}
-      />,
-      () => resolve(false)
+      DialogSessionForm,
+      {
+        mode: options.mode,
+        session: options.session,
+        onSuccess: () => resolve(true),
+        onCancel: () => resolve(false),
+      },
+      () => resolve(false),
     )
   })
 }

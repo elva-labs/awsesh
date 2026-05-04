@@ -197,5 +197,5 @@ DialogSSOLogin.show = (
   onSuccess: () => void,
   onError: (error: string) => void
 ) => {
-  dialog.replace(<DialogSSOLogin session={session} onSuccess={onSuccess} onError={onError} />)
+  dialog.replace(DialogSSOLogin, { session, onSuccess, onError })
 }
