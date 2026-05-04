@@ -167,7 +167,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     moveTo(next)
   }
 
-  function moveTo(next: number, skipContextScroll?: boolean) {
+  function moveTo(next: number, includeNeighbors?: boolean) {
     setStore("selected", next)
     const item = flat()[next]
     if (item) props.onMove?.(item)
@@ -179,16 +179,15 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
     const y = target.y - scroll.y
 
-    if (!skipContextScroll) {
+    if (includeNeighbors) {
       const nextItem = flat()[next + 1]
       const nextTarget = nextItem ? children.find((child) => child.id === nextItem.id) : null
       if (nextTarget) {
         const nextY = nextTarget.y - scroll.y
         if (nextY + nextTarget.height > scroll.height) {
           scroll.scrollBy(nextY + nextTarget.height - scroll.height)
+          return
         }
-      } else if (y + target.height > scroll.height) {
-        scroll.scrollBy(y + target.height - scroll.height)
       }
 
       const prevItem = flat()[next - 1]
@@ -197,21 +196,17 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
         const prevY = prevTarget.y - scroll.y
         if (prevY < 0) {
           scroll.scrollBy(prevY)
-        }
-      } else if (y < 0) {
-        scroll.scrollBy(y)
-        if (next === 0) {
-          scroll.scrollTo(0)
+          return
         }
       }
-    } else {
-      if (y + target.height > scroll.height) {
-        scroll.scrollBy(y + target.height - scroll.height)
-      } else if (y < 0) {
-        scroll.scrollBy(y)
-        if (next === 0) {
-          scroll.scrollTo(0)
-        }
+    }
+
+    if (y + target.height > scroll.height) {
+      scroll.scrollBy(y + target.height - scroll.height)
+    } else if (y < 0) {
+      scroll.scrollBy(y)
+      if (next === 0) {
+        scroll.scrollTo(0)
       }
     }
   }
@@ -387,7 +382,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                           }}
                           onMouseOver={() => {
                             const idx = flat().findIndex((x) => x.id === item.id)
-                            if (idx !== -1) moveTo(idx, !config.data.mouseEdgeScroll)
+                            if (idx !== -1) moveTo(idx, config.data.mouseEdgeScroll)
                           }}
                           backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
                           paddingLeft={1}
