@@ -2,7 +2,9 @@ import {
   createContext,
   createMemo,
   createSignal,
+  getOwner,
   onCleanup,
+  runWithOwner,
   useContext,
   type Accessor,
   type ParentProps,
@@ -35,8 +37,17 @@ interface CommandContext {
 const ctx = createContext<CommandContext>()
 
 function init(dialog: ReturnType<typeof useDialog>, keybind: ReturnType<typeof useKeybind>) {
+  const owner = getOwner()
   const [registrations, setRegistrations] = createSignal<Accessor<CommandOption[]>[]>([])
   const [suspendCount, setSuspendCount] = createSignal(0)
+
+  const runInOwner = (callback: () => void) => {
+    if (!owner) {
+      callback()
+      return
+    }
+    runWithOwner(owner, callback)
+  }
 
   const options = createMemo(() => {
     return registrations()
@@ -56,7 +67,7 @@ function init(dialog: ReturnType<typeof useDialog>, keybind: ReturnType<typeof u
     for (const option of options()) {
       if (option.keybind && keybind.match(option.keybind, evt)) {
         evt.preventDefault()
-        option.onSelect?.(dialog)
+        runInOwner(() => option.onSelect?.(dialog))
         return
       }
     }
@@ -74,12 +85,14 @@ function init(dialog: ReturnType<typeof useDialog>, keybind: ReturnType<typeof u
       })
     },
     show() {
-      dialog.replace(<DialogCommand options={options()} />)
+      runInOwner(() => {
+        dialog.replace(<DialogCommand options={options()} />)
+      })
     },
     trigger(id: string) {
       for (const option of options()) {
         if (option.id === id) {
-          option.onSelect?.(dialog)
+          runInOwner(() => option.onSelect?.(dialog))
           return
         }
       }
