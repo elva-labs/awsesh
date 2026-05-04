@@ -2,7 +2,7 @@
 
 A modern AWS SSO session manager with an interactive TUI, powerful CLI, and a reusable SDK.
 
-![awsesh hero](assets/hero.gif)
+![awsesh hero](assets/hero.png)
 
 ## Features
 
@@ -63,7 +63,7 @@ Launch the interactive terminal interface:
 awsesh
 ```
 
-![awsesh tui overview](assets/tui-overview.gif)
+![awsesh tui overview](assets/tui.gif)
 
 ### Navigation
 
@@ -223,6 +223,14 @@ const creds = await awsesh.sso.getCredentials(session, token.token, accountId, r
 See the full [SDK Documentation](packages/core/README.md) for detailed API reference.
 
 For a complete working example, see the [awsesh-sdk-example](https://github.com/elva-labs/awsesh-sdk-example) repository.
+
+---
+
+## Themes
+
+Awsesh currently supports a bunch of themes, the base one using your terminal colors.
+
+![awsesh themes overview](assets/themes.gif)
 
 ---
 
