@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@awsesh/script",
+  "version": "1.0.0-beta.202605041314",
+  "description": "Build and release scripts for awsesh",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "1.0.9",
+    "@types/bun": "1.3.0",
+    "typescript": "5.8.2"
+  }
+}

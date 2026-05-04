@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "awsesh",
+  "version": "1.0.0-beta.202605041314",
+  "description": "AWS SSO session manager with OpenTUI",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "awsesh": "./src/index.ts",
+    "sesh": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "AWSESH_DEV=1 bun run --conditions=browser src/index.ts",
+    "dev:watch": "AWSESH_DEV=1 bun --watch --conditions=browser src/index.ts",
+    "start": "bun run --conditions=browser src/index.ts",
+    "build": "bun run ./script/build.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@awsesh/core": "workspace:*",
+    "@awsesh/script": "workspace:*",
+    "@clack/prompts": "^0.11.0",
+    "@opentui/core": "0.2.2",
+    "@opentui/solid": "0.2.2",
+    "fuzzysort": "^3.1.0",
+    "open": "10.1.2",
+    "remeda": "^2.32.0",
+    "solid-js": "1.9.12",
+    "xdg-basedir": "5.1.0",
+    "yargs": "18.0.0"
+  },
+  "devDependencies": {
+    "@types/yargs": "17.0.33",
+    "@types/bun": "1.3.0",
+    "@tsconfig/bun": "1.0.9",
+    "typescript": "5.8.2"
+  }
+}

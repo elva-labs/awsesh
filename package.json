@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "awsesh-workspace",
+  "version": "1.0.0-beta.202605041314",
+  "private": true,
+  "packageManager": "bun@1.3.1",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "bun run --cwd packages/awsesh --conditions=browser src/index.ts",
+    "dev:watch": "bun --watch --cwd packages/awsesh --conditions=browser src/index.ts",
+    "start": "bun run --cwd packages/awsesh --conditions=browser src/index.ts",
+    "build": "bun run --filter awsesh build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@awsesh/script": "workspace:*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elva-labs/awsesh.git"
+  },
+  "license": "MIT"
+}
