@@ -8,6 +8,7 @@ import { createStore, produce } from "solid-js/store"
 import { useRenderer } from "@opentui/solid"
 
 import { Global } from "@/global"
+import { Log } from "@/util/log"
 import aura from "./theme/aura.json" with { type: "json" }
 import ayu from "./theme/ayu.json" with { type: "json" }
 import carbonfox from "./theme/carbonfox.json" with { type: "json" }
@@ -103,6 +104,8 @@ type Theme = ThemeColors & {
   _hasSelectedListItemText: boolean
   subtleOpacity: number
 }
+
+const log = Log.create({ service: "theme-context" })
 
 export function selectedForeground(theme: Theme): RGBA {
   if (theme._hasSelectedListItemText) {
@@ -447,7 +450,9 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
             })
           )
         })
-        .catch(() => {})
+        .catch((error) => {
+          log.warn("Failed to load custom themes", { error })
+        })
         .finally(() => {
           if (store.active !== "system") {
             setStore("ready", true)
