@@ -56,9 +56,9 @@ export namespace Log {
     return { value: String(err) }
   }
 
-  function safeStringify(obj: any, indent = 2): string {
+  function safeStringify(obj: unknown, indent = 2): string {
     const cache = new Set()
-    const replacer = (key: string, value: any) => {
+    const replacer = (_key: string, value: unknown) => {
       // Handle Error objects specially
       if (value instanceof Error) {
         return serializeError(value)
@@ -80,7 +80,7 @@ export namespace Log {
     }
   }
   
-  async function writeLog(level: Level, service: string, msg: string, data?: any) {
+  async function writeLog(level: Level, service: string, msg: string, data?: unknown) {
     if (!shouldLog(level)) return
     
     const timestamp = new Date().toISOString()
@@ -107,10 +107,10 @@ export namespace Log {
   
   export function create(opts: { service: string }) {
     return {
-      debug: (msg: string, data?: any) => writeLog("DEBUG", opts.service, msg, data),
-      info: (msg: string, data?: any) => writeLog("INFO", opts.service, msg, data),
-      warn: (msg: string, data?: any) => writeLog("WARN", opts.service, msg, data),
-      error: (msg: string, data?: any) => writeLog("ERROR", opts.service, msg, data),
+      debug: (msg: string, data?: unknown) => writeLog("DEBUG", opts.service, msg, data),
+      info: (msg: string, data?: unknown) => writeLog("INFO", opts.service, msg, data),
+      warn: (msg: string, data?: unknown) => writeLog("WARN", opts.service, msg, data),
+      error: (msg: string, data?: unknown) => writeLog("ERROR", opts.service, msg, data),
     }
   }
   

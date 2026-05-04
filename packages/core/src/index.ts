@@ -75,9 +75,9 @@ export function createAwsesh(options: AwseshOptions) {
         const client = new AWSClient(session.ssoRegion)
         return client.getDashboardURL(session.startUrl)
       },
-      getAccountUrl: (session: SSOSession, accountId: string, token: string, roleName: string) => {
+      getAccountUrl: (session: SSOSession, accountId: string, _token: string, roleName: string) => {
         const client = new AWSClient(session.ssoRegion)
-        return client.getAccountURL(accountId, token, session.startUrl, roleName)
+        return client.getAccountURL(accountId, session.startUrl, roleName)
       },
     },
 

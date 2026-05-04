@@ -163,7 +163,6 @@ export class AWSClient {
 
   getAccountURL(
     accountId: string,
-    _accessToken: string,
     startUrl: string,
     roleName: string
   ): string {
