@@ -2,11 +2,7 @@
 
 A modern AWS SSO session manager with an interactive TUI, powerful CLI, and a reusable SDK.
 
-<video autoplay loop muted playsinline width="100%">
-  <source src="assets/hero.mp4" type="video/mp4">
-</video>
-
-![awsesh hero](assets/hero.mp4)
+![awsesh hero](assets/hero.gif)
 
 ## Features
 
@@ -67,7 +63,7 @@ Launch the interactive terminal interface:
 awsesh
 ```
 
-![awsesh tui overview](assets/tui-overview.mp4)
+![awsesh tui overview](assets/tui-overview.gif)
 
 ### Navigation
 
@@ -113,6 +109,8 @@ View and manage your active credential sessions:
 ## CLI
 
 Use awsesh directly from the command line for scripting and automation.
+
+![awsesh tui overview](assets/cli.gif)
 
 ### Quick Usage
 
