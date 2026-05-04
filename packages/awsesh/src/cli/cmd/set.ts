@@ -73,7 +73,6 @@ export const set = cmd({
         session = sessionList[0]
         selectedSessionName = session.name
       } else {
-        UI.println()
         const lastSession = await awsesh.lastSession.get()
         const sortedSessions = [...sessionList].sort((a, b) => {
           if (a.name === lastSession) return -1
@@ -127,7 +126,6 @@ export const set = cmd({
         return a.name.localeCompare(b.name)
       })
 
-      UI.println()
       const result = await prompts.select({
         message: "Select account",
         options: sortedAccounts.map((a) => ({
@@ -181,7 +179,6 @@ export const set = cmd({
             return a.localeCompare(b)
           })
 
-          UI.println()
           const result = await prompts.select({
             message: "Select role",
             options: sortedRoles.map((r) => ({
@@ -215,7 +212,6 @@ export const set = cmd({
 
     if (typedArgs.browser) {
       const url = awsesh.sso.getAccountUrl(session, account.accountId, token.token, selectedRole)
-      UI.println()
       prompts.log.info("Opening AWS console in browser...")
       const { openBrowser } = await import("@/util/browser")
       await openBrowser(url)
@@ -248,20 +244,17 @@ export const set = cmd({
     spinner.stop("Credentials set")
 
     if (typedArgs.eval) {
-      UI.println()
       UI.println(`export AWS_REGION='${effectiveRegion}'`)
       UI.println(`export AWS_ACCESS_KEY_ID='${creds.accessKeyId}'`)
       UI.println(`export AWS_SECRET_ACCESS_KEY='${creds.secretAccessKey}'`)
       UI.println(`export AWS_SESSION_TOKEN='${creds.sessionToken}'`)
       UI.println(`export AWS_SESSION_EXPIRATION='${creds.expiration.toISOString()}'`)
     } else {
-      UI.println()
       UI.println(UI.kv("Profile", result.profileName))
       UI.println(UI.kv("Region", effectiveRegion))
       UI.println(UI.kv("Account", `${account.name} (${account.accountId})`))
       UI.println(UI.kv("Role", selectedRole))
       UI.println(UI.kv("Expires", result.expiration.toLocaleString()))
-      UI.println()
     }
   },
 })
