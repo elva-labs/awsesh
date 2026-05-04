@@ -12,9 +12,8 @@ export function createSimpleContext<T, Props extends Record<string, any>>(input:
 
   return {
     provider: (props: ParentProps<Props>) => {
-      const init = input.init(props);
+      const init = input.init(props) as T & { ready?: boolean };
       return (
-        // @ts-expect-error - Show component handles optional ready property
         <Show when={init.ready === undefined || init.ready === true}>
           <ctx.Provider value={init}>{props.children}</ctx.Provider>
         </Show>

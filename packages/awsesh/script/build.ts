@@ -84,7 +84,6 @@ for (const item of targets) {
     compile: {
       autoloadBunfig: false,
       autoloadDotenv: false,
-      // @ts-expect-error bun types not up to date
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace("awsesh", "bun") as Parameters<typeof Bun.build>[0]["compile"]["target"],

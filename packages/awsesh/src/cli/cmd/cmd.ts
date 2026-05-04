@@ -1,4 +1,4 @@
-import type { Argv, CommandModule } from "yargs"
+import type { Argv, CommandModule, ArgumentsCamelCase } from "yargs"
 
 export function cmd<T>(input: {
   command: string
@@ -10,6 +10,8 @@ export function cmd<T>(input: {
     command: input.command,
     describe: input.describe,
     builder: input.builder,
-    handler: input.handler as any,
-  }
+    handler(args: ArgumentsCamelCase) {
+      return input.handler(args as unknown as T)
+    },
+  } as CommandModule
 }
