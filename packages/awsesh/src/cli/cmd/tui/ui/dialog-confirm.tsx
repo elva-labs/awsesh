@@ -3,10 +3,16 @@ import { useDialog, type DialogContext } from "./dialog"
 import { useKeyboard } from "@opentui/solid"
 import { DialogBase, DialogButton, DialogFooter } from "./dialog-base"
 
+export type DialogConfirmVariant = "default" | "danger"
+
 export type DialogConfirmProps = {
   title: string
   message: string
-  onConfirm?: () => void
+  warning?: string
+  variant?: DialogConfirmVariant
+  confirmLabel?: string
+  cancelLabel?: string
+  onConfirm?: () => void | Promise<void>
   onCancel?: () => void
 }
 
@@ -14,42 +20,50 @@ export function DialogConfirm(props: DialogConfirmProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
 
+  const handleConfirm = async () => {
+    await props.onConfirm?.()
+    dialog.clear()
+  }
+
+  const handleCancel = () => {
+    props.onCancel?.()
+    dialog.clear()
+  }
+
   useKeyboard((evt) => {
-    if (evt.name === "return" || evt.name === "y") {
+    if (evt.name === "return") {
       evt.preventDefault()
-      props.onConfirm?.()
-      dialog.clear()
-    }
-    if (evt.name === "n") {
-      evt.preventDefault()
-      props.onCancel?.()
-      dialog.clear()
+      handleConfirm()
     }
   })
 
+  const variant = () => props.variant ?? "default"
+  const confirmLabel = () => props.confirmLabel ?? "Confirm"
+  const cancelLabel = () => props.cancelLabel ?? "Cancel"
+
   return (
-    <DialogBase title={props.title}>
-      <box paddingBottom={1}>
-        <text fg={theme.textMuted}>{props.message}</text>
+    <DialogBase
+      title={props.title}
+      titleColor={variant() === "danger" ? theme.error : undefined}
+    >
+      <box flexDirection="column" gap={1} paddingBottom={1}>
+        <text fg={variant() === "danger" ? theme.text : theme.textMuted}>
+          {props.message}
+        </text>
       </box>
-      <DialogFooter align="right">
+      <DialogFooter align="space-between">
+        {props.warning && (
+          <text fg={theme.warning}>{props.warning}</text>
+        )}
         <box flexDirection="row" gap={1}>
           <DialogButton
-            label="Cancel"
-            keybind="n"
-            onClick={() => {
-              props.onCancel?.()
-              dialog.clear()
-            }}
+            label={cancelLabel()}
+            onClick={handleCancel}
           />
           <DialogButton
-            label="Confirm"
-            keybind="y"
-            variant="primary"
-            onClick={() => {
-              props.onConfirm?.()
-              dialog.clear()
-            }}
+            label={confirmLabel()}
+            variant={variant() === "danger" ? "danger" : "primary"}
+            onClick={handleConfirm}
           />
         </box>
       </DialogFooter>
@@ -57,13 +71,22 @@ export function DialogConfirm(props: DialogConfirmProps) {
   )
 }
 
-DialogConfirm.show = (dialog: DialogContext, title: string, message: string) => {
+DialogConfirm.show = (
+  dialog: DialogContext,
+  options: {
+    title: string
+    message: string
+    warning?: string
+    variant?: DialogConfirmVariant
+    confirmLabel?: string
+    cancelLabel?: string
+  },
+) => {
   return new Promise<boolean>((resolve) => {
     dialog.replace(
       () => (
         <DialogConfirm
-          title={title}
-          message={message}
+          {...options}
           onConfirm={() => resolve(true)}
           onCancel={() => resolve(false)}
         />

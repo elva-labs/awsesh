@@ -106,8 +106,12 @@ export function MigrationProvider(props: ParentProps) {
 
       const confirmed = await DialogConfirm.show(
         dialog,
-        "Old config detected",
-        "Would you like to migrate your sessions to the new format?"
+        {
+          title: "Old config detected",
+          message: "Would you like to migrate your sessions to the new format?",
+          confirmLabel: "Migrate",
+          cancelLabel: "Skip",
+        }
       )
 
       kv.set(MIGRATION_CHECKED_KEY, true)

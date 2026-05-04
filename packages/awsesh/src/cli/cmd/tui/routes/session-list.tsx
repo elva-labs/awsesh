@@ -103,8 +103,13 @@ export function SessionListScreen() {
         if (!selected) return
         const confirmed = await DialogConfirm.show(
           dialog,
-          "Kill Session Credentials",
-          `Remove all CLI credentials for "${selected.name}"?`
+          {
+            title: "Kill Session Credentials",
+            message: `Remove all CLI credentials for "${selected.name}"?`,
+            variant: "danger",
+            confirmLabel: "Kill",
+            cancelLabel: "Cancel",
+          }
         )
         if (confirmed) {
           await aws.killSSOSession(selected.name, selected.startUrl)
@@ -120,8 +125,13 @@ export function SessionListScreen() {
       onSelect: async () => {
         const confirmed = await DialogConfirm.show(
           dialog,
-          "Cleanup Credentials",
-          "Are you sure you want to flush all active credentials?"
+          {
+            title: "Cleanup Credentials",
+            message: "Are you sure you want to flush all active credentials?",
+            variant: "danger",
+            confirmLabel: "Cleanup",
+            cancelLabel: "Cancel",
+          }
         )
         if (confirmed) {
           await aws.killAllSessions()

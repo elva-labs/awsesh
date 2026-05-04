@@ -168,8 +168,13 @@ export function AccountListScreen() {
         if (!s) return
         const confirmed = await DialogConfirm.show(
           dialog,
-          "Cleanup Session Credentials",
-          `Are you sure you want to flush all credentials for "${s.name}"?`
+          {
+            title: "Cleanup Session Credentials",
+            message: `Are you sure you want to flush all credentials for "${s.name}"?`,
+            variant: "danger",
+            confirmLabel: "Cleanup",
+            cancelLabel: "Cancel",
+          }
         )
         if (confirmed) {
           await aws.killSSOSession(s.name, s.startUrl)
