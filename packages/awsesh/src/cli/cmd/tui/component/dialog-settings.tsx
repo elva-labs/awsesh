@@ -58,6 +58,17 @@ export function DialogSettings() {
       },
     },
     {
+      title: "Mouse edge scroll",
+      description: `Current: ${config.data.mouseEdgeScroll ? "on" : "off"}`,
+      value: "mouse_edge_scroll",
+      category: "Preferences",
+      onSelect: () => {
+        const next = !config.data.mouseEdgeScroll
+        config.set("mouseEdgeScroll", next)
+        Config.setMouseEdgeScroll(next)
+      },
+    },
+    {
       title: "Keybinds",
       value: "keybinds",
       category: "Preferences",

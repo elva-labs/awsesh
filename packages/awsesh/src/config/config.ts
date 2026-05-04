@@ -46,6 +46,7 @@ export interface AppConfig {
   autoAssumeRole: boolean
   cacheAccountDuration: number
   defaultRegion: string
+  mouseEdgeScroll: boolean
   keybinds: KeybindsConfig
 }
 
@@ -61,6 +62,7 @@ export interface UserConfig {
   autoAssumeRole?: boolean
   cacheAccountDuration?: number
   defaultRegion?: string
+  mouseEdgeScroll?: boolean
   keybinds?: UserKeybindsConfig
 }
 
@@ -100,6 +102,7 @@ export const defaultConfig: AppConfig = {
   autoAssumeRole: true,
   cacheAccountDuration: 15,
   defaultRegion: "us-east-1",
+  mouseEdgeScroll: false,
   keybinds: defaultKeybinds,
 }
 
@@ -130,6 +133,7 @@ function mergeConfig(defaults: AppConfig, overrides?: UserConfig): AppConfig {
     autoAssumeRole: overrides.autoAssumeRole ?? defaults.autoAssumeRole,
     cacheAccountDuration: overrides.cacheAccountDuration ?? defaults.cacheAccountDuration,
     defaultRegion: overrides.defaultRegion ?? defaults.defaultRegion,
+    mouseEdgeScroll: overrides.mouseEdgeScroll ?? defaults.mouseEdgeScroll,
     keybinds: mergeKeybinds(defaults.keybinds, overrides.keybinds),
   }
 }
@@ -331,6 +335,29 @@ export namespace Config {
     await Bun.write(path.join(dir, ".keep"), "")
     await Bun.write(configPath, JSON.stringify(merged, null, 2))
     log.info("Time format saved", { format, isDefault })
+  }
+
+  export async function setMouseEdgeScroll(enabled: boolean): Promise<void> {
+    const isDefault = enabled === defaultConfig.mouseEdgeScroll
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const { mouseEdgeScroll: _, ...rest } = existing
+    const merged: UserConfig = isDefault ? rest : { ...rest, mouseEdgeScroll: enabled }
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("Mouse edge scroll saved", { enabled, isDefault })
   }
 
   export function getDefaults(): AppConfig {

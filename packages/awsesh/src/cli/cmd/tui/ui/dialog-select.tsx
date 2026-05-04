@@ -1,5 +1,6 @@
 import { InputRenderable, RGBA, ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
+import { useConfig } from "../context/config"
 import { entries, filter, flatMap, groupBy, pipe } from "remeda"
 import { batch, createEffect, createMemo, For, onMount, Show, type JSX, on } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -46,6 +47,7 @@ function selectedForeground(theme: ReturnType<typeof useTheme>["theme"]): RGBA {
 export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  const config = useConfig()
   const renderer = useRenderer()
   const [store, setStore] = createStore({
     selected: 0,
@@ -122,7 +124,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     moveTo(next)
   }
 
-  function moveTo(next: number) {
+  function moveTo(next: number, skipContextScroll?: boolean) {
     setStore("selected", next)
     const sel = selected()
     if (sel) props.onMove?.(sel)
@@ -133,28 +135,39 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
     const y = target.y - scroll.y
 
-    const nextItem = flat()[next + 1]
-    const nextTarget = nextItem ? children.find((child) => child.id === JSON.stringify(nextItem.value)) : null
-    if (nextTarget) {
-      const nextY = nextTarget.y - scroll.y
-      if (nextY + nextTarget.height > scroll.height) {
-        scroll.scrollBy(nextY + nextTarget.height - scroll.height)
+    if (!skipContextScroll) {
+      const nextItem = flat()[next + 1]
+      const nextTarget = nextItem ? children.find((child) => child.id === JSON.stringify(nextItem.value)) : null
+      if (nextTarget) {
+        const nextY = nextTarget.y - scroll.y
+        if (nextY + nextTarget.height > scroll.height) {
+          scroll.scrollBy(nextY + nextTarget.height - scroll.height)
+        }
+      } else if (y + target.height > scroll.height) {
+        scroll.scrollBy(y + target.height - scroll.height)
       }
-    } else if (y + target.height > scroll.height) {
-      scroll.scrollBy(y + target.height - scroll.height)
-    }
 
-    const prevItem = flat()[next - 1]
-    const prevTarget = prevItem ? children.find((child) => child.id === JSON.stringify(prevItem.value)) : null
-    if (prevTarget) {
-      const prevY = prevTarget.y - scroll.y
-      if (prevY < 0) {
-        scroll.scrollBy(prevY)
+      const prevItem = flat()[next - 1]
+      const prevTarget = prevItem ? children.find((child) => child.id === JSON.stringify(prevItem.value)) : null
+      if (prevTarget) {
+        const prevY = prevTarget.y - scroll.y
+        if (prevY < 0) {
+          scroll.scrollBy(prevY)
+        }
+      } else if (y < 0) {
+        scroll.scrollBy(y)
+        if (next === 0) {
+          scroll.scrollTo(0)
+        }
       }
-    } else if (y < 0) {
-      scroll.scrollBy(y)
-      if (next === 0) {
-        scroll.scrollTo(0)
+    } else {
+      if (y + target.height > scroll.height) {
+        scroll.scrollBy(y + target.height - scroll.height)
+      } else if (y < 0) {
+        scroll.scrollBy(y)
+        if (next === 0) {
+          scroll.scrollTo(0)
+        }
       }
     }
   }
@@ -265,7 +278,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       onMouseOver={() => {
                         const index = filtered().findIndex((x) => isDeepEqual(x.value, option.value))
                         if (index === -1) return
-                        moveTo(index)
+                        moveTo(index, !config.data.mouseEdgeScroll)
                       }}
                       backgroundColor={active() ? (option.bg ?? theme.primary) : RGBA.fromInts(0, 0, 0, 0)}
                       paddingLeft={1}
