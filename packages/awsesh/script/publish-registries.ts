@@ -24,6 +24,18 @@ function getFormulaClassName(): string {
   return "AwseshAlpha"
 }
 
+function getTapToken(): string {
+  const token = process.env.TAP_GITHUB_TOKEN
+  if (!token) {
+    throw new Error("TAP_GITHUB_TOKEN is required to update homebrew-elva")
+  }
+  return token
+}
+
+function getTapRepoUrl(token: string): string {
+  return `https://x-access-token:${encodeURIComponent(token)}@github.com/elva-labs/homebrew-elva.git`
+}
+
 async function updateHomebrewTap() {
   const arm64Sha = await $`sha256sum ./dist/awsesh-linux-arm64.tar.gz | cut -d' ' -f1`.text().then((x) => x.trim())
   const x64Sha = await $`sha256sum ./dist/awsesh-linux-x64.tar.gz | cut -d' ' -f1`.text().then((x) => x.trim())
@@ -95,8 +107,9 @@ async function updateHomebrewTap() {
   await $`rm -rf ./dist/homebrew-tap`
 
   try {
-    const tapToken = process.env.TAP_GITHUB_TOKEN || process.env.GITHUB_TOKEN
-    await $`git clone https://${tapToken}@github.com/elva-labs/homebrew-elva.git ./dist/homebrew-tap`
+    const tapToken = getTapToken()
+    const tapRepoUrl = getTapRepoUrl(tapToken)
+    await $`git clone ${tapRepoUrl} ./dist/homebrew-tap`
     await Bun.file(`./dist/homebrew-tap/Formula/${formulaName}.rb`).write(homebrewFormula)
     await $`cd ./dist/homebrew-tap && git add Formula/${formulaName}.rb`
     await $`cd ./dist/homebrew-tap && git config user.name "elva-bot"`
