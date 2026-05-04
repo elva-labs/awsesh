@@ -34,7 +34,7 @@ function init(awsesh: ReturnType<typeof useAwsesh>) {
           accountName: mostRecent.accountName,
           accountId: mostRecent.accountId,
           roleName: mostRecent.roleName,
-          region: "",
+          region: mostRecent.region ?? "",
           expiration: mostRecent.expiration,
         })
       }

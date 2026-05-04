@@ -73,6 +73,7 @@ export interface ActiveCredential {
   sessionName: string
   expiration: string
   isDefault: boolean
+  region?: string
 }
 
 export interface LastSetCredential {

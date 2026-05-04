@@ -375,6 +375,7 @@ export function createAwsesh(options: AwseshOptions) {
             sessionName,
             expiration: credentials.expiration.toISOString(),
             isDefault,
+            region,
           },
         ]
       })
