@@ -105,8 +105,14 @@ export const auth = cmd({
     
     let tokenResult: TokenResult | null = null
     while (!tokenResult) {
-      await new Promise((resolve) => setTimeout(resolve, loginInfo.interval * 1000))
-      tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+      try {
+        await new Promise((resolve) => setTimeout(resolve, loginInfo.interval * 1000))
+        tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        UI.error(`Authentication failed: ${msg}`)
+        process.exit(1)
+      }
     }
 
     await awsesh.tokens.save(session.startUrl, tokenResult.token, tokenResult.expiresAt)

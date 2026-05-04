@@ -271,6 +271,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
             tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
           } catch (e) {
             log.error("Failed to poll for token", { error: e, sessionName: session.name })
+            throw e
           }
         }
 

@@ -39,8 +39,13 @@ export async function authenticate(
 
   let tokenResult: TokenResult | null = null
   while (!tokenResult) {
-    await Bun.sleep(loginInfo.interval * 1000)
-    tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+    try {
+      await Bun.sleep(loginInfo.interval * 1000)
+      tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
+    } catch (error) {
+      spinner.stop()
+      throw error
+    }
   }
 
   await awsesh.tokens.save(session.startUrl, tokenResult.token, tokenResult.expiresAt)
