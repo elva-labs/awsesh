@@ -42,7 +42,7 @@ export function DialogAlert(props: DialogAlertProps) {
 DialogAlert.show = (dialog: DialogContext, title: string, message: string) => {
   return new Promise<void>((resolve) => {
     dialog.replace(
-      () => <DialogAlert title={title} message={message} onClose={() => resolve()} />,
+      <DialogAlert title={title} message={message} onClose={() => resolve()} />,
       () => resolve(),
     )
   })

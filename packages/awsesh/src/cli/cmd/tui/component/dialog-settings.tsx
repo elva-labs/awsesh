@@ -20,7 +20,7 @@ export function DialogSettings() {
       value: "theme",
       category: "Appearance",
       onSelect: () => {
-        dialog.replace(() => <DialogThemeList />)
+        dialog.replace(<DialogThemeList />)
       },
     },
     {
@@ -73,7 +73,7 @@ export function DialogSettings() {
       value: "keybinds",
       category: "Preferences",
       onSelect: () => {
-        dialog.replace(() => <DialogKeybindList />)
+        dialog.replace(<DialogKeybindList />)
       },
     },
   ])

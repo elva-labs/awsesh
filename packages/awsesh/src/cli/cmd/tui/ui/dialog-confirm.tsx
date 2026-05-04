@@ -84,13 +84,11 @@ DialogConfirm.show = (
 ) => {
   return new Promise<boolean>((resolve) => {
     dialog.replace(
-      () => (
-        <DialogConfirm
-          {...options}
-          onConfirm={() => resolve(true)}
-          onCancel={() => resolve(false)}
-        />
-      ),
+      <DialogConfirm
+        {...options}
+        onConfirm={() => resolve(true)}
+        onCancel={() => resolve(false)}
+      />,
       () => resolve(false),
     )
   })

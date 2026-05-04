@@ -1,5 +1,5 @@
 import { useTheme } from "../context/theme"
-import type { RGBA, InputRenderable, PasteEvent } from "@opentui/core"
+import type { RGBA, InputRenderable } from "@opentui/core"
 
 export interface InputProps {
   value?: string
@@ -17,29 +17,19 @@ export interface InputProps {
 
 export function Input(props: InputProps) {
   const { theme } = useTheme()
-  let inputRef: InputRenderable | undefined
-
-  const handlePaste = (evt: PasteEvent) => {
-    if (inputRef) {
-      inputRef.insertText(evt.text)
-    }
-  }
 
   return (
     <input
-      height={1}
       focused={props.focused ?? true}
       value={props.value}
       placeholder={props.placeholder}
       onInput={(e) => props.onInput?.(e)}
-      onPaste={handlePaste}
       backgroundColor={props.backgroundColor ?? theme.background}
       focusedBackgroundColor={props.focusedBackgroundColor ?? theme.background}
       textColor={props.textColor ?? theme.text}
       focusedTextColor={props.focusedTextColor ?? theme.text}
       cursorColor={props.cursorColor ?? theme.primary}
       ref={(r) => {
-        inputRef = r
         props.ref?.(r)
       }}
     />

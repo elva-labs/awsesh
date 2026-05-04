@@ -43,13 +43,11 @@ export function DialogSessionDelete(props: DialogSessionDeleteProps) {
 DialogSessionDelete.show = (dialog: DialogContext, sessionName: string) => {
   return new Promise<boolean>((resolve) => {
     dialog.replace(
-      () => (
-        <DialogSessionDelete
-          sessionName={sessionName}
-          onSuccess={() => resolve(true)}
-          onCancel={() => resolve(false)}
-        />
-      ),
+      <DialogSessionDelete
+        sessionName={sessionName}
+        onSuccess={() => resolve(true)}
+        onCancel={() => resolve(false)}
+      />,
       () => resolve(false),
     )
   })

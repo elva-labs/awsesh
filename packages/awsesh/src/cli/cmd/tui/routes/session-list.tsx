@@ -154,7 +154,7 @@ export function SessionListScreen() {
       category: "Application",
       keybind: "settings",
       onSelect: () => {
-        dialog.replace(() => <DialogSettings />)
+        dialog.replace(<DialogSettings />)
       },
     },
     {

@@ -8,9 +8,14 @@ describe("printSessionInfo", () => {
 
   beforeEach(() => {
     capturedOutput = "";
-    writeSync = spyOn(fs, "writeSync").mockImplementation((fd: number, data: string) => {
-      capturedOutput = data;
-      return data.length;
+    writeSync = spyOn(fs, "writeSync").mockImplementation((fd: number, data: ArrayBufferView | string) => {
+      if (typeof data === "string") {
+        capturedOutput = data;
+        return data.length;
+      }
+
+      capturedOutput = new TextDecoder().decode(data);
+      return data.byteLength;
     });
   });
 

@@ -74,7 +74,7 @@ function init(dialog: ReturnType<typeof useDialog>, keybind: ReturnType<typeof u
       })
     },
     show() {
-      dialog.replace(() => <DialogCommand options={options()} />)
+      dialog.replace(<DialogCommand options={options()} />)
     },
     trigger(id: string) {
       for (const option of options()) {

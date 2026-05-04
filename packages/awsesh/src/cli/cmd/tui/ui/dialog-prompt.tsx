@@ -85,17 +85,15 @@ DialogPrompt.show = (
     let resultValue: string | null = null
     let confirmed = false
     dialog.replace(
-      () => (
-        <DialogPrompt
-          title={title}
-          {...options}
-          onConfirm={(value) => {
-            resultValue = value
-            confirmed = true
-          }}
-          onCancel={() => {}}
-        />
-      ),
+      <DialogPrompt
+        title={title}
+        {...options}
+        onConfirm={(value) => {
+          resultValue = value
+          confirmed = true
+        }}
+        onCancel={() => {}}
+      />,
       () => {
         resolve(confirmed ? resultValue : null)
       }

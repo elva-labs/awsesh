@@ -24,12 +24,10 @@ export function DialogCredentialsCleanup(props: DialogCredentialsCleanupProps) {
 DialogCredentialsCleanup.show = (dialog: DialogContext) => {
   return new Promise<boolean>((resolve) => {
     dialog.replace(
-      () => (
-        <DialogCredentialsCleanup
-          onConfirm={() => resolve(true)}
-          onCancel={() => resolve(false)}
-        />
-      ),
+      <DialogCredentialsCleanup
+        onConfirm={() => resolve(true)}
+        onCancel={() => resolve(false)}
+      />,
       () => resolve(false),
     )
   })

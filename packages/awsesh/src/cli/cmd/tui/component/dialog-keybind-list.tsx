@@ -56,14 +56,14 @@ export function DialogKeybindList() {
   }
 
   function showList() {
-    dialog.replace(() => <DialogKeybindList />)
+    dialog.replace(<DialogKeybindList />)
   }
 
   function handleSelect(opt: DialogSelectOption<keyof KeybindsConfig>) {
     const def = keybindDefinitions.find((d) => d.key === opt.value)
     if (!def) return
 
-    dialog.replace(() => (
+    dialog.replace(
       <DialogKeybindEdit
         keybindKey={def.key}
         label={def.label}
@@ -72,7 +72,7 @@ export function DialogKeybindList() {
         }}
         onBack={showList}
       />
-    ))
+    )
   }
 
   return (

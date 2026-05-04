@@ -246,13 +246,13 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     if (keybind.match("filter", evt) && props.showFilter !== false) {
       evt.preventDefault()
       setStore("filterActive", true)
-      setTimeout(() => {
-        input?.focus()
-        if (input && store.filter) {
-          input.cursorPosition = store.filter.length
-        }
-      }, 1)
-    }
+        setTimeout(() => {
+          input?.focus()
+          if (input && store.filter) {
+            input.cursorOffset = store.filter.length
+          }
+        }, 1)
+      }
   })
 
   return (
@@ -277,7 +277,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
               setTimeout(() => {
                 input?.focus()
                 if (input && store.filter) {
-                  input.cursorPosition = store.filter.length
+                  input.cursorOffset = store.filter.length
                 }
               }, 1)
             }}

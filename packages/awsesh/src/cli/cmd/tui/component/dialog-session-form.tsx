@@ -65,7 +65,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
       if (nameInput) {
         nameInput.focus()
         if (isEdit) {
-          nameInput.cursorPosition = nameInput.value.length
+          nameInput.cursorOffset = nameInput.value.length
         }
       }
     }, 1)
@@ -141,7 +141,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
       const input = inputs()[nextIndex]
       if (input) {
         input.focus()
-        input.cursorPosition = input.value.length
+        input.cursorOffset = input.value.length
       }
     }
 
@@ -216,14 +216,12 @@ DialogSessionForm.show = (
 ) => {
   return new Promise<boolean>((resolve) => {
     dialog.replace(
-      () => (
-        <DialogSessionForm
-          mode={options.mode}
-          session={options.session}
-          onSuccess={() => resolve(true)}
-          onCancel={() => resolve(false)}
-        />
-      ),
+      <DialogSessionForm
+        mode={options.mode}
+        session={options.session}
+        onSuccess={() => resolve(true)}
+        onCancel={() => resolve(false)}
+      />,
       () => resolve(false)
     )
   })
