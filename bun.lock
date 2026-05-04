@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "awsesh",
@@ -10,7 +9,7 @@
     },
     "packages/awsesh": {
       "name": "awsesh",
-      "version": "1.0.0-beta.202605041005",
+      "version": "1.0.0-beta.202605041018",
       "bin": {
         "awsesh": "./src/index.ts",
         "sesh": "./src/index.ts",
@@ -19,12 +18,12 @@
         "@awsesh/core": "workspace:*",
         "@awsesh/script": "workspace:*",
         "@clack/prompts": "^0.11.0",
-        "@opentui/core": "^0.2.2",
-        "@opentui/solid": "^0.2.2",
+        "@opentui/core": "0.2.2",
+        "@opentui/solid": "0.2.2",
         "fuzzysort": "^3.1.0",
         "open": "10.1.2",
         "remeda": "^2.32.0",
-        "solid-js": "^1.9.12",
+        "solid-js": "1.9.12",
         "xdg-basedir": "5.1.0",
         "yargs": "18.0.0",
       },
@@ -37,7 +36,7 @@
     },
     "packages/core": {
       "name": "@awsesh/core",
-      "version": "1.0.0-beta.202605041005",
+      "version": "1.0.0-beta.202605041018",
       "dependencies": {
         "@aws-sdk/client-sso": "^3.701.0",
         "@aws-sdk/client-sso-oidc": "^3.701.0",
@@ -50,7 +49,7 @@
     },
     "packages/script": {
       "name": "@awsesh/script",
-      "version": "1.0.0-beta.202605041005",
+      "version": "1.0.0-beta.202605041018",
       "devDependencies": {
         "@tsconfig/bun": "1.0.9",
         "@types/bun": "1.3.0",
