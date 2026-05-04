@@ -2,16 +2,21 @@
 
 A modern AWS SSO session manager with an interactive TUI, powerful CLI, and a reusable SDK.
 
-![awsesh hero](assets/hero.png)
-<!-- PLACEHOLDER: A wide banner image showing the awsesh TUI in a terminal. Show the main account selection screen with a few accounts listed, fuzzy search active, and the bottom action bar visible. Dark terminal theme preferred. Dimensions: ~1200x600px -->
+<video autoplay loop muted playsinline width="100%">
+  <source src="assets/hero.mp4" type="video/mp4">
+</video>
+
+![awsesh hero](assets/hero.mp4)
 
 ## Features
 
 - Interactive terminal UI for managing AWS SSO sessions
+- Interactive CLI if that's more your jam
 - Fast fuzzy search across accounts and roles
 - Multiple SSO profile support
 - Automatic credential management
-- Browser integration for AWS Console access
+- Remappable keybindings
+- Browser integration for quick AWS Console access
 - Shell integration with environment variable exports
 - Reusable SDK for building your own tools
 - XDG Base Directory compliant
@@ -23,13 +28,6 @@ A modern AWS SSO session manager with an interactive TUI, powerful CLI, and a re
 ```sh
 brew tap elva-labs/elva
 brew install awsesh
-```
-
-**Beta version:**
-
-```sh
-brew tap elva-labs/elva
-brew install awsesh-beta
 ```
 
 ### Pre-built Binaries
@@ -69,8 +67,7 @@ Launch the interactive terminal interface:
 awsesh
 ```
 
-![awsesh tui overview](assets/tui-overview.gif)
-<!-- PLACEHOLDER: A GIF recording showing the full TUI flow: launching awsesh, selecting an SSO profile, searching for an account with fuzzy search, selecting a role, and seeing the "credentials set" confirmation. ~15-20 seconds. -->
+![awsesh tui overview](assets/tui-overview.mp4)
 
 ### Navigation
 
@@ -86,7 +83,6 @@ awsesh
 ### Managing SSO Profiles
 
 ![awsesh profile management](assets/profile-management.png)
-<!-- PLACEHOLDER: Screenshot showing the SSO profile list with the action bar at the bottom showing available actions (n=new, e=edit, d=delete, o=open in browser). Show 2-3 example profiles. -->
 
 | Key | Action |
 |-----|--------|
@@ -98,7 +94,6 @@ awsesh
 ### Account & Role Selection
 
 ![awsesh account selection](assets/account-selection.png)
-<!-- PLACEHOLDER: Screenshot of the account list with fuzzy search active. Show the search input at top with a partial search term, filtered results below, and the match highlighting. Include the role count badge next to account names. -->
 
 | Key | Action |
 |-----|--------|
@@ -112,7 +107,6 @@ awsesh
 View and manage your active credential sessions:
 
 ![awsesh sessions](assets/sessions.png)
-<!-- PLACEHOLDER: Screenshot of the active sessions page showing 2-3 active credentials with their profile names, account names, roles, and expiration times. Include the default session indicator. -->
 
 ---
 
@@ -123,11 +117,11 @@ Use awsesh directly from the command line for scripting and automation.
 ### Quick Usage
 
 ```sh
-# Set credentials for a specific role
-awsesh <sso-profile> <account-name> <role-name>
+# Set credentials
+awsesh set
 
-# Use last selected role for an account
-awsesh <sso-profile> <account-name>
+# Set credentials for a specific role
+awsesh set <sso-profile> <account-name> <role-name>
 
 # Check current identity
 awsesh whoami
@@ -144,7 +138,7 @@ awsesh accounts
 | Command | Description |
 |---------|-------------|
 | `awsesh` | Launch interactive TUI |
-| `awsesh <sso> <account> [role]` | Set credentials directly |
+| `awsesh set <sso> <account> [role]` | Set credentials directly |
 | `awsesh whoami` | Show current AWS identity |
 | `awsesh sessions` | List active credential sessions |
 | `awsesh accounts` | List cached AWS accounts |
@@ -175,7 +169,7 @@ Add this to your shell config for seamless environment variable integration:
 
 **Bash/Zsh:**
 ```bash
-sesh() {
+sesh() { # i personally prefer "sesh" over "awsesh"
     eval "$(command awsesh --eval "$@")"
 }
 ```
@@ -186,16 +180,6 @@ function sesh
     eval (command awsesh --eval $argv)
 end
 ```
-
-This exports AWS environment variables directly to your shell:
-
-```sh
-sesh MyOrg MyAccount AdminRole
-# Sets: AWS_PROFILE, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-#       AWS_SESSION_TOKEN, AWS_SESSION_EXPIRATION
-```
-
----
 
 ## SDK
 
@@ -246,7 +230,8 @@ For a complete working example, see the [awsesh-sdk-example](https://github.com/
 
 ## Migrating from Go Version
 
-If upgrading from the original Go version of awsesh, run the migration command:
+If upgrading from the original Go version of awsesh the mgiration should run automatically.
+Otherwise you can run the migration command manually:
 
 ```sh
 awsesh migrate
@@ -258,6 +243,8 @@ Options:
 - `--no-backup` - Skip backup (not recommended)
 
 The migration converts your existing profiles, tokens, and preferences to the new JSON format.
+
+Should the migration fail I suggest you to clean up your `~/.aws` folder and remove most any awsesh files and the aws files `.config` and `.credentials` since they can interfere as well.
 
 ---
 
@@ -281,6 +268,13 @@ Access settings via `Ctrl+P` > Settings in the TUI, or edit `~/.config/awsesh/co
   "logLevel": "info"
 }
 ```
+
+---
+
+## Acknowledgments
+
+Huge thanks to the great team over at [Anomalyco](hhttps://github.com/anomalyco) both for OpenTui and the structure of OpenCode from a few months ago.
+I shamelessly based the refactor on the structure of OpenCode at the time and it's been great for me.
 
 ---
 
