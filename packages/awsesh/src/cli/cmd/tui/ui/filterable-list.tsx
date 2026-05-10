@@ -256,7 +256,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
   })
 
   return (
-    <box flexDirection="column" flexGrow={1}>
+    <box flexDirection="column" flexGrow={1} backgroundColor={theme.background}>
       <Show when={props.title}>
         <box paddingLeft={1}>
           <text fg={theme.text} attributes={TextAttributes.BOLD}>
