@@ -3,7 +3,7 @@ import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
 
 export const session = cmd({
-  command: "<ssoSession> <accountName> [roleName]",
+  command: "session <ssoSession> <accountName> [roleName]",
   describe: "Directly set credentials for a specific account and role",
   builder: (yargs) =>
     yargs

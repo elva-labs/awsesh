@@ -20,12 +20,33 @@ import { Installation } from "./installation"
 import { createCliRenderer } from "@opentui/core"
 
 const args = hideBin(process.argv)
+const commandNames = new Set([
+  "set",
+  "sessions",
+  "accounts",
+  "credentials",
+  "auth",
+  "whoami",
+  "migrate",
+  "config",
+  "data",
+  "session",
+  "help",
+  "version",
+])
+
+const usePositionalSession =
+  args.length > 0 &&
+  !args[0].startsWith("-") &&
+  !commandNames.has(args[0])
+
+const normalizedArgs = usePositionalSession ? ["session", ...args] : args
 const showHelp = args.includes("--help") || args.includes("-h") || args[0] === "help"
 if (showHelp) {
   console.log(UI.logo())
 }
 
-const cli = yargs(args)
+const cli = yargs(normalizedArgs)
   .scriptName("awsesh")
   .help("help", "show help")
   .alias("help", "h")
@@ -58,7 +79,6 @@ const cli = yargs(args)
     })
   })
   .usage("")
-  .command(session)
   .command(TuiCommand)
   .command(set)
   .command(sessions)
@@ -69,6 +89,7 @@ const cli = yargs(args)
   .command(migrate)
   .command(config)
   .command(data)
+  .command(session)
   .demandCommand(0, 1, "")
   .fail(async (msg, err) => {
     if (msg) {
