@@ -102,6 +102,14 @@ describe("CLI", () => {
     });
   });
 
+  describe("root browser flag", () => {
+    test("exits with error when default profile is not active", async () => {
+      const { stderr, exitCode } = await runCli(["-b"], testEnv("root-browser-no-default"));
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("No active credentials found for profile 'default'");
+    });
+  });
+
   describe("direct session command", () => {
     test("resolves positional args to session command", async () => {
       const { stderr, exitCode } = await runCli(["missing-session", "account", "role"], testEnv("session-direct"));
