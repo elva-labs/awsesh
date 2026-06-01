@@ -14,6 +14,7 @@ import { sessions } from "./cli/cmd/sessions.js"
 import { accounts } from "./cli/cmd/accounts.js"
 import { credentials } from "./cli/cmd/credentials.js"
 import { set } from "./cli/cmd/set.js"
+import { session } from "./cli/cmd/session.js"
 
 import { Installation } from "./installation"
 import { createCliRenderer } from "@opentui/core"
@@ -57,6 +58,7 @@ const cli = yargs(args)
     })
   })
   .usage("")
+  .command(session)
   .command(TuiCommand)
   .command(set)
   .command(sessions)

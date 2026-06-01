@@ -102,6 +102,14 @@ describe("CLI", () => {
     });
   });
 
+  describe("direct session command", () => {
+    test("resolves positional args to session command", async () => {
+      const { stderr, exitCode } = await runCli(["missing-session", "account", "role"], testEnv("session-direct"));
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("SSO session 'missing-session' not found");
+    });
+  });
+
   describe("auth (no session)", () => {
     test("exits with error when no session specified", async () => {
       const { stderr, exitCode } = await runCli(["auth"], testEnv("auth-no-session"));
