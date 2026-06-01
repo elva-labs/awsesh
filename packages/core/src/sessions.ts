@@ -1,6 +1,7 @@
 import path from "node:path"
 import fs from "node:fs/promises"
 import type { SSOSession } from "./types"
+import { fileExists, listJsonFiles, readJsonFile, writeJsonFile } from "./filesystem"
 
 export interface SessionsOptions {
   dir: string
@@ -18,13 +19,10 @@ export namespace Sessions {
       async list(): Promise<SSOSession[]> {
         try {
           await ensureDir()
-          const glob = new Bun.Glob("*.json")
-          const files = await Array.fromAsync(
-            glob.scan({ cwd: dir, onlyFiles: true })
-          )
+          const files = await listJsonFiles(dir)
 
           const sessions = await Promise.all(
-            files.map((file) => Bun.file(path.join(dir, file)).json() as Promise<SSOSession>)
+            files.map((file) => readJsonFile<SSOSession>(path.join(dir, file)))
           )
 
           return sessions
@@ -35,15 +33,14 @@ export namespace Sessions {
 
       async load(name: string): Promise<SSOSession | undefined> {
         const target = path.join(dir, `${name}.json`)
-        const file = Bun.file(target)
-        if (!(await file.exists())) return undefined
-        return file.json() as Promise<SSOSession>
+        if (!(await fileExists(target))) return undefined
+        return readJsonFile<SSOSession>(target)
       },
 
       async save(session: SSOSession): Promise<void> {
         await ensureDir()
         const target = path.join(dir, `${session.name}.json`)
-        await Bun.write(target, JSON.stringify(session, null, 2))
+        await writeJsonFile(target, session)
       },
 
       async remove(name: string): Promise<void> {
@@ -53,16 +50,13 @@ export namespace Sessions {
 
       async exists(name: string): Promise<boolean> {
         const target = path.join(dir, `${name}.json`)
-        return Bun.file(target).exists()
+        return fileExists(target)
       },
 
       async count(): Promise<number> {
         try {
           await ensureDir()
-          const glob = new Bun.Glob("*.json")
-          const files = await Array.fromAsync(
-            glob.scan({ cwd: dir, onlyFiles: true })
-          )
+          const files = await listJsonFiles(dir)
           return files.length
         } catch {
           return 0

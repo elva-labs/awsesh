@@ -37,7 +37,7 @@ describe("Storage", () => {
       await storage.write("my-key", { hello: "world" });
 
       const filePath = path.join(tempDir, "my-key.json");
-      const content = await Bun.file(filePath).text();
+      const content = await fs.readFile(filePath, "utf-8");
       expect(content).toContain('"hello": "world"');
     });
 
@@ -45,7 +45,7 @@ describe("Storage", () => {
       await storage.write("nested/deep/key", { value: 123 });
 
       const filePath = path.join(tempDir, "nested", "deep", "key.json");
-      const content = await Bun.file(filePath).text();
+      const content = await fs.readFile(filePath, "utf-8");
       expect(content).toContain('"value": 123');
     });
 

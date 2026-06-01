@@ -1,8 +1,12 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Sessions } from "../src/sessions";
 import type { SSOSession } from "../src/types";
+
+const execFileAsync = promisify(execFile);
 
 describe("Sessions", () => {
   let tempDir: string;
@@ -30,7 +34,7 @@ describe("Sessions", () => {
       await sessions.save(sampleSession);
 
       const filePath = path.join(tempDir, "my-sso.json");
-      const content = await Bun.file(filePath).text();
+      const content = await fs.readFile(filePath, "utf-8");
       expect(content).toContain('"name": "my-sso"');
       expect(content).toContain('"startUrl": "https://my-sso.awsapps.com/start"');
     });
@@ -42,7 +46,7 @@ describe("Sessions", () => {
       await nestedSessions.save(sampleSession);
 
       const filePath = path.join(nestedDir, "my-sso.json");
-      const exists = await Bun.file(filePath).exists();
+      const exists = await fs.access(filePath).then(() => true).catch(() => false);
       expect(exists).toBe(true);
     });
 
@@ -111,12 +115,50 @@ describe("Sessions", () => {
     });
 
     test("ignores non-JSON files", async () => {
-      await Bun.write(path.join(tempDir, "readme.txt"), "not a session");
+      await fs.writeFile(path.join(tempDir, "readme.txt"), "not a session");
       await sessions.save(sampleSession);
 
       const result = await sessions.list();
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe("my-sso");
+    });
+
+    test("works when consumed from Node runtime", async () => {
+      await sessions.save({ ...sampleSession, name: "node-only" });
+
+      const buildDir = path.join(tempDir, "node-build");
+      await fs.mkdir(buildDir, { recursive: true });
+
+      const buildResult = await Bun.build({
+        entrypoints: [path.join(import.meta.dir, "..", "src", "sessions.ts")],
+        outdir: buildDir,
+        format: "esm",
+        target: "node",
+      });
+
+      expect(buildResult.success).toBe(true);
+
+      const bundlePath = path.join(buildDir, "sessions.js");
+      const nodeScript = [
+        "import { pathToFileURL } from 'node:url'",
+        "const { Sessions } = await import(pathToFileURL(process.argv[1]).href)",
+        "const sessions = Sessions.create({ dir: process.argv[2] })",
+        "const list = await sessions.list()",
+        "const count = await sessions.count()",
+        "process.stdout.write(JSON.stringify({ names: list.map((x) => x.name).sort(), count }))",
+      ].join("; ");
+
+      const { stdout } = await execFileAsync("node", [
+        "--input-type=module",
+        "--eval",
+        nodeScript,
+        bundlePath,
+        tempDir,
+      ]);
+
+      const result = JSON.parse(stdout) as { names: string[]; count: number };
+      expect(result.names).toEqual(["node-only"]);
+      expect(result.count).toBe(1);
     });
   });
 
