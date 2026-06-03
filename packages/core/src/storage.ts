@@ -1,5 +1,6 @@
 import path from "node:path"
 import fs from "node:fs/promises"
+import { listJsonFiles, readJsonFile, writeJsonFile } from "./filesystem"
 
 export interface StorageOptions {
   dir: string
@@ -17,9 +18,7 @@ export namespace Storage {
       async read<T>(key: string): Promise<T | undefined> {
         const target = path.join(dir, `${key}.json`)
         try {
-          const file = Bun.file(target)
-          if (!(await file.exists())) return undefined
-          return file.json() as Promise<T>
+          return await readJsonFile<T>(target)
         } catch {
           return undefined
         }
@@ -28,22 +27,21 @@ export namespace Storage {
       async write<T>(key: string, value: T): Promise<void> {
         const target = path.join(dir, `${key}.json`)
         await ensureDir(path.dirname(target))
-        await Bun.write(target, JSON.stringify(value, null, 2))
+        await writeJsonFile(target, value)
       },
 
       async update<T>(key: string, fn: (existing: T) => T): Promise<T> {
         const target = path.join(dir, `${key}.json`)
         let content: T
         try {
-          const file = Bun.file(target)
-          content = await file.json() as T
+          content = await readJsonFile<T>(target)
         } catch {
           content = {} as T
         }
 
         const updated = fn(content)
         await ensureDir(path.dirname(target))
-        await Bun.write(target, JSON.stringify(updated, null, 2))
+        await writeJsonFile(target, updated)
         return updated
       },
 
@@ -60,10 +58,7 @@ export namespace Storage {
       async list(prefix: string): Promise<string[]> {
         const targetDir = path.join(dir, prefix)
         try {
-          const glob = new Bun.Glob("**/*.json")
-          const results = await Array.fromAsync(
-            glob.scan({ cwd: targetDir, onlyFiles: true })
-          )
+          const results = await listJsonFiles(targetDir, { recursive: true })
           return results.map(x => x.slice(0, -5)).sort()
         } catch (error: unknown) {
           const err = error as { code?: string }
