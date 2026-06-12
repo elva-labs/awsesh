@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import { render, useTerminalDimensions, useRenderer, useKeyboard } from "@opentui/solid";
 import { copyToClipboard } from "@/util/clipboard";
 import { Switch, Match } from "solid-js";
@@ -20,7 +21,7 @@ import { CredentialsScreen } from "./routes/credentials";
 import { Terminal } from "./util/terminal";
 import { getAwsesh } from "@/instance";
 import { printSessionInfo } from "@/util/styled-output";
-import { wereCredentialsSet } from "./context/session-state";
+import { wereCredentialsSet, getCapturedEvalEnvironment } from "./context/session-state";
 
 function App() {
   const route = useRoute();
@@ -87,7 +88,22 @@ function App() {
   );
 }
 
+async function captureEvalOutputIfRequested(): Promise<boolean> {
+  const captureFile = process.env.AWSESH_TUI_EVAL_CAPTURE_FILE;
+  if (!captureFile) return false;
+
+  if (wereCredentialsSet()) {
+    const captured = getCapturedEvalEnvironment();
+    if (captured) {
+      await fs.writeFile(captureFile, JSON.stringify(captured), "utf-8");
+    }
+  }
+
+  return true;
+}
+
 async function printLastSetCredential(): Promise<void> {
+  if (await captureEvalOutputIfRequested()) return;
   if (!wereCredentialsSet()) return
 
   const awsesh = getAwsesh();

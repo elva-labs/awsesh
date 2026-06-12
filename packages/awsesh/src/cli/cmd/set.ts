@@ -4,6 +4,21 @@ import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
 import { authenticate } from "./util/auth"
 import type { SSOSession, Account } from "@awsesh/core"
+import { printEvalEnvironment } from "@/util/styled-output"
+
+async function withStdoutRedirectedToStderr<T>(callback: () => Promise<T>): Promise<T> {
+  const originalWrite = process.stdout.write
+  const stderrWrite = process.stderr.write.bind(process.stderr)
+
+  process.stdout.write = ((...args: Parameters<typeof process.stderr.write>) =>
+    stderrWrite(...args)) as typeof process.stdout.write
+
+  try {
+    return await callback()
+  } finally {
+    process.stdout.write = originalWrite
+  }
+}
 
 interface SetArgs {
   session?: string
@@ -80,14 +95,25 @@ export const set = cmd({
           return a.name.localeCompare(b.name)
         })
 
-        const result = await prompts.select({
-          message: "Select SSO session",
-          options: sortedSessions.map((s) => ({
-            label: s.name,
-            value: s.name,
-            hint: s.startUrl,
-          })),
-        })
+        const result = typedArgs.eval
+          ? await withStdoutRedirectedToStderr(() =>
+              prompts.select({
+                message: "Select SSO session",
+                options: sortedSessions.map((s) => ({
+                  label: s.name,
+                  value: s.name,
+                  hint: s.startUrl,
+                })),
+              })
+            )
+          : await prompts.select({
+              message: "Select SSO session",
+              options: sortedSessions.map((s) => ({
+                label: s.name,
+                value: s.name,
+                hint: s.startUrl,
+              })),
+            })
 
         if (prompts.isCancel(result)) {
           process.exit(0)
@@ -107,7 +133,7 @@ export const set = cmd({
 
     await awsesh.lastSession.save(session.name)
 
-    const token = await authenticate(awsesh, session)
+    const token = await authenticate(awsesh, session, { silent: typedArgs.eval })
     const accountList = await awsesh.sso.listAccounts(session, token.token)
 
     if (accountList.length === 0) {
@@ -126,14 +152,25 @@ export const set = cmd({
         return a.name.localeCompare(b.name)
       })
 
-      const result = await prompts.select({
-        message: "Select account",
-        options: sortedAccounts.map((a) => ({
-          label: a.name,
-          value: a.name,
-          hint: a.accountId,
-        })),
-      })
+      const result = typedArgs.eval
+        ? await withStdoutRedirectedToStderr(() =>
+            prompts.select({
+              message: "Select account",
+              options: sortedAccounts.map((a) => ({
+                label: a.name,
+                value: a.name,
+                hint: a.accountId,
+              })),
+            })
+          )
+        : await prompts.select({
+            message: "Select account",
+            options: sortedAccounts.map((a) => ({
+              label: a.name,
+              value: a.name,
+              hint: a.accountId,
+            })),
+          })
 
       if (prompts.isCancel(result)) {
         process.exit(0)
@@ -179,13 +216,23 @@ export const set = cmd({
             return a.localeCompare(b)
           })
 
-          const result = await prompts.select({
-            message: "Select role",
-            options: sortedRoles.map((r) => ({
-              label: r,
-              value: r,
-            })),
-          })
+          const result = typedArgs.eval
+            ? await withStdoutRedirectedToStderr(() =>
+                prompts.select({
+                  message: "Select role",
+                  options: sortedRoles.map((r) => ({
+                    label: r,
+                    value: r,
+                  })),
+                })
+              )
+            : await prompts.select({
+                message: "Select role",
+                options: sortedRoles.map((r) => ({
+                  label: r,
+                  value: r,
+                })),
+              })
 
           if (prompts.isCancel(result)) {
             process.exit(0)
@@ -219,8 +266,8 @@ export const set = cmd({
       return
     }
 
-    const spinner = prompts.spinner()
-    spinner.start("Getting credentials...")
+    const spinner = typedArgs.eval ? undefined : prompts.spinner()
+    spinner?.start("Getting credentials...")
 
     const creds = await awsesh.sso.getCredentials(
       session,
@@ -241,14 +288,16 @@ export const set = cmd({
       profileName: typedArgs.profile, // core looks up configured profile if undefined
     })
 
-    spinner.stop("Credentials set")
+    spinner?.stop("Credentials set")
 
     if (typedArgs.eval) {
-      UI.println(`export AWS_REGION='${effectiveRegion}'`)
-      UI.println(`export AWS_ACCESS_KEY_ID='${creds.accessKeyId}'`)
-      UI.println(`export AWS_SECRET_ACCESS_KEY='${creds.secretAccessKey}'`)
-      UI.println(`export AWS_SESSION_TOKEN='${creds.sessionToken}'`)
-      UI.println(`export AWS_SESSION_EXPIRATION='${creds.expiration.toISOString()}'`)
+      printEvalEnvironment({
+        region: effectiveRegion,
+        accessKeyId: creds.accessKeyId,
+        secretAccessKey: creds.secretAccessKey,
+        sessionToken: creds.sessionToken,
+        expiration: creds.expiration.toISOString(),
+      })
     } else {
       UI.println(UI.kv("Profile", result.profileName))
       UI.println(UI.kv("Region", effectiveRegion))

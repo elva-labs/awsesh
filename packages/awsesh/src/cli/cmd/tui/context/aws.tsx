@@ -4,7 +4,7 @@ import { useAwsesh } from "./awsesh"
 import { Global } from "@/global"
 import { Log } from "@/util/log"
 import type { SSOSession, Account, SSOLoginInfo, ActiveCredential, TokenResult } from "@awsesh/core"
-import { markCredentialsSet } from "./session-state"
+import { markCredentialsSet, captureEvalEnvironment } from "./session-state"
 
 const log = Log.create({ service: "aws-context" })
 
@@ -314,6 +314,15 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
           setActiveCredentials(await awsesh.activeCredentials.list())
           markCredentialsSet()
+          if (result.profileName === "default") {
+            captureEvalEnvironment({
+              region: targetRegion,
+              accessKeyId: credentials.accessKeyId,
+              secretAccessKey: credentials.secretAccessKey,
+              sessionToken: credentials.sessionToken,
+              expiration: credentials.expiration.toISOString(),
+            })
+          }
 
           return { expiration: result.expiration, profileName: result.profileName }
         } catch (e) {

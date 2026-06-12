@@ -13,6 +13,18 @@ export interface SessionInfo {
   profileName?: string
 }
 
+export interface EvalEnvironment {
+  region: string
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken: string
+  expiration: string
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
+
 export function printSessionInfo(info: SessionInfo): void {
   const lines: string[] = [""]
   lines.push(`${GRAY}Session${RESET}  ${info.sessionName}`)
@@ -23,6 +35,18 @@ export function printSessionInfo(info: SessionInfo): void {
     lines.push(`${GRAY}Profile${RESET}  ${info.profileName}`)
   }
   lines.push("")
+
+  fs.writeSync(1, `${lines.join("\n")}\n`)
+}
+
+export function printEvalEnvironment(environment: EvalEnvironment): void {
+  const lines = [
+    `export AWS_REGION=${shellQuote(environment.region)}`,
+    `export AWS_ACCESS_KEY_ID=${shellQuote(environment.accessKeyId)}`,
+    `export AWS_SECRET_ACCESS_KEY=${shellQuote(environment.secretAccessKey)}`,
+    `export AWS_SESSION_TOKEN=${shellQuote(environment.sessionToken)}`,
+    `export AWS_SESSION_EXPIRATION=${shellQuote(environment.expiration)}`,
+  ]
 
   fs.writeSync(1, `${lines.join("\n")}\n`)
 }
