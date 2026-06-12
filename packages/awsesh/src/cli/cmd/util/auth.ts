@@ -34,8 +34,8 @@ export async function authenticate(
 
   await openBrowser(loginInfo.verificationUriComplete)
 
-  const spinner = prompts.spinner()
-  spinner.start("Waiting for authorization...")
+  const spinner = options?.silent ? undefined : prompts.spinner()
+  spinner?.start("Waiting for authorization...")
 
   let tokenResult: TokenResult | null = null
   while (!tokenResult) {
@@ -43,14 +43,14 @@ export async function authenticate(
       await Bun.sleep(loginInfo.interval * 1000)
       tokenResult = await awsesh.sso.pollForToken(session, loginInfo)
     } catch (error) {
-      spinner.stop()
+      spinner?.stop()
       throw error
     }
   }
 
   await awsesh.tokens.save(session.startUrl, tokenResult.token, tokenResult.expiresAt)
 
-  spinner.stop("Authenticated")
+  spinner?.stop("Authenticated")
 
   return {
     token: tokenResult.token,

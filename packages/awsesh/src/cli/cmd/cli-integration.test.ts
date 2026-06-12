@@ -108,11 +108,23 @@ describe("CLI", () => {
       expect(exitCode).toBe(1);
       expect(stderr).toContain("No active credentials found for profile 'default'");
     });
+
+    test("keeps root behavior when --eval is also set", async () => {
+      const { stderr, exitCode } = await runCli(["--eval", "-b"], testEnv("root-browser-no-default-eval"));
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("No active credentials found for profile 'default'");
+    });
   });
 
   describe("direct session command", () => {
     test("resolves positional args to session command", async () => {
       const { stderr, exitCode } = await runCli(["missing-session", "account", "role"], testEnv("session-direct"));
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("SSO session 'missing-session' not found");
+    });
+
+    test("resolves positional args with --eval to session command", async () => {
+      const { stderr, exitCode } = await runCli(["--eval", "missing-session", "account", "role"], testEnv("session-direct-eval"));
       expect(exitCode).toBe(1);
       expect(stderr).toContain("SSO session 'missing-session' not found");
     });

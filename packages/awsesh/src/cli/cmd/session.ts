@@ -1,6 +1,7 @@
 import { cmd } from "./cmd"
 import { UI } from "../ui"
 import { getAwsesh } from "@/instance"
+import { printEvalEnvironment } from "@/util/styled-output"
 
 export const session = cmd({
   command: "session <ssoSession> <accountName> [roleName]",
@@ -131,11 +132,13 @@ export const session = cmd({
       })
 
       if (evalMode) {
-        console.log(`export AWS_REGION='${effectiveRegion}'`)
-        console.log(`export AWS_ACCESS_KEY_ID='${credentials.accessKeyId}'`)
-        console.log(`export AWS_SECRET_ACCESS_KEY='${credentials.secretAccessKey}'`)
-        console.log(`export AWS_SESSION_TOKEN='${credentials.sessionToken}'`)
-        console.log(`export AWS_SESSION_EXPIRATION='${credentials.expiration.toISOString()}'`)
+        printEvalEnvironment({
+          region: effectiveRegion,
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken,
+          expiration: credentials.expiration.toISOString(),
+        })
       } else {
         UI.success("Credentials configured successfully!")
         UI.info(`Profile: ${result.profileName}`)

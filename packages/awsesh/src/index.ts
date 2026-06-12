@@ -3,6 +3,7 @@ import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { Log } from "./util/log"
 import { UI } from "./cli/ui"
+import { normalizeCliArgs } from "./cli/args"
 
 import { auth } from "./cli/cmd/auth.js"
 import { whoami } from "./cli/cmd/whoami.js"
@@ -20,27 +21,7 @@ import { Installation } from "./installation"
 import { createCliRenderer } from "@opentui/core"
 
 const args = hideBin(process.argv)
-const commandNames = new Set([
-  "set",
-  "sessions",
-  "accounts",
-  "credentials",
-  "auth",
-  "whoami",
-  "migrate",
-  "config",
-  "data",
-  "session",
-  "help",
-  "version",
-])
-
-const usePositionalSession =
-  args.length > 0 &&
-  !args[0].startsWith("-") &&
-  !commandNames.has(args[0])
-
-const normalizedArgs = usePositionalSession ? ["session", ...args] : args
+const normalizedArgs = normalizeCliArgs(args)
 const showHelp = args.includes("--help") || args.includes("-h") || args[0] === "help"
 if (showHelp) {
   console.log(UI.logo())
@@ -64,6 +45,11 @@ const cli = yargs(normalizedArgs)
     describe: "log level",
     type: "string",
     choices: ["DEBUG", "INFO", "WARN", "ERROR"],
+  })
+  .option("eval", {
+    describe: "output environment variables for shell eval",
+    type: "boolean",
+    alias: "e",
   })
   .middleware(async (opts) => {
     await Log.init({
