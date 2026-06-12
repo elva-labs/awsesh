@@ -5,6 +5,7 @@ import { spawn } from "node:child_process"
 import { cmd } from "../cmd"
 import { openDefaultProfileInBrowser } from "../util/open-default-profile-browser"
 import { printEvalEnvironment } from "@/util/styled-output"
+import { resolveEvalRelaunchCommand, type RelaunchCommand } from "./eval-relaunch"
 
 interface EvalCapture {
   region: string
@@ -14,11 +15,8 @@ interface EvalCapture {
   expiration: string
 }
 
-async function runTuiForEvalMode(): Promise<void> {
-  const captureFile = path.join(tmpdir(), `awsesh-eval-${process.pid}-${Date.now()}.json`)
-  const childArgs = process.argv.slice(1).filter((arg) => arg !== "--eval" && arg !== "-e")
-
-  const child = spawn(process.argv[0], childArgs, {
+async function runChild(command: RelaunchCommand, captureFile: string): Promise<number> {
+  const child = spawn(command.command, command.args, {
     stdio: ["inherit", process.stderr, "inherit"],
     env: {
       ...process.env,
@@ -26,10 +24,33 @@ async function runTuiForEvalMode(): Promise<void> {
     },
   })
 
-  const exitCode = await new Promise<number>((resolve, reject) => {
+  return await new Promise<number>((resolve, reject) => {
     child.on("error", reject)
     child.on("close", (code) => resolve(code ?? 1))
   })
+}
+
+async function runTuiForEvalMode(): Promise<void> {
+  const captureFile = path.join(tmpdir(), `awsesh-eval-${process.pid}-${Date.now()}.json`)
+
+  const primaryCommand = resolveEvalRelaunchCommand(process.argv)
+  let exitCode: number
+
+  try {
+    exitCode = await runChild(primaryCommand, captureFile)
+  } catch (error) {
+    const fallbackAllowed =
+      primaryCommand.command === "awsesh" &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+
+    if (!fallbackAllowed) {
+      throw error
+    }
+
+    throw new Error(
+      "Failed to relaunch awsesh in eval mode: command 'awsesh' was not found in PATH. Ensure awsesh is installed and available in your shell.",
+    )
+  }
 
   let capture: EvalCapture | undefined
   try {
