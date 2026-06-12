@@ -7,6 +7,10 @@ import { openDefaultProfileInBrowser } from "../util/open-default-profile-browse
 import { printEvalEnvironment } from "@/util/styled-output"
 
 interface EvalCapture {
+  accountId: string
+  accountName: string
+  roleName: string
+  sessionName: string
   region: string
   accessKeyId: string
   secretAccessKey: string

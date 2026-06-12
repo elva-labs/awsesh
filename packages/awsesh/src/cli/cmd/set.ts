@@ -292,6 +292,10 @@ export const set = cmd({
 
     if (typedArgs.eval) {
       printEvalEnvironment({
+        accountId: account.accountId,
+        accountName: account.name,
+        roleName: selectedRole,
+        sessionName: session.name,
         region: effectiveRegion,
         accessKeyId: creds.accessKeyId,
         secretAccessKey: creds.secretAccessKey,

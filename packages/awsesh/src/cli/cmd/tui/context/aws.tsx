@@ -316,6 +316,10 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           markCredentialsSet()
           if (result.profileName === "default") {
             captureEvalEnvironment({
+              accountId,
+              accountName,
+              roleName,
+              sessionName: session.name,
               region: targetRegion,
               accessKeyId: credentials.accessKeyId,
               secretAccessKey: credentials.secretAccessKey,

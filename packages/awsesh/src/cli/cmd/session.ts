@@ -133,6 +133,10 @@ export const session = cmd({
 
       if (evalMode) {
         printEvalEnvironment({
+          accountId: account.accountId,
+          accountName: account.name,
+          roleName: selectedRole,
+          sessionName: ssoSession,
           region: effectiveRegion,
           accessKeyId: credentials.accessKeyId,
           secretAccessKey: credentials.secretAccessKey,

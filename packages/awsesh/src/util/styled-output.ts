@@ -14,6 +14,10 @@ export interface SessionInfo {
 }
 
 export interface EvalEnvironment {
+  accountId: string
+  accountName: string
+  roleName: string
+  sessionName: string
   region: string
   accessKeyId: string
   secretAccessKey: string
@@ -41,6 +45,10 @@ export function printSessionInfo(info: SessionInfo): void {
 
 export function printEvalEnvironment(environment: EvalEnvironment): void {
   const lines = [
+    `export AWSESH_ACCOUNT_ID=${shellQuote(environment.accountId)}`,
+    `export AWSESH_ACCOUNT_NAME=${shellQuote(environment.accountName)}`,
+    `export AWSESH_ROLE_NAME=${shellQuote(environment.roleName)}`,
+    `export AWSESH_SESSION_NAME=${shellQuote(environment.sessionName)}`,
     `export AWS_REGION=${shellQuote(environment.region)}`,
     `export AWS_ACCESS_KEY_ID=${shellQuote(environment.accessKeyId)}`,
     `export AWS_SECRET_ACCESS_KEY=${shellQuote(environment.secretAccessKey)}`,
