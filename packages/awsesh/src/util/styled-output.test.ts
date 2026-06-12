@@ -129,6 +129,10 @@ describe("printEvalEnvironment", () => {
 
   test("prints shell export statements", () => {
     printEvalEnvironment({
+      accountId: "123456789012",
+      accountName: "Production",
+      roleName: "Admin",
+      sessionName: "acme",
       region: "eu-north-1",
       accessKeyId: "AKIA123",
       secretAccessKey: "secret",
@@ -136,6 +140,10 @@ describe("printEvalEnvironment", () => {
       expiration: "2026-06-12T15:18:54.000Z",
     });
 
+    expect(capturedOutput).toContain("export AWSESH_ACCOUNT_ID='123456789012'");
+    expect(capturedOutput).toContain("export AWSESH_ACCOUNT_NAME='Production'");
+    expect(capturedOutput).toContain("export AWSESH_ROLE_NAME='Admin'");
+    expect(capturedOutput).toContain("export AWSESH_SESSION_NAME='acme'");
     expect(capturedOutput).toContain("export AWS_REGION='eu-north-1'");
     expect(capturedOutput).toContain("export AWS_ACCESS_KEY_ID='AKIA123'");
     expect(capturedOutput).toContain("export AWS_SECRET_ACCESS_KEY='secret'");
@@ -145,6 +153,10 @@ describe("printEvalEnvironment", () => {
 
   test("escapes single quotes for shell safety", () => {
     printEvalEnvironment({
+      accountId: "123456789012",
+      accountName: "prod'o",
+      roleName: "Admin'Role",
+      sessionName: "acm'e",
       region: "eu-north-1",
       accessKeyId: "AKIA'123",
       secretAccessKey: "sec'ret",
@@ -152,6 +164,9 @@ describe("printEvalEnvironment", () => {
       expiration: "2026-06-12T15:18:54.000Z",
     });
 
+    expect(capturedOutput).toContain("export AWSESH_ACCOUNT_NAME='prod'\"'\"'o'");
+    expect(capturedOutput).toContain("export AWSESH_ROLE_NAME='Admin'\"'\"'Role'");
+    expect(capturedOutput).toContain("export AWSESH_SESSION_NAME='acm'\"'\"'e'");
     expect(capturedOutput).toContain("export AWS_ACCESS_KEY_ID='AKIA'\"'\"'123'");
     expect(capturedOutput).toContain("export AWS_SECRET_ACCESS_KEY='sec'\"'\"'ret'");
     expect(capturedOutput).toContain("export AWS_SESSION_TOKEN='tok'\"'\"'en'");

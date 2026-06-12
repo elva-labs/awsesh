@@ -8,6 +8,10 @@ import { printEvalEnvironment } from "@/util/styled-output"
 import { resolveEvalRelaunchCommand, type RelaunchCommand } from "./eval-relaunch"
 
 interface EvalCapture {
+  accountId: string
+  accountName: string
+  roleName: string
+  sessionName: string
   region: string
   accessKeyId: string
   secretAccessKey: string

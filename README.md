@@ -179,6 +179,18 @@ function sesh
 end
 ```
 
+When you run `awsesh --eval` (or `sesh` in the examples above), awsesh exports AWS credentials plus session metadata:
+
+- `AWSESH_ACCOUNT_ID`
+- `AWSESH_ACCOUNT_NAME`
+- `AWSESH_ROLE_NAME`
+- `AWSESH_SESSION_NAME`
+- `AWS_REGION`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN`
+- `AWS_SESSION_EXPIRATION`
+
 ## SDK
 
 The core functionality is available as a standalone SDK for building your own AWS SSO tools.
