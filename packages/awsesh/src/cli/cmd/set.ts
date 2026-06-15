@@ -28,6 +28,7 @@ interface SetArgs {
   region?: string
   eval?: boolean
   browser?: boolean
+  json?: boolean
 }
 
 export const set = cmd({
@@ -68,10 +69,20 @@ export const set = cmd({
         alias: "b",
         describe: "Open AWS console in browser instead of setting credentials",
         default: false,
+      })
+      .option("json", {
+        type: "boolean",
+        alias: "j",
+        describe: "Output the resulting credential as JSON",
+        default: false,
       }),
   handler: async (args) => {
     const typedArgs = args as SetArgs
     const awsesh = getAwsesh()
+
+    // Both --eval and --json must keep stdout clean for machine consumption, so
+    // prompts/spinners are redirected to stderr or suppressed in either mode.
+    const quiet = typedArgs.eval || typedArgs.json
 
     const sessionList = await awsesh.sessions.list()
     if (sessionList.length === 0) {
@@ -95,7 +106,7 @@ export const set = cmd({
           return a.name.localeCompare(b.name)
         })
 
-        const result = typedArgs.eval
+        const result = quiet
           ? await withStdoutRedirectedToStderr(() =>
               prompts.select({
                 message: "Select SSO session",
@@ -133,7 +144,7 @@ export const set = cmd({
 
     await awsesh.lastSession.save(session.name)
 
-    const token = await authenticate(awsesh, session, { silent: typedArgs.eval })
+    const token = await authenticate(awsesh, session, { silent: quiet })
     const accountList = await awsesh.sso.listAccounts(session, token.token)
 
     if (accountList.length === 0) {
@@ -152,7 +163,7 @@ export const set = cmd({
         return a.name.localeCompare(b.name)
       })
 
-      const result = typedArgs.eval
+      const result = quiet
         ? await withStdoutRedirectedToStderr(() =>
             prompts.select({
               message: "Select account",
@@ -216,7 +227,7 @@ export const set = cmd({
             return a.localeCompare(b)
           })
 
-          const result = typedArgs.eval
+          const result = quiet
             ? await withStdoutRedirectedToStderr(() =>
                 prompts.select({
                   message: "Select role",
@@ -266,7 +277,7 @@ export const set = cmd({
       return
     }
 
-    const spinner = typedArgs.eval ? undefined : prompts.spinner()
+    const spinner = quiet ? undefined : prompts.spinner()
     spinner?.start("Getting credentials...")
 
     const creds = await awsesh.sso.getCredentials(
@@ -302,6 +313,22 @@ export const set = cmd({
         sessionToken: creds.sessionToken,
         expiration: creds.expiration.toISOString(),
       })
+    } else if (typedArgs.json) {
+      UI.println(
+        JSON.stringify(
+          {
+            profile: result.profileName,
+            region: effectiveRegion,
+            accountId: account.accountId,
+            accountName: account.name,
+            roleName: selectedRole,
+            sessionName: session.name,
+            expiration: result.expiration.toISOString(),
+          },
+          null,
+          2
+        )
+      )
     } else {
       UI.println(UI.kv("Profile", result.profileName))
       UI.println(UI.kv("Region", effectiveRegion))

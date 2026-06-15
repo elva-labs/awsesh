@@ -1,3 +1,5 @@
+import { colorEnabled } from "@/util/color"
+
 export namespace UI {
   export const Style = {
     reset: "\x1b[0m",
@@ -10,6 +12,12 @@ export namespace UI {
     cyan: "\x1b[36m",
   }
 
+  // Wrap `text` in `code`…reset, but only when color is enabled. When piped or
+  // NO_COLOR is set this returns the bare text so captured output stays plain.
+  function paint(code: string, text: string): string {
+    return colorEnabled() ? `${code}${text}${Style.reset}` : text
+  }
+
   export function print(message: string) {
     process.stdout.write(message)
   }
@@ -19,43 +27,43 @@ export namespace UI {
   }
 
   export function error(message: string) {
-    console.error(`${Style.red}${message}${Style.reset}`)
+    console.error(paint(Style.red, message))
   }
 
   export function success(message: string) {
-    println(`${Style.green}${message}${Style.reset}`)
+    println(paint(Style.green, message))
   }
 
   export function info(message: string) {
-    println(`${Style.blue}${message}${Style.reset}`)
+    println(paint(Style.blue, message))
   }
 
   export function warn(message: string) {
-    println(`${Style.yellow}${message}${Style.reset}`)
+    println(paint(Style.yellow, message))
   }
 
   export function dim(text: string): string {
-    return `${Style.dim}${text}${Style.reset}`
+    return paint(Style.dim, text)
   }
 
   export function cyan(text: string): string {
-    return `${Style.cyan}${text}${Style.reset}`
+    return paint(Style.cyan, text)
   }
 
   export function green(text: string): string {
-    return `${Style.green}${text}${Style.reset}`
+    return paint(Style.green, text)
   }
 
   export function yellow(text: string): string {
-    return `${Style.yellow}${text}${Style.reset}`
+    return paint(Style.yellow, text)
   }
 
   export function red(text: string): string {
-    return `${Style.red}${text}${Style.reset}`
+    return paint(Style.red, text)
   }
 
   export function bold(text: string): string {
-    return `${Style.bold}${text}${Style.reset}`
+    return paint(Style.bold, text)
   }
 
   export function kv(key: string, value: string, indent = 2): string {
@@ -79,9 +87,10 @@ export namespace UI {
   }
 
 export function logo(): string {
-    const c = Style.cyan
-    const g = Style.dim
-    const r = Style.reset
+    const color = colorEnabled()
+    const c = color ? Style.cyan : ""
+    const g = color ? Style.dim : ""
+    const r = color ? Style.reset : ""
     const p = "\u00A0"
 
     return [
