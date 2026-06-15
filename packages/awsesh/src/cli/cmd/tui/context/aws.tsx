@@ -314,19 +314,17 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
           setActiveCredentials(await awsesh.activeCredentials.list())
           markCredentialsSet()
-          if (result.profileName === "default") {
-            captureEvalEnvironment({
-              accountId,
-              accountName,
-              roleName,
-              sessionName: session.name,
-              region: targetRegion,
-              accessKeyId: credentials.accessKeyId,
-              secretAccessKey: credentials.secretAccessKey,
-              sessionToken: credentials.sessionToken,
-              expiration: credentials.expiration.toISOString(),
-            })
-          }
+          captureEvalEnvironment({
+            accountId,
+            accountName,
+            roleName,
+            sessionName: session.name,
+            region: targetRegion,
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken,
+            expiration: credentials.expiration.toISOString(),
+          })
 
           return { expiration: result.expiration, profileName: result.profileName }
         } catch (e) {
