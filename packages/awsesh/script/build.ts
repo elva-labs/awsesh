@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
 
-import solidPlugin from "../node_modules/@opentui/solid/scripts/solid-plugin"
+import solidPlugin from "@opentui/solid/bun-plugin"
 import path from "node:path"
-import fs from "node:fs"
 import { $ } from "bun"
 import { fileURLToPath } from "node:url"
 
@@ -72,10 +71,6 @@ for (const item of targets) {
   console.log(`building ${name}`)
   await $`mkdir -p dist/${name}/bin`
 
-  const parserWorker = fs.realpathSync(path.resolve(dir, "./node_modules/@opentui/core/parser.worker.js"))
-  const bunfsRoot = item.os === "win32" ? "B:/~BUN/root/" : "/$bunfs/root/"
-  const workerRelativePath = path.relative(dir, parserWorker).replaceAll("\\", "/")
-
   const result = await Bun.build({
     conditions: ["browser"],
     tsconfig: "./tsconfig.json",
@@ -91,12 +86,11 @@ for (const item of targets) {
       execArgv: [`--user-agent=awsesh/${Script.version}`, "--"],
       windows: {},
     },
-    entrypoints: ["./src/index.ts", parserWorker],
+    entrypoints: ["./src/index.ts"],
     define: {
       AWSESH_VERSION: `'${Script.version}'`,
-      OTUI_TREE_SITTER_WORKER_PATH: bunfsRoot + workerRelativePath,
       AWSESH_CHANNEL: `'${Script.channel}'`,
-      AWSESH_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "''",
+      "process.env.OPENTUI_LIBC": item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "undefined",
     },
   })
 
