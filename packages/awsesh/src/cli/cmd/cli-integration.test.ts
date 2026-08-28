@@ -116,24 +116,16 @@ describe("CLI", () => {
     });
   });
 
-  describe("direct session command", () => {
-    test("reports incomplete positional invocation without starting the TUI", async () => {
-      const { stdout, stderr, exitCode } = await runCli(["missing-session"], testEnv("session-incomplete"));
+  describe("session command", () => {
+    test("requires the explicit session command", async () => {
+      const { stderr, exitCode } = await runCli(["missing-session"], testEnv("session-unknown-command"));
       expect(exitCode).toBe(1);
-      expect(stdout).toBe("");
-      expect(stderr).toContain("Not enough non-option arguments");
-      expect(stderr).not.toContain("SSO session 'missing-session' not found");
+      expect(stderr).toContain("Unknown argument: missing-session");
       expect(stderr).not.toContain("\x1b[?1049h");
     });
 
-    test("resolves positional args to session command", async () => {
-      const { stderr, exitCode } = await runCli(["missing-session", "account", "role"], testEnv("session-direct"));
-      expect(exitCode).toBe(1);
-      expect(stderr).toContain("SSO session 'missing-session' not found");
-    });
-
-    test("resolves positional args with --eval to session command", async () => {
-      const { stderr, exitCode } = await runCli(["--eval", "missing-session", "account", "role"], testEnv("session-direct-eval"));
+    test("selects a session with explicit arguments", async () => {
+      const { stderr, exitCode } = await runCli(["session", "missing-session", "account", "role"], testEnv("session-direct"));
       expect(exitCode).toBe(1);
       expect(stderr).toContain("SSO session 'missing-session' not found");
     });

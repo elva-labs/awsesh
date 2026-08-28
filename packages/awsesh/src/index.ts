@@ -3,7 +3,6 @@ import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { Log } from "./util/log"
 import { UI } from "./cli/ui"
-import { normalizeCliArgs } from "./cli/args"
 
 import { auth } from "./cli/cmd/auth.js"
 import { whoami } from "./cli/cmd/whoami.js"
@@ -20,13 +19,12 @@ import { session } from "./cli/cmd/session.js"
 import { Installation } from "./installation"
 
 const args = hideBin(process.argv)
-const normalizedArgs = normalizeCliArgs(args)
 const showHelp = args.includes("--help") || args.includes("-h") || args[0] === "help"
 if (showHelp) {
   console.log(UI.logo())
 }
 
-const cli = yargs(normalizedArgs)
+const cli = yargs(args)
   .scriptName("awsesh")
   .help("help", "show help")
   .alias("help", "h")

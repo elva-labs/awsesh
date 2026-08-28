@@ -129,6 +129,9 @@ awsesh set
 # Set credentials for a specific role
 awsesh set <sso-profile> <account-name> <role-name>
 
+# Select a session, account, and role explicitly
+awsesh session <sso-session> <account-name> <role-name>
+
 # Check current identity
 awsesh whoami
 
@@ -144,21 +147,21 @@ awsesh accounts
 | Command | Description |
 |---------|-------------|
 | `awsesh` | Launch interactive TUI |
-| `awsesh set <sso> <account> [role]` | Set credentials directly |
+| `awsesh set [sso] [account] [role]` | Set credentials interactively or directly |
 | `awsesh whoami` | Show current AWS identity |
 | `awsesh sessions` | List active credential sessions |
 | `awsesh accounts` | List cached AWS accounts |
 | `awsesh credentials` | List credentials in ~/.aws/credentials |
-| `awsesh set <sso> <account> <role>` | Set credentials (explicit command) |
+| `awsesh session <sso> <account> [role]` | Select credentials directly |
 | `awsesh auth <sso>` | Authenticate with SSO |
 | `awsesh migrate` | Migrate from old awsesh config |
-| `awsesh open config` | Open config directory |
-| `awsesh open data` | Open data directory |
+| `awsesh config` | Open config directory |
+| `awsesh data` | Open data directory |
 
 ### Options
 
 ```sh
-awsesh [options] [sso] [account] [role]
+awsesh [options]
 
 Options:
   -e, --eval              Output environment variables for shell eval
