@@ -55,6 +55,12 @@ bun install
 bun run build
 ```
 
+## Releases
+
+Pushes to `main` publish a stable release. The patch version is incremented by default, and the CLI binaries, `@awsesh/core` package, GitHub release, and `awsesh` Homebrew formula are updated.
+
+Pushes to `beta` publish a prerelease using the `beta` npm tag and `awsesh-beta` Homebrew formula. Manual workflow runs can select a major, minor, or patch bump, or provide an explicit version.
+
 ---
 
 ## Interactive TUI
