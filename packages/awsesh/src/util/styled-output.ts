@@ -1,8 +1,5 @@
 import fs from "node:fs"
-
-const RESET = "\x1b[0m"
-const DIM = "\x1b[2m"
-const GRAY = "\x1b[38;2;107;114;128m"
+import { colorEnabled } from "./color"
 
 export interface SessionInfo {
   sessionName: string
@@ -30,6 +27,11 @@ function shellQuote(value: string): string {
 }
 
 export function printSessionInfo(info: SessionInfo): void {
+  const color = colorEnabled()
+  const RESET = color ? "\x1b[0m" : ""
+  const DIM = color ? "\x1b[2m" : ""
+  const GRAY = color ? "\x1b[38;2;107;114;128m" : ""
+
   const lines: string[] = [""]
   lines.push(`${GRAY}Session${RESET}  ${info.sessionName}`)
   lines.push(`${GRAY}Account${RESET}  ${info.accountName} ${DIM}${info.accountId}${RESET}`)

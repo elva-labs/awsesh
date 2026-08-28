@@ -80,29 +80,48 @@ describe("printSessionInfo", () => {
     expect(capturedOutput.endsWith("\n\n")).toBe(true);
   });
 
-  test("includes ANSI color codes", () => {
-    printSessionInfo({
-      sessionName: "test",
-      accountName: "Test",
-      accountId: "000000000000",
-      roleName: "Admin",
-      region: "us-east-1",
-    });
+  test("includes ANSI color codes when color is forced", () => {
+    const prev = process.env.FORCE_COLOR;
+    process.env.FORCE_COLOR = "1";
+    try {
+      printSessionInfo({
+        sessionName: "test",
+        accountName: "Test",
+        accountId: "000000000000",
+        roleName: "Admin",
+        region: "us-east-1",
+      });
 
-    expect(capturedOutput).toContain("\x1b[38;2;107;114;128m");
-    expect(capturedOutput).toContain("\x1b[0m");
+      expect(capturedOutput).toContain("\x1b[38;2;107;114;128m");
+      expect(capturedOutput).toContain("\x1b[0m");
+      expect(capturedOutput).toContain("\x1b[2m");
+    } finally {
+      if (prev === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = prev;
+    }
   });
 
-  test("includes dim accountId", () => {
-    printSessionInfo({
-      sessionName: "test",
-      accountName: "Test",
-      accountId: "000000000000",
-      roleName: "Admin",
-      region: "us-east-1",
-    });
+  test("omits ANSI color codes when NO_COLOR is set", () => {
+    const prevNoColor = process.env.NO_COLOR;
+    const prevForce = process.env.FORCE_COLOR;
+    process.env.NO_COLOR = "1";
+    delete process.env.FORCE_COLOR;
+    try {
+      printSessionInfo({
+        sessionName: "test",
+        accountName: "Test",
+        accountId: "000000000000",
+        roleName: "Admin",
+        region: "us-east-1",
+      });
 
-    expect(capturedOutput).toContain("\x1b[2m");
+      expect(capturedOutput).not.toContain("\x1b[");
+      expect(capturedOutput).toContain("Admin");
+    } finally {
+      if (prevNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = prevNoColor;
+      if (prevForce !== undefined) process.env.FORCE_COLOR = prevForce;
+    }
   });
 });
 

@@ -2,6 +2,7 @@ import * as prompts from "@clack/prompts"
 import type { Awsesh, SSOSession, TokenCache, TokenResult } from "@awsesh/core"
 import { openBrowser } from "@/util/browser"
 import { copyToClipboard } from "@/util/clipboard"
+import { colorEnabled } from "@/util/color"
 
 export async function authenticate(
   awsesh: Awsesh,
@@ -20,10 +21,12 @@ export async function authenticate(
 
   const loginInfo = await awsesh.sso.startLogin(session)
 
+  const gray = colorEnabled() ? "\x1b[90m" : ""
+  const reset = colorEnabled() ? "\x1b[0m" : ""
   if (!options?.silent) {
     console.log()
-    console.log(`  \x1b[90mURL:\x1b[0m  ${loginInfo.verificationUriComplete}`)
-    console.log(`  \x1b[90mCode:\x1b[0m ${loginInfo.userCode}`)
+    console.log(`  ${gray}URL:${reset}  ${loginInfo.verificationUriComplete}`)
+    console.log(`  ${gray}Code:${reset} ${loginInfo.userCode}`)
     console.log()
   }
 
