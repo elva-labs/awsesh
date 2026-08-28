@@ -270,10 +270,14 @@ export const set = cmd({
 
     if (typedArgs.browser) {
       const url = awsesh.sso.getAccountUrl(session, account.accountId, token.token, selectedRole)
-      prompts.log.info("Opening AWS console in browser...")
       const { openBrowser } = await import("@/util/browser")
-      await openBrowser(url)
-      prompts.log.success("Browser opened")
+      const opened = await openBrowser(url)
+      if (opened) {
+        prompts.log.success("Opened AWS console in browser")
+      } else {
+        prompts.log.info("Could not open a browser — open this URL manually:")
+        UI.println(`  ${url}`)
+      }
       return
     }
 

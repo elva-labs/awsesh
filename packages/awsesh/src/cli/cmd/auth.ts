@@ -9,6 +9,7 @@ interface AuthArgs {
   session?: string
   list?: boolean
   delete?: string
+  browser?: boolean
 }
 
 export const auth = cmd({
@@ -30,6 +31,11 @@ export const auth = cmd({
         type: "string",
         alias: "d",
         describe: "Delete an SSO session by name",
+      })
+      .option("browser", {
+        type: "boolean",
+        describe: "Open the verification URL in a browser (use --no-browser on headless hosts)",
+        default: true,
       }),
   handler: async (args) => {
     const typedArgs = args as AuthArgs
@@ -98,8 +104,10 @@ export const auth = cmd({
       UI.info("Verification code copied to clipboard!\n")
     }
 
-    await openBrowser(loginInfo.verificationUriComplete)
-    UI.info("Opening browser...\n")
+    const opened = typedArgs.browser === false
+      ? false
+      : await openBrowser(loginInfo.verificationUriComplete)
+    UI.info(opened ? "Opening browser...\n" : "Visit the URL above to authorize.\n")
 
     UI.info("Waiting for authorization...")
     

@@ -7,7 +7,7 @@ import { colorEnabled } from "@/util/color"
 export async function authenticate(
   awsesh: Awsesh,
   session: SSOSession,
-  options?: { silent?: boolean }
+  options?: { silent?: boolean; noBrowser?: boolean }
 ): Promise<TokenCache> {
   const existingToken = await awsesh.tokens.get(session.startUrl)
   if (existingToken) {
@@ -35,7 +35,10 @@ export async function authenticate(
     prompts.log.info("Verification code copied to clipboard")
   }
 
-  await openBrowser(loginInfo.verificationUriComplete)
+  const opened = options?.noBrowser ? false : await openBrowser(loginInfo.verificationUriComplete)
+  if (!opened && !options?.silent) {
+    prompts.log.info("Could not open a browser — visit the URL above to authorize.")
+  }
 
   const spinner = options?.silent ? undefined : prompts.spinner()
   spinner?.start("Waiting for authorization...")
