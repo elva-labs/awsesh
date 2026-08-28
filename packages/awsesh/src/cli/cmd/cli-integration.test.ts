@@ -117,6 +117,15 @@ describe("CLI", () => {
   });
 
   describe("direct session command", () => {
+    test("reports incomplete positional invocation without starting the TUI", async () => {
+      const { stdout, stderr, exitCode } = await runCli(["missing-session"], testEnv("session-incomplete"));
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("Not enough non-option arguments");
+      expect(stderr).not.toContain("SSO session 'missing-session' not found");
+      expect(stderr).not.toContain("\x1b[?1049h");
+    });
+
     test("resolves positional args to session command", async () => {
       const { stderr, exitCode } = await runCli(["missing-session", "account", "role"], testEnv("session-direct"));
       expect(exitCode).toBe(1);
