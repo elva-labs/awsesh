@@ -2,4 +2,4 @@
 optional = true
 
 [test]
-preload = ["@opentui/solid/preload"]
+preload = ["./packages/awsesh/test/preload.ts"]
