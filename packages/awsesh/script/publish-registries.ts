@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
 
-const version = process.env.AWSESH_VERSION
+const version = process.env.AWSESH_VERSION ?? ""
 if (!version) throw new Error("AWSESH_VERSION is required")
 
 function getChannel(): string {
@@ -25,15 +25,11 @@ function getFormulaClassName(): string {
 }
 
 function getTapToken(): string {
-  const token = process.env.TAP_GITHUB_TOKEN
+  const token = process.env.TAP_GITHUB_TOKEN?.trim()
   if (!token) {
     throw new Error("TAP_GITHUB_TOKEN is required to update homebrew-elva")
   }
   return token
-}
-
-function getTapRepoUrl(token: string): string {
-  return `https://x-access-token:${encodeURIComponent(token)}@github.com/elva-labs/homebrew-elva.git`
 }
 
 async function updateHomebrewTap() {
@@ -108,14 +104,15 @@ async function updateHomebrewTap() {
 
   try {
     const tapToken = getTapToken()
-    const tapRepoUrl = getTapRepoUrl(tapToken)
-    await $`git clone ${tapRepoUrl} ./dist/homebrew-tap`
+    const tapEnv = { ...process.env, GH_TOKEN: tapToken }
+    await $`gh auth setup-git`.env(tapEnv)
+    await $`git clone https://github.com/elva-labs/homebrew-elva.git ./dist/homebrew-tap`.env(tapEnv)
     await Bun.file(`./dist/homebrew-tap/Formula/${formulaName}.rb`).write(homebrewFormula)
     await $`cd ./dist/homebrew-tap && git add Formula/${formulaName}.rb`
     await $`cd ./dist/homebrew-tap && git config user.name "elva-bot"`
     await $`cd ./dist/homebrew-tap && git config user.email "gh-bot@elva-group.com"`
     await $`cd ./dist/homebrew-tap && git commit -m "Update ${formulaName} to v${version}"`
-    await $`cd ./dist/homebrew-tap && git push`
+    await $`cd ./dist/homebrew-tap && git push`.env(tapEnv)
     console.log(`Updated Homebrew formula: ${formulaName}`)
   } finally {
     await $`rm -rf ./dist/homebrew-tap`

@@ -62,7 +62,7 @@ jobs:
 
       - name: Publish
         id: publish
-        run: ./script/publish-start.ts
+        run: ./packages/scripts/publish-start.ts
         env:
           AWSESH_BUMP: ${{ inputs.bump }}
           AWSESH_VERSION: ${{ inputs.version }}
@@ -101,7 +101,7 @@ jobs:
       - name: Install Dependencies
         run: bun install
 
-      - run: ./script/publish-complete.ts
+      - run: ./packages/scripts/publish-complete.ts
         env:
           AWSESH_VERSION: ${{ needs.publish.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
