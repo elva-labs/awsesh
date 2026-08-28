@@ -2,6 +2,7 @@
 
 import { $ } from "bun"
 import { Script } from "@awsesh/script"
+import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 const rootDir = fileURLToPath(new URL("../..", import.meta.url))
@@ -37,8 +38,11 @@ await $`git tag v${Script.version}`
 await $`git push origin HEAD --tags --no-verify --force-with-lease`
 await new Promise((resolve) => setTimeout(resolve, 5_000))
 
-const releaseAssets = await Array.fromAsync(new Bun.Glob("packages/awsesh/dist/*").scan()).then((files) =>
-  files.filter((file) => file.endsWith(".zip") || file.endsWith(".tar.gz")),
+const releaseAssets = await Array.fromAsync(
+  new Bun.Glob("*.{zip,tar.gz}").scan({
+    cwd: path.join(rootDir, "packages/awsesh/dist"),
+    absolute: true,
+  }),
 )
 if (releaseAssets.length === 0) {
   throw new Error("No release archives found in packages/awsesh/dist")
