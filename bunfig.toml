@@ -1,2 +1,5 @@
 [install]
 optional = true
+
+[test]
+preload = ["./packages/awsesh/test/preload.ts"]
