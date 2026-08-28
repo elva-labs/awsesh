@@ -11,7 +11,7 @@
     "start": "bun run --cwd packages/awsesh --conditions=browser src/index.ts",
     "build": "bun run --filter awsesh build",
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun test"
+    "test": "bun test --conditions=browser"
   },
   "devDependencies": {
     "@awsesh/script": "workspace:*"
