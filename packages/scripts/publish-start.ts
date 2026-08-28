@@ -2,6 +2,10 @@
 
 import { $ } from "bun"
 import { Script } from "@awsesh/script"
+import { fileURLToPath } from "node:url"
+
+const rootDir = fileURLToPath(new URL("../..", import.meta.url))
+process.chdir(rootDir)
 
 console.log("=== publishing awsesh ===\n")
 
@@ -21,13 +25,10 @@ for (const file of pkgjsons) {
 await $`bun install`
 
 console.log("\n=== awsesh cli ===\n")
-await import("../packages/awsesh/script/publish.ts")
+await import("../awsesh/script/publish.ts")
 
 console.log("\n=== @awsesh/core ===\n")
-await import("../packages/core/script/publish.ts")
-
-const dir = new URL("..", import.meta.url).pathname
-process.chdir(dir)
+await import("../core/script/publish.ts")
 
 let output = `version=${Script.version}\n`
 
