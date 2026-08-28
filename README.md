@@ -32,14 +32,16 @@ Download the latest release from the [Releases page](https://github.com/elva-lab
 
 ```sh
 # Linux (x64)
-curl -L https://github.com/elva-labs/awsesh/releases/latest/download/awsesh-linux-x64 -o awsesh
-chmod +x awsesh
-mv awsesh ~/.local/bin/
+mkdir -p ~/.local/bin
+curl -fL https://github.com/elva-labs/awsesh/releases/latest/download/awsesh-linux-x64.tar.gz | tar -xz -C ~/.local/bin
+chmod +x ~/.local/bin/awsesh
 
 # macOS (Apple Silicon)
-curl -L https://github.com/elva-labs/awsesh/releases/latest/download/awsesh-darwin-arm64 -o awsesh
-chmod +x awsesh
-mv awsesh /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -fL https://github.com/elva-labs/awsesh/releases/latest/download/awsesh-darwin-arm64.zip -o /tmp/awsesh.zip
+unzip -o /tmp/awsesh.zip -d ~/.local/bin
+chmod +x ~/.local/bin/awsesh
+rm /tmp/awsesh.zip
 ```
 
 ### Build from Source
