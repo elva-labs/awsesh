@@ -40,10 +40,7 @@ function App() {
 
   renderer.console.onCopySelection = async (text: string) => {
     if (!text || text.length === 0) return;
-    const base64 = Buffer.from(text).toString("base64");
-    const osc52 = `\x1b]52;c;${base64}\x07`;
-    const finalOsc52 = process.env.TMUX ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
-    (renderer as unknown as { writeOut?: (data: string) => void }).writeOut?.(finalOsc52);
+    renderer.copyToClipboardOSC52(text);
     await copyToClipboard(text);
     toast.show({ message: "Copied to clipboard", variant: "info" });
     renderer.clearSelection();
@@ -57,10 +54,7 @@ function App() {
       onMouseUp={async () => {
         const text = renderer.getSelection()?.getSelectedText();
         if (text && text.length > 0) {
-          const base64 = Buffer.from(text).toString("base64");
-          const osc52 = `\x1b]52;c;${base64}\x07`;
-          const finalOsc52 = process.env.TMUX ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
-          (renderer as unknown as { writeOut?: (data: string) => void }).writeOut?.(finalOsc52);
+          renderer.copyToClipboardOSC52(text);
           await copyToClipboard(text);
           toast.show({ message: "Copied to clipboard", variant: "info" });
           renderer.clearSelection();

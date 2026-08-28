@@ -1,6 +1,6 @@
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
-import { createSignal, onMount, Show, type JSX } from "solid-js"
+import { createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { DialogBase, DialogButton, DialogFooter } from "./dialog-base"
 import type { InputRenderable } from "@opentui/core"
 
@@ -19,6 +19,7 @@ export function DialogPrompt(props: DialogPromptProps) {
   const { theme } = useTheme()
   const [value, setValue] = createSignal(props.value ?? "")
   let input: InputRenderable
+  let focusTimer: ReturnType<typeof setTimeout>
 
   const handleSubmit = () => {
     const finalValue = value() || props.defaultValue || ""
@@ -32,15 +33,17 @@ export function DialogPrompt(props: DialogPromptProps) {
   }
 
   onMount(() => {
-    setTimeout(() => {
+    focusTimer = setTimeout(() => {
       input?.focus()
     }, 1)
   })
 
+  onCleanup(() => clearTimeout(focusTimer))
+
   return (
     <DialogBase title={props.title}>
       <box gap={1}>
-        <Show when={props.description}>{props.description!()}</Show>
+        {props.description?.()}
         <input
           value={value()}
           focused

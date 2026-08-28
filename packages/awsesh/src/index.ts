@@ -3,7 +3,6 @@ import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { Log } from "./util/log"
 import { UI } from "./cli/ui"
-import { normalizeCliArgs } from "./cli/args"
 
 import { auth } from "./cli/cmd/auth.js"
 import { whoami } from "./cli/cmd/whoami.js"
@@ -18,16 +17,14 @@ import { set } from "./cli/cmd/set.js"
 import { session } from "./cli/cmd/session.js"
 
 import { Installation } from "./installation"
-import { createCliRenderer } from "@opentui/core"
 
 const args = hideBin(process.argv)
-const normalizedArgs = normalizeCliArgs(args)
 const showHelp = args.includes("--help") || args.includes("-h") || args[0] === "help"
 if (showHelp) {
   console.log(UI.logo())
 }
 
-const cli = yargs(normalizedArgs)
+const cli = yargs(args)
   .scriptName("awsesh")
   .help("help", "show help")
   .alias("help", "h")
@@ -77,15 +74,8 @@ const cli = yargs(normalizedArgs)
   .command(data)
   .command(session)
   .demandCommand(0, 1, "")
-  .fail(async (msg, err) => {
-    if (msg) {
-      UI.error(msg)
-    }
-    if (err) {
-      UI.error(err.message)
-    }
-    const renderer = await createCliRenderer()
-    renderer.destroy()
+  .fail((msg, err) => {
+    throw err ?? new Error(msg)
   })
   .strict()
 
@@ -95,6 +85,5 @@ try {
   const error = e as Error
   Log.Default.error("Fatal error", { error: error.message, stack: error.stack })
   UI.error(error.message)
-  const renderer = await createCliRenderer()
-  renderer.destroy()
+  process.exitCode = 1
 }
