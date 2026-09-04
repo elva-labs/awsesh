@@ -192,6 +192,7 @@ end
 
 When you run `awsesh --eval` (or `sesh` in the examples above), awsesh exports AWS credentials plus session metadata:
 
+- `AWS_PROFILE`
 - `AWSESH_ACCOUNT_ID`
 - `AWSESH_ACCOUNT_NAME`
 - `AWSESH_ROLE_NAME`
