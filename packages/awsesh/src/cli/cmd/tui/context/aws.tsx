@@ -315,6 +315,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           setActiveCredentials(await awsesh.activeCredentials.list())
           markCredentialsSet()
           captureEvalEnvironment({
+            profileName: result.profileName,
             accountId,
             accountName,
             roleName,

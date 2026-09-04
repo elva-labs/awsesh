@@ -148,6 +148,7 @@ describe("printEvalEnvironment", () => {
 
   test("prints shell export statements", () => {
     printEvalEnvironment({
+      profileName: "default",
       accountId: "123456789012",
       accountName: "Production",
       roleName: "Admin",
@@ -159,6 +160,7 @@ describe("printEvalEnvironment", () => {
       expiration: "2026-06-12T15:18:54.000Z",
     });
 
+    expect(capturedOutput).toContain("export AWS_PROFILE='default'");
     expect(capturedOutput).toContain("export AWSESH_ACCOUNT_ID='123456789012'");
     expect(capturedOutput).toContain("export AWSESH_ACCOUNT_NAME='Production'");
     expect(capturedOutput).toContain("export AWSESH_ROLE_NAME='Admin'");
@@ -172,6 +174,7 @@ describe("printEvalEnvironment", () => {
 
   test("escapes single quotes for shell safety", () => {
     printEvalEnvironment({
+      profileName: "dev'profile",
       accountId: "123456789012",
       accountName: "prod'o",
       roleName: "Admin'Role",
@@ -183,6 +186,7 @@ describe("printEvalEnvironment", () => {
       expiration: "2026-06-12T15:18:54.000Z",
     });
 
+    expect(capturedOutput).toContain("export AWS_PROFILE='dev'\"'\"'profile'");
     expect(capturedOutput).toContain("export AWSESH_ACCOUNT_NAME='prod'\"'\"'o'");
     expect(capturedOutput).toContain("export AWSESH_ROLE_NAME='Admin'\"'\"'Role'");
     expect(capturedOutput).toContain("export AWSESH_SESSION_NAME='acm'\"'\"'e'");
