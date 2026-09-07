@@ -11,6 +11,7 @@ export interface SessionInfo {
 }
 
 export interface EvalEnvironment {
+  profileName: string
   accountId: string
   accountName: string
   roleName: string
@@ -47,6 +48,7 @@ export function printSessionInfo(info: SessionInfo): void {
 
 export function printEvalEnvironment(environment: EvalEnvironment): void {
   const lines = [
+    `export AWS_PROFILE=${shellQuote(environment.profileName)}`,
     `export AWSESH_ACCOUNT_ID=${shellQuote(environment.accountId)}`,
     `export AWSESH_ACCOUNT_NAME=${shellQuote(environment.accountName)}`,
     `export AWSESH_ROLE_NAME=${shellQuote(environment.roleName)}`,
