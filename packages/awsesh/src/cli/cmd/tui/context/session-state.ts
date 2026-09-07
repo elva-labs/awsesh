@@ -1,6 +1,7 @@
 let credentialsSetThisSession = false
 
 interface CapturedEvalEnvironment {
+  profileName: string
   accountId: string
   accountName: string
   roleName: string

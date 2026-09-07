@@ -307,6 +307,7 @@ export const set = cmd({
 
     if (typedArgs.eval) {
       printEvalEnvironment({
+        profileName: result.profileName,
         accountId: account.accountId,
         accountName: account.name,
         roleName: selectedRole,
