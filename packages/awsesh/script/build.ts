@@ -102,16 +102,6 @@ for (const item of targets) {
     throw new Error(`Build failed for ${name}`)
   }
 
-  // Bun leaves darwin binaries with an invalid ad-hoc signature, which macOS kills on launch
-  if (item.os === "darwin") {
-    const binary = `dist/${name}/bin/awsesh`
-    if (process.platform === "darwin") {
-      await $`codesign --force --sign - --identifier awsesh ${binary}`
-    } else {
-      await $`rcodesign sign --binary-identifier awsesh ${binary}`
-    }
-  }
-
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(
       {
