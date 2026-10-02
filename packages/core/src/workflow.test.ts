@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createAwsesh } from "@awsesh/core";
+import { createAwsesh, createWorkflow } from "@awsesh/core";
 import type { SSOSession, RoleCredentials } from "@awsesh/core";
 
 describe("Full Workflow", () => {
@@ -43,6 +43,101 @@ describe("Full Workflow", () => {
     sessionToken: "FwoGZXIvYXdzEBYaDH...",
     expiration: new Date(Date.now() + 3600000),
   };
+
+  test("interactive workflow owns account selection and credential lifecycle", async () => {
+    const workflow = createWorkflow(awsesh);
+    await workflow.saveSession(sampleSession, true);
+    await awsesh.tokens.save(sampleSession.startUrl, "private-token", new Date(Date.now() + 3600000));
+    let requests = 0;
+    awsesh.sso.listAccounts = async () => {
+      requests++;
+      return [{ accountId: "123456789012", name: "Main", roles: [], rolesLoaded: false }];
+    };
+    let roleRequests = 0;
+    awsesh.sso.listRoles = async () => {
+      roleRequests++;
+      return ["Admin", "ReadOnly"];
+    };
+    awsesh.sso.getCredentials = async () => sampleCreds;
+    await workflow.selectSession("production");
+    await workflow.selectSession("production");
+    expect(requests).toBe(1);
+    await workflow.selectSession("production", true);
+    expect(requests).toBe(2);
+    await workflow.loadRoles("production", "123456789012");
+    await workflow.loadRoles("production", "123456789012");
+    expect(roleRequests).toBe(1);
+    await workflow.loadRoles("production", "123456789012", true);
+    expect(roleRequests).toBe(2);
+    await workflow.preferRole("production", "123456789012", "ReadOnly");
+    await workflow.setRegion("production", "123456789012", "eu-north-1");
+    await workflow.setProfile("production", "123456789012", "ReadOnly", "main-readonly");
+    const state = await workflow.assumeRole("production", "123456789012", "ReadOnly");
+    expect(state.accounts[0].preferredRole).toBe("ReadOnly");
+    expect(state.accounts[0].region).toBe("eu-north-1");
+    expect(state.credentials[0].profileName).toBe("main-readonly");
+    expect(state.lastAccount).toBe("123456789012");
+    expect(JSON.stringify(state)).not.toContain("private-token");
+    expect(JSON.stringify(state)).not.toContain(sampleCreds.secretAccessKey);
+    expect(await awsesh.credentials.listProfiles()).toEqual(["main-readonly"]);
+    expect(await workflow.consoleUrl("production", "123456789012", "ReadOnly")).toContain("role_name=ReadOnly");
+    await expect(workflow.clearCredential("123456789012", "ReadOnly", "other-profile")).rejects.toThrow("not found");
+    const cleared = await workflow.clearCredential("123456789012", "ReadOnly", "main-readonly", "production");
+    expect(cleared.credentials).toEqual([]);
+    expect(await awsesh.credentials.listProfiles()).toEqual([]);
+    await workflow.assumeRole("production", "123456789012", "ReadOnly");
+    const signedOut = await workflow.signOut("production");
+    expect(signedOut.credentials).toEqual([]);
+    expect(signedOut.sessions[0].authenticated).toBe(false);
+    expect(await awsesh.credentials.listProfiles()).toEqual([]);
+  });
+
+  test("interactive workflow validates session and preference inputs before writing", async () => {
+    const workflow = createWorkflow(awsesh);
+    await expect(workflow.saveSession({ ...sampleSession, name: "../escape" })).rejects.toThrow("Session names");
+    await expect(workflow.saveSession({ ...sampleSession, startUrl: "http://example.com" })).rejects.toThrow("HTTPS");
+    await expect(workflow.saveSession({ ...sampleSession, ssoRegion: "invalid" })).rejects.toThrow("region");
+    expect(await awsesh.sessions.count()).toBe(0);
+    await workflow.saveSession(sampleSession, true);
+    await expect(workflow.saveSession(sampleSession, true)).rejects.toThrow("already exists");
+    await awsesh.accounts.save(sampleSession.name, {
+      accounts: [{ accountId: "123", name: "Main", roles: ["Admin"], rolesLoaded: true }],
+      lastUpdated: Date.now(),
+    });
+    await expect(workflow.setRegion("production", "123", "region\ninjection")).rejects.toThrow("region");
+    await expect(workflow.setProfile("production", "123", "Admin", "profile\n[default]")).rejects.toThrow("profile");
+    await expect(workflow.preferRole("production", "123", "Unknown")).rejects.toThrow("not available");
+    await expect(workflow.assumeRole("production", "123", "Admin")).rejects.toThrow("Sign in");
+    await expect(workflow.snapshot("../escape")).rejects.toThrow("Session names");
+    const removed = await workflow.removeSession("production");
+    expect(removed.sessions).toEqual([]);
+  });
+
+  test("interactive workflow keeps device authorization inside the SDK", async () => {
+    const workflow = createWorkflow(awsesh);
+    await workflow.saveSession(sampleSession);
+    awsesh.sso.startLogin = async () => ({
+      verificationUri: "https://example.com/verify",
+      verificationUriComplete: "https://example.com/verify?code=ABC",
+      userCode: "ABC", deviceCode: "private-device-code", interval: 0,
+      clientId: "private-client-id", clientSecret: "private-client-secret",
+      expiresAt: new Date(Date.now() + 60000), startUrl: sampleSession.startUrl,
+    });
+    awsesh.sso.pollForToken = async () => ({ token: "private-token", expiresAt: new Date(Date.now() + 3600000) });
+    expect(await workflow.startLogin("production")).toEqual({ url: "https://example.com/verify?code=ABC", code: "ABC" });
+    expect(await workflow.pollLogin("production")).toEqual({ complete: true });
+    expect((await workflow.snapshot()).sessions[0].authenticated).toBe(true);
+    await workflow.startLogin("production");
+    await workflow.cancelLogin("production");
+    await expect(workflow.pollLogin("production")).rejects.toThrow("Start a new");
+    awsesh.sso.startLogin = async () => ({
+      verificationUri: "https://example.com", verificationUriComplete: "https://example.com",
+      userCode: "ABC", deviceCode: "private", interval: 1, clientId: "private", clientSecret: "private",
+      expiresAt: new Date(Date.now() - 1), startUrl: sampleSession.startUrl,
+    });
+    await workflow.startLogin("production");
+    await expect(workflow.pollLogin("production")).rejects.toThrow("expired");
+  });
 
   test("complete credential lifecycle", async () => {
     // 1. Create session

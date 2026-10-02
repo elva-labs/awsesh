@@ -2,6 +2,8 @@
 
 A modern AWS SSO session manager with an interactive TUI, powerful CLI, and a reusable SDK.
 
+A native macOS client built with Rust and GPUI is available in [packages/desktop](packages/desktop/README.md).
+
 ![awsesh hero](assets/hero.png)
 
 ## Features

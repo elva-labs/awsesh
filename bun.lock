@@ -48,6 +48,17 @@
         "typescript": "5.8.2",
       },
     },
+    "packages/desktop": {
+      "name": "@awsesh/desktop",
+      "version": "1.0.17",
+      "dependencies": {
+        "@awsesh/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "1.4.2",
+        "typescript": "5.8.2",
+      },
+    },
     "packages/script": {
       "name": "@awsesh/script",
       "version": "1.0.17",
@@ -118,6 +129,8 @@
     "@aws/lambda-invoke-store": ["@aws/lambda-invoke-store@0.1.1", "", {}, "sha512-RcLam17LdlbSOSp9VxmUu1eI6Mwxp+OwhD2QhiSNmNCzoDb0EeUXTD2n/WbcnrAYMGlmf05th6QYq23VqvJqpA=="],
 
     "@awsesh/core": ["@awsesh/core@workspace:packages/core"],
+
+    "@awsesh/desktop": ["@awsesh/desktop@workspace:packages/desktop"],
 
     "@awsesh/script": ["@awsesh/script@workspace:packages/script"],
 

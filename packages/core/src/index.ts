@@ -3,6 +3,7 @@ export { AWSClient } from "./client"
 export { Credentials } from "./credentials"
 export { Sessions } from "./sessions"
 export { Storage } from "./storage"
+export { createWorkflow } from "./workflow"
 
 import { createHash } from "node:crypto"
 import { AWSClient } from "./client"

@@ -5,7 +5,9 @@ bun.lockb
 # Build output
 dist/
 build/
+target/
 *.js.map
+*.bun-build
 
 # Logs
 logs/

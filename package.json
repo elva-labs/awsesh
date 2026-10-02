@@ -10,6 +10,8 @@
     "dev:watch": "bun --watch --cwd packages/awsesh --conditions=browser src/index.ts",
     "start": "bun run --cwd packages/awsesh --conditions=browser src/index.ts",
     "build": "bun run --filter awsesh build",
+    "dev:desktop": "bun run --cwd packages/desktop dev",
+    "build:desktop": "bun run --cwd packages/desktop build",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test --conditions=browser"
   },
