@@ -7,9 +7,10 @@ use gpui::{
     prelude::*, px, rgb, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable,
+    ActiveTheme, Disableable, Icon, IconName, Selectable,
     button::{Button, ButtonVariants},
     input::Input,
+    menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
     select::Select as RoleSelect,
 };
 
@@ -21,6 +22,9 @@ struct Colors {
     muted: Hsla,
     selection: Hsla,
     accent: Hsla,
+    success: Hsla,
+    warning: Hsla,
+    profile: Hsla,
 }
 
 fn remaining(value: &str) -> String {
@@ -49,6 +53,25 @@ fn expiration(value: &str) -> String {
 }
 
 impl Sesh {
+    fn status(&self, label: impl Into<SharedString>, color: Hsla, active: bool) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_size(px(12.))
+            .text_color(color)
+            .child(
+                Icon::new(if active {
+                    IconName::CircleCheck
+                } else {
+                    IconName::CircleX
+                })
+                .size(px(15.))
+                .flex_shrink_0(),
+            )
+            .child(label.into())
+            .into_any_element()
+    }
     fn colors(&self, cx: &Context<Self>) -> Colors {
         if cx.theme().is_dark() {
             return Colors {
@@ -59,6 +82,9 @@ impl Sesh {
                 muted: rgb(0xa1a6b0).into(),
                 selection: rgb(0x253e5d).into(),
                 accent: rgb(0x83b9ff).into(),
+                success: rgb(0x68c99e).into(),
+                warning: rgb(0xe6b566).into(),
+                profile: rgb(0xbda0ed).into(),
             };
         }
         Colors {
@@ -69,6 +95,9 @@ impl Sesh {
             muted: rgb(0x6d7480).into(),
             selection: rgb(0xe8f0fc).into(),
             accent: rgb(0x245ea8).into(),
+            success: rgb(0x23825c).into(),
+            warning: rgb(0xa66a16).into(),
+            profile: rgb(0x8252b3).into(),
         }
     }
 
@@ -81,8 +110,15 @@ impl Sesh {
     ) -> Button {
         Button::new(id)
             .label(label)
-            .small()
-            .disabled(self.busy && !matches!(command, Command::Cancel | Command::OpenLogin))
+            .h(px(36.))
+            .px_3()
+            .disabled(
+                self.modal()
+                    && !matches!(
+                        command,
+                        Command::Confirm | Command::Cancel | Command::OpenLogin
+                    ),
+            )
             .tab_stop(
                 !self.modal()
                     || matches!(
@@ -95,7 +131,7 @@ impl Sesh {
             )
     }
 
-    pub(super) fn preferences_dirty(&self, cx: &Context<Self>) -> bool {
+    pub(super) fn preferences_dirty(&self, cx: &gpui::App) -> bool {
         let Some(account) = &self.account else {
             return false;
         };
@@ -109,6 +145,40 @@ impl Sesh {
                     .unwrap_or("")
     }
 
+    fn copy_value(
+        &self,
+        id: &'static str,
+        value: &str,
+        command: Command,
+        cx: &Context<Self>,
+    ) -> Button {
+        let name = matches!(command, Command::CopyName);
+        Button::new(id)
+            .child(
+                div()
+                    .max_w(px(270.))
+                    .truncate()
+                    .text_size(px(if name { 20. } else { 11. }))
+                    .font_weight(if name {
+                        FontWeight::SEMIBOLD
+                    } else {
+                        FontWeight::NORMAL
+                    })
+                    .child(SharedString::from(value.to_owned())),
+            )
+            .ghost()
+            .px_1()
+            .h(px(if name { 32. } else { 24. }))
+            .justify_start()
+            .cursor_pointer()
+            .tooltip("Click to copy")
+            .disabled(self.modal())
+            .tab_stop(!self.modal())
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.dispatch(command.clone(), window, cx)),
+            )
+    }
+
     fn sidebar(&self, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
         let sessions = self
@@ -119,19 +189,104 @@ impl Sesh {
             .map(|(index, session)| {
                 let selected = self.screen == Screen::Accounts
                     && self.data.session.as_ref() == Some(&session.name);
-                div().flex().items_center().gap_1().child(
-                    self.button(
-                        ("session", index),
-                        SharedString::from(session.name.clone()),
-                        Command::Session(session.name.clone()),
-                        cx,
+                let name = session.name.clone();
+                let session_name = session.name.clone();
+                let authenticated = session.authenticated;
+                let view = cx.entity().downgrade();
+                let disabled = self.modal();
+                div()
+                    .id(("session-container", index))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        self.button(
+                            ("session", index),
+                            SharedString::from(session.name.clone()),
+                            Command::Session(session.name.clone()),
+                            cx,
+                        )
+                        .icon(IconName::Building2)
+                        .child(
+                            Icon::new(if authenticated {
+                                IconName::CircleCheck
+                            } else {
+                                IconName::CircleX
+                            })
+                            .size(px(14.))
+                            .text_color(if authenticated {
+                                colors.success
+                            } else {
+                                colors.warning
+                            }),
+                        )
+                        .tooltip(if authenticated {
+                            "Signed in"
+                        } else {
+                            "Signed out · double-click to sign in"
+                        })
+                        .ghost()
+                        .selected(selected)
+                        .text_color(if authenticated {
+                            colors.text
+                        } else {
+                            colors.muted
+                        })
+                        .cursor_pointer()
+                        .w_full()
+                        .justify_start()
+                        .on_click(cx.listener(
+                            move |this, event: &gpui::ClickEvent, window, cx| {
+                                if this.modal() {
+                                    return;
+                                }
+                                let signed_in =
+                                    this.data.sessions.iter().any(|value| {
+                                        value.name == session_name && value.authenticated
+                                    });
+                                let command = if event.click_count() == 2 && !signed_in {
+                                    Command::SessionAction(
+                                        session_name.clone(),
+                                        Box::new(Command::Login),
+                                    )
+                                } else {
+                                    Command::Session(session_name.clone())
+                                };
+                                this.dispatch(command, window, cx);
+                            },
+                        )),
                     )
-                    .icon(IconName::Building2)
-                    .ghost()
-                    .selected(selected)
-                    .w_full()
-                    .justify_start(),
-                )
+                    .context_menu(move |mut menu, _, _| {
+                        for (label, command) in [
+                            ("Open SSO portal", Command::Portal),
+                            ("Edit session…", Command::EditSession),
+                            (
+                                if authenticated {
+                                    "Sign out…"
+                                } else {
+                                    "Sign in"
+                                },
+                                if authenticated {
+                                    Command::SignOut
+                                } else {
+                                    Command::Login
+                                },
+                            ),
+                            ("Delete session…", Command::DeleteSession),
+                        ] {
+                            let view = view.clone();
+                            let command = Command::SessionAction(name.clone(), Box::new(command));
+                            menu =
+                                menu.item(PopupMenuItem::new(label).disabled(disabled).on_click(
+                                    move |_, window, cx| {
+                                        let _ = view.update(cx, |this, cx| {
+                                            this.dispatch(command.clone(), window, cx)
+                                        });
+                                    },
+                                ));
+                        }
+                        menu
+                    })
             });
         div()
             .w(px(216.))
@@ -224,25 +379,22 @@ impl Sesh {
                             .justify_start(),
                     ),
             )
-            .child(
-                div()
-                    .px_5()
-                    .pb_4()
-                    .text_size(px(11.))
-                    .text_color(colors.muted)
-                    .child(format!("SDK-backed · {}", env!("CARGO_PKG_VERSION"))),
-            )
             .into_any_element()
     }
 
     fn row(&self, position: usize, index: usize, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
-        let (title, detail, status) = if self.screen == Screen::Accounts {
+        let (title, detail, status, status_color) = if self.screen == Screen::Accounts {
             let value = &self.data.accounts[index];
-            let active = self.data.credentials.iter().find(|credential| {
-                credential.account_id == value.account_id
-                    && Some(&credential.session_name) == self.data.session.as_ref()
-            });
+            let active = self
+                .data
+                .credentials
+                .iter()
+                .filter(|credential| {
+                    credential.account_id == value.account_id
+                        && Some(&credential.session_name) == self.data.session.as_ref()
+                })
+                .min_by_key(|credential| !credential.is_default);
             (
                 value.name.clone(),
                 value.account_id.clone(),
@@ -255,6 +407,15 @@ impl Sesh {
                         }
                     })
                     .unwrap_or_default(),
+                active
+                    .map(|value| {
+                        if value.is_default {
+                            colors.success
+                        } else {
+                            colors.profile
+                        }
+                    })
+                    .unwrap_or(colors.muted),
             )
         } else {
             let value = &self.data.credentials[index];
@@ -266,9 +427,18 @@ impl Sesh {
                 } else {
                     remaining(&value.expiration)
                 },
+                if value.is_default {
+                    colors.success
+                } else {
+                    colors.profile
+                },
             )
         };
         let selected = self.selected == Some(position);
+        let cached = self.screen == Screen::Accounts && !self.authenticated();
+        let view = cx.entity().downgrade();
+        let disabled = self.modal();
+        let account_row = self.screen == Screen::Accounts;
         div()
             .id(("row", position))
             .w_full()
@@ -289,6 +459,16 @@ impl Sesh {
                     } else {
                         colors.background
                     })
+                    .id(("row-surface", position))
+                    .cursor_pointer()
+                    .hover(move |style| {
+                        style.bg(if selected {
+                            colors.selection
+                        } else {
+                            colors.sidebar
+                        })
+                    })
+                    .text_color(if cached { colors.muted } else { colors.text })
                     .child(
                         Icon::new(if self.screen == Screen::Accounts {
                             IconName::Building2
@@ -325,23 +505,60 @@ impl Sesh {
                                     .child(detail),
                             ),
                     )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_size(px(11.))
-                            .text_color(colors.accent)
-                            .child(status),
-                    ),
+                    .when(!status.is_empty(), |row| {
+                        row.child(self.status(status, status_color, true))
+                    }),
             )
-            .on_click(cx.listener(move |this, _, window, cx| {
-                if this.busy || this.modal() {
-                    return;
+            .on_click(
+                cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                    if this.modal() {
+                        return;
+                    }
+                    if event.click_count() == 2 && this.screen == Screen::Accounts {
+                        this.dispatch(
+                            Command::ItemAction(position, Box::new(Command::SetCredentials)),
+                            window,
+                            cx,
+                        );
+                        return;
+                    }
+                    this.selected = Some(position);
+                    this.focus.focus(window);
+                    this.inspect(window, cx);
+                    cx.notify();
+                }),
+            )
+            .context_menu(move |mut menu, _, _| {
+                let commands = if account_row {
+                    vec![
+                        ("Set credentials", Command::SetCredentials, cached),
+                        ("Open AWS Console", Command::Console, false),
+                        ("Copy account ID", Command::CopyAccount, false),
+                        ("Copy account name", Command::CopyName, false),
+                    ]
+                } else {
+                    vec![
+                        ("Copy CLI profile", Command::CopyProfile, false),
+                        ("Copy account ID", Command::CopyAccount, false),
+                        ("Copy account name", Command::CopyName, false),
+                        ("Remove profile…", Command::RemoveCredential, false),
+                    ]
+                };
+                for (label, command, unavailable) in commands {
+                    let view = view.clone();
+                    let command = Command::ItemAction(position, Box::new(command));
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .disabled(disabled || unavailable)
+                            .on_click(move |_, window, cx| {
+                                let _ = view.update(cx, |this, cx| {
+                                    this.dispatch(command.clone(), window, cx)
+                                });
+                            }),
+                    );
                 }
-                this.selected = Some(position);
-                this.focus.focus(window);
-                this.inspect(window, cx);
-                cx.notify();
-            }))
+                menu
+            })
             .into_any_element()
     }
 
@@ -379,7 +596,7 @@ impl Sesh {
             .child(
                 div().px_4().pb_3().child(
                     Input::new(&self.search)
-                        .small()
+                        .h(px(38.))
                         .prefix(Icon::new(IconName::Search))
                         .disabled(self.modal()),
                 ),
@@ -400,7 +617,9 @@ impl Sesh {
                 .track_scroll(self.scroll.clone()),
             );
         } else {
-            let (heading, description) = if !self.search.read(cx).value().is_empty() {
+            let (heading, description) = if self.busy || !self.initialized {
+                ("Loading…", "Reading your workspace and cached accounts.")
+            } else if !self.search.read(cx).value().is_empty() {
                 (
                     "No matching results",
                     "Try an account name, ID, role or profile.",
@@ -452,7 +671,11 @@ impl Sesh {
                         .text_center()
                         .child(description),
                 );
-            if self.screen == Screen::Accounts && self.search.read(cx).value().is_empty() {
+            if !self.busy
+                && self.initialized
+                && self.screen == Screen::Accounts
+                && self.search.read(cx).value().is_empty()
+            {
                 empty = empty.child(
                     self.button(
                         "empty-action",
@@ -509,7 +732,7 @@ impl Sesh {
         let colors = self.colors(cx);
         let mut panel = div()
             .id("inspector")
-            .w(px(320.))
+            .w(px(344.))
             .flex_shrink_0()
             .h_full()
             .overflow_y_scroll()
@@ -521,18 +744,97 @@ impl Sesh {
             .border_color(colors.border);
         if self.screen == Screen::Credentials {
             if let Some(value) = self.credential(cx) {
-                panel = panel.child(div().flex().flex_col().gap_2().child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child(value.account_name.clone())).child(div().text_color(colors.accent).text_size(px(12.)).child(if value.is_default { "Default credentials" } else { "Named profile" })))
+                panel = panel
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                self.copy_value(
+                                    "credential-name",
+                                    &value.account_name,
+                                    Command::CopyName,
+                                    cx,
+                                )
+                                .text_size(px(20.))
+                                .font_weight(FontWeight::SEMIBOLD),
+                            )
+                            .child(self.status(
+                                if value.is_default {
+                                    "Default profile"
+                                } else {
+                                    "Named profile"
+                                },
+                                if value.is_default {
+                                    colors.success
+                                } else {
+                                    colors.profile
+                                },
+                                true,
+                            )),
+                    )
                     .child(self.metadata("CLI profile", &value.profile_name, true, cx))
                     .child(self.metadata("Role", &value.role_name, false, cx))
                     .child(self.metadata("Organization", &value.session_name, false, cx))
-                    .child(self.metadata("Region", value.region.as_deref().unwrap_or("Not configured"), true, cx))
-                    .child(self.metadata("Account ID", &value.account_id, true, cx))
-                    .child(div().p_3().rounded_md().bg(colors.sidebar).flex().flex_col().gap_2()
-                        .child(div().font_weight(FontWeight::MEDIUM).child(remaining(&value.expiration)))
-                        .child(div().text_size(px(12.)).text_color(colors.muted).child(format!("Expires at {} local time", expiration(&value.expiration)))))
-                    .child(div().flex().gap_2().child(self.button("copy-profile", "Copy profile", Command::CopyProfile, cx).icon(IconName::Copy)).child(self.button("copy-credential-id", "Copy ID", Command::CopyAccount, cx)))
-                    .child(div().text_size(px(12.)).text_color(colors.muted).child("Use this profile with AWS_PROFILE in your shell. Sesh never changes an existing shell’s environment."))
-                    .child(self.button("remove-credential", "Remove profile…", Command::RemoveCredential, cx).danger().w_full());
+                    .child(self.metadata(
+                        "Region",
+                        value.region.as_deref().unwrap_or("Not configured"),
+                        true,
+                        cx,
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(colors.muted)
+                                    .child("Account ID"),
+                            )
+                            .child(
+                                self.copy_value(
+                                    "credential-id",
+                                    &value.account_id,
+                                    Command::CopyAccount,
+                                    cx,
+                                )
+                                .font_family(platform::mono_font()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .p_3()
+                            .rounded_md()
+                            .bg(colors.sidebar)
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(remaining(&value.expiration)),
+                            )
+                            .child(div().text_size(px(12.)).text_color(colors.muted).child(
+                                format!("Expires at {} local time", expiration(&value.expiration)),
+                            )),
+                    )
+                    .child(
+                        self.button("copy-profile", "Copy profile", Command::CopyProfile, cx)
+                            .icon(IconName::Copy),
+                    )
+                    .child(
+                        self.button(
+                            "remove-credential",
+                            "Remove profile…",
+                            Command::RemoveCredential,
+                            cx,
+                        )
+                        .danger()
+                        .w_full(),
+                    );
             } else {
                 panel = panel.child(
                     div()
@@ -555,13 +857,7 @@ impl Sesh {
                         .gap_3()
                         .text_color(colors.muted)
                         .child(Icon::new(IconName::Inspector).size(px(28.)))
-                        .child("Select an account")
-                        .child(
-                            div()
-                                .text_size(px(12.))
-                                .text_center()
-                                .child("Inspect roles and preferences before setting credentials."),
-                        ),
+                        .child("Select an account"),
                 )
                 .into_any_element();
         };
@@ -587,28 +883,22 @@ impl Sesh {
                     .flex_col()
                     .gap_2()
                     .child(
-                        div()
+                        self.copy_value("account-name", &account.name, Command::CopyName, cx)
                             .text_size(px(20.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(account.name.clone()),
+                            .font_weight(FontWeight::SEMIBOLD),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .font_family(platform::mono_font())
-                                    .text_size(px(11.))
-                                    .text_color(colors.muted)
-                                    .child(account.account_id.clone()),
+                        div().flex().items_center().justify_between().gap_2().child(
+                            self.copy_value(
+                                "account-id",
+                                &account.account_id,
+                                Command::CopyAccount,
+                                cx,
                             )
-                            .child(
-                                self.button("copy-account", "Copy ID", Command::CopyAccount, cx)
-                                    .ghost(),
-                            ),
+                            .font_family(platform::mono_font())
+                            .text_size(px(11.))
+                            .text_color(colors.muted),
+                        ),
                     ),
             )
             .child(
@@ -624,9 +914,9 @@ impl Sesh {
                             } else {
                                 "Select a role"
                             })
-                            .small()
+                            .h(px(38.))
                             .w_full()
-                            .disabled(self.busy || self.modal()),
+                            .disabled(self.modal()),
                     )
                     .child(
                         self.button(
@@ -640,7 +930,7 @@ impl Sesh {
                             cx,
                         )
                         .ghost()
-                        .disabled(self.busy || role.is_none() || role == account.preferred_role),
+                        .disabled(self.modal() || role.is_none() || role == account.preferred_role),
                     ),
             );
         if !account.roles_loaded || account.roles.is_empty() {
@@ -659,59 +949,50 @@ impl Sesh {
                 cx,
             ));
         }
-        panel = panel
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(div().font_weight(FontWeight::MEDIUM).child("Region"))
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div().flex_1().min_w_0().child(
-                                    Input::new(&self.region)
-                                        .small()
-                                        .disabled(self.busy || self.modal()),
+        panel =
+            panel
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(div().font_weight(FontWeight::MEDIUM).child("Region"))
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(div().flex_1().min_w_0().child(
+                                    Input::new(&self.region).h(px(38.)).disabled(self.modal()),
+                                ))
+                                .child(
+                                    self.button("save-region", "Save", Command::SaveRegion, cx)
+                                        .disabled(self.modal() || !region_dirty),
                                 ),
-                            )
-                            .child(
-                                self.button("save-region", "Save", Command::SaveRegion, cx)
-                                    .disabled(self.busy || !region_dirty),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(div().font_weight(FontWeight::MEDIUM).child("CLI profile"))
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div().flex_1().min_w_0().child(
-                                    Input::new(&self.profile)
-                                        .small()
-                                        .disabled(self.busy || self.modal() || role.is_none()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(div().font_weight(FontWeight::MEDIUM).child("CLI profile"))
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    div().flex_1().min_w_0().child(
+                                        Input::new(&self.profile)
+                                            .h(px(38.))
+                                            .disabled(self.modal() || role.is_none()),
+                                    ),
+                                )
+                                .child(
+                                    self.button("save-profile", "Save", Command::SaveProfile, cx)
+                                        .disabled(self.modal() || !profile_dirty || role.is_none()),
                                 ),
-                            )
-                            .child(
-                                self.button("save-profile", "Save", Command::SaveProfile, cx)
-                                    .disabled(self.busy || !profile_dirty || role.is_none()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(colors.muted)
-                            .child("Leave empty to use the default profile."),
-                    ),
-            );
+                        ),
+                );
         if let Some(active) = active {
             panel = panel.child(
                 div()
@@ -721,15 +1002,19 @@ impl Sesh {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(if active.is_default {
-                                "Default credentials active"
-                            } else {
-                                "Profile credentials active"
-                            }),
-                    )
+                    .child(self.status(
+                        if active.is_default {
+                            "Default profile"
+                        } else {
+                            "Named profile"
+                        },
+                        if active.is_default {
+                            colors.success
+                        } else {
+                            colors.profile
+                        },
+                        true,
+                    ))
                     .child(
                         div()
                             .text_size(px(12.))
@@ -763,23 +1048,13 @@ impl Sesh {
                     )
                     .primary()
                     .w_full()
-                    .disabled(self.busy || !ready || self.preferences_dirty(cx)),
+                    .disabled(self.modal() || !ready || self.preferences_dirty(cx)),
                 )
                 .child(
                     self.button("open-console", "Open AWS Console", Command::Console, cx)
                         .icon(IconName::ExternalLink)
                         .w_full()
-                        .disabled(self.busy || role.is_none()),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(colors.muted)
-                        .text_center()
-                        .child(format!(
-                            "{} to set credentials",
-                            platform::shortcut_label("↵")
-                        )),
+                        .disabled(self.modal() || role.is_none()),
                 ),
         );
         if !self.authenticated() {
@@ -801,7 +1076,8 @@ impl Sesh {
         let choices = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
         let shortcuts = [
             ("F", "Search the current list"),
-            ("P", "Open commands"),
+            ("K", "Open command bar"),
+            ("P", "Open command bar (alternative)"),
             ("N", "Add an SSO session"),
             ("E", "Edit the current session"),
             ("↵", "Set credentials explicitly"),
@@ -818,9 +1094,6 @@ impl Sesh {
                 .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Keyboard shortcuts"))
                 .children(shortcuts.into_iter().map(|(key, label)| div().flex().items_center().justify_between().py_1().child(label).child(div().text_color(colors.muted).child(platform::shortcut_label(key)))))
                 .child(div().text_size(px(12.)).text_color(colors.muted).child("Arrow keys inspect items. Enter inspects an account; it never writes credentials. Escape dismisses a dialog.")))
-            .child(div().max_w(px(650.)).pt_5().border_t_1().border_color(colors.border).flex().flex_col().gap_2()
-                .child(div().font_weight(FontWeight::MEDIUM).child("One SDK, every interface"))
-                .child(div().text_size(px(12.)).text_color(colors.muted).child("Sesh shares organizations, account preferences and credential profiles with the awsesh CLI and TUI. AWS operations run exclusively through the SDK.")))
             .into_any_element()
     }
 
@@ -838,6 +1111,14 @@ impl Sesh {
             .rounded_lg()
             .shadow_lg();
         if let Some(form) = &self.form {
+            let submitting = self
+                .active
+                .as_ref()
+                .is_some_and(|(operation, _)| *operation == form.operation)
+                || self
+                    .requests
+                    .iter()
+                    .any(|(operation, _)| *operation == form.operation);
             panel = panel
                 .child(
                     div()
@@ -864,24 +1145,26 @@ impl Sesh {
                         .flex_col()
                         .gap_2()
                         .child(SharedString::from(label.to_owned()))
-                        .child(Input::new(input).small().disabled(self.busy)),
+                        .child(Input::new(input).h(px(38.)).disabled(submitting)),
                 );
             }
             if self.error {
                 panel = panel.child(div().text_color(rgb(0xc24840)).child(self.message.clone()));
             }
-            let confirm = self.button(
-                "confirm-form",
-                if self.busy {
-                    "Working…"
-                } else if form.destructive {
-                    "Remove"
-                } else {
-                    "Save session"
-                },
-                Command::Confirm,
-                cx,
-            );
+            let confirm = self
+                .button(
+                    "confirm-form",
+                    if submitting {
+                        "Working…"
+                    } else if form.destructive {
+                        "Remove"
+                    } else {
+                        "Save session"
+                    },
+                    Command::Confirm,
+                    cx,
+                )
+                .disabled(submitting);
             panel = panel.child(
                 div()
                     .flex()
@@ -900,12 +1183,20 @@ impl Sesh {
                     div()
                         .text_size(px(18.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("Authorize in your browser"),
+                        .child(if login.code.is_empty() {
+                            "Connecting to AWS…"
+                        } else {
+                            "Authorize in your browser"
+                        }),
                 )
                 .child(
                     div()
                         .text_color(colors.muted)
-                        .child("Check that this code matches the code shown in your browser."),
+                        .child(if login.code.is_empty() {
+                            "Starting SSO sign-in"
+                        } else {
+                            "Check that this code matches the code shown in your browser."
+                        }),
                 )
                 .child(
                     div()
@@ -929,64 +1220,81 @@ impl Sesh {
                         .child(self.button("cancel-login", "Cancel", Command::Cancel, cx))
                         .child(
                             self.button("open-login", "Open browser again", Command::OpenLogin, cx)
-                                .primary(),
+                                .primary()
+                                .disabled(login.url.is_empty()),
                         ),
                 );
         } else if self.palette {
-            let mut commands = vec![
-                ("Add SSO session…", Command::NewSession),
-                ("Accounts", Command::Accounts),
-                ("Active credentials", Command::Credentials),
-                ("Settings", Command::Settings),
-            ];
-            if self.data.session.is_some() {
-                commands.extend([
-                    ("Edit this session…", Command::EditSession),
-                    ("Sign in", Command::Login),
-                    ("Open SSO portal", Command::Portal),
-                    ("Sign out…", Command::SignOut),
-                    ("Delete this session…", Command::DeleteSession),
-                ]);
-            }
-            if self.account.is_some() {
-                commands.extend([
-                    ("Set credentials", Command::SetCredentials),
-                    ("Open AWS Console", Command::Console),
-                ]);
-            }
-            if self.credential(cx).is_some() {
-                commands.push(("Remove credential profile…", Command::RemoveCredential));
-            }
+            let commands = self.commands(cx);
+            let count = commands.len();
             panel = panel
+                .w(px(560.))
+                .p_3()
+                .child(Input::new(&self.command_search).prefix(Icon::new(IconName::Search)))
+                .child(
+                    uniform_list(
+                        "command-results",
+                        count,
+                        cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                            let colors = this.colors(cx);
+                            range
+                                .map(|index| {
+                                    let (label, command) = &commands[index];
+                                    let command = command.clone();
+                                    div()
+                                        .id(("command-result", index))
+                                        .w_full()
+                                        .h(px(40.))
+                                        .px_3()
+                                        .flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .rounded_md()
+                                        .bg(if this.command_selected == index {
+                                            colors.selection
+                                        } else {
+                                            colors.background
+                                        })
+                                        .cursor_pointer()
+                                        .hover(move |style| style.bg(colors.sidebar))
+                                        .child(label.clone())
+                                        .child(div().text_color(colors.muted).child(
+                                            if this.command_selected == index {
+                                                "↵"
+                                            } else {
+                                                ""
+                                            },
+                                        ))
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.dispatch(command.clone(), window, cx)
+                                        }))
+                                        .into_any_element()
+                                })
+                                .collect::<Vec<_>>()
+                        }),
+                    )
+                    .h(px((count.min(8) * 40) as f32))
+                    .w_full()
+                    .track_scroll(self.command_scroll.clone()),
+                )
+                .when(count == 0, |panel| {
+                    panel.child(
+                        div()
+                            .p_4()
+                            .text_color(colors.muted)
+                            .child("No matching commands"),
+                    )
+                })
                 .child(
                     div()
-                        .text_size(px(18.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Commands"),
-                )
-                .child(
-                    div()
-                        .id("command-list")
-                        .max_h(px(390.))
-                        .overflow_y_scroll()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .children(commands.into_iter().enumerate().map(
-                            |(index, (label, command))| {
-                                Button::new(("command", index))
-                                    .label(label)
-                                    .small()
-                                    .ghost()
-                                    .w_full()
-                                    .justify_start()
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.dispatch(command.clone(), window, cx)
-                                    }))
-                            },
-                        )),
-                )
-                .child(self.button("close-commands", "Close", Command::Cancel, cx));
+                        .border_t_1()
+                        .border_color(colors.border)
+                        .pt_3()
+                        .px_2()
+                        .text_size(px(11.))
+                        .text_color(colors.muted)
+                        .child("↑ ↓ Navigate     ↵ Run command     Esc Close"),
+                );
         } else {
             return None;
         }
@@ -994,6 +1302,7 @@ impl Sesh {
             div()
                 .absolute()
                 .inset_0()
+                .occlude()
                 .bg(gpui::rgba(0x00000044))
                 .flex()
                 .items_center()
@@ -1012,20 +1321,8 @@ impl Render for Sesh {
             Screen::Credentials => "Credentials",
             Screen::Settings => "Settings",
         };
-        let subtitle = match self.screen {
-            Screen::Accounts if self.data.session.is_some() => {
-                if self.authenticated() {
-                    "Signed in · AWS IAM Identity Center"
-                } else {
-                    "Signed out · cached accounts only"
-                }
-            }
-            Screen::Accounts => "Your AWS session workspace",
-            Screen::Credentials => "Manage your active AWS CLI profiles",
-            Screen::Settings => "Appearance and keyboard shortcuts",
-        };
         let mut toolbar = div()
-            .h(px(82.))
+            .h(px(56.))
             .flex_shrink_0()
             .px_6()
             .flex()
@@ -1037,57 +1334,94 @@ impl Render for Sesh {
                 div()
                     .min_w_0()
                     .flex()
-                    .flex_col()
-                    .gap_1()
+                    .items_center()
+                    .gap_4()
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(21.))
+                            .text_size(px(16.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(SharedString::from(title.to_owned())),
                     )
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(colors.muted)
-                            .child(subtitle),
+                    .when(
+                        self.screen == Screen::Accounts && self.data.session.is_some(),
+                        |header| {
+                            header.child(self.status(
+                                if self.authenticated() {
+                                    "Signed in"
+                                } else {
+                                    "Signed out"
+                                },
+                                if self.authenticated() {
+                                    colors.success
+                                } else {
+                                    colors.warning
+                                },
+                                self.authenticated(),
+                            ))
+                        },
                     ),
             );
         let mut actions = div().flex().gap_2();
         if self.screen == Screen::Accounts && self.data.session.is_some() {
-            actions = actions
-                .child(
-                    self.button("edit-session", "Edit session", Command::EditSession, cx)
-                        .ghost(),
-                )
-                .child(self.button(
-                    "auth-session",
-                    if self.authenticated() {
-                        "Sign out…"
-                    } else {
-                        "Sign in"
-                    },
-                    if self.authenticated() {
-                        Command::SignOut
-                    } else {
-                        Command::Login
-                    },
-                    cx,
-                ));
+            if !self.authenticated() {
+                actions = actions.child(
+                    self.button("auth-session", "Sign in", Command::Login, cx)
+                        .primary(),
+                );
+            }
+            let view = cx.entity().downgrade();
+            let authenticated = self.authenticated();
+            let disabled = self.modal();
+            actions = actions.child(
+                Button::new("session-options")
+                    .icon(IconName::Ellipsis)
+                    .ghost()
+                    .h(px(36.))
+                    .w(px(36.))
+                    .tooltip("Session actions")
+                    .disabled(disabled)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for (label, command) in [
+                            ("Edit session…", Command::EditSession),
+                            ("Open SSO portal", Command::Portal),
+                            (
+                                if authenticated {
+                                    "Sign out…"
+                                } else {
+                                    "Sign in"
+                                },
+                                if authenticated {
+                                    Command::SignOut
+                                } else {
+                                    Command::Login
+                                },
+                            ),
+                            ("Delete session…", Command::DeleteSession),
+                        ] {
+                            let view = view.clone();
+                            menu = menu.item(PopupMenuItem::new(label).on_click(
+                                move |_, window, cx| {
+                                    let _ = view.update(cx, |this, cx| {
+                                        this.dispatch(command.clone(), window, cx)
+                                    });
+                                },
+                            ));
+                        }
+                        menu
+                    }),
+            );
         }
         if self.screen != Screen::Settings {
             actions = actions.child(
-                self.button("refresh", "Refresh", Command::Refresh, cx)
-                    .ghost(),
+                self.button("refresh", "", Command::Refresh, cx)
+                    .icon(IconName::Redo)
+                    .ghost()
+                    .w(px(36.))
+                    .tooltip("Refresh"),
             );
         }
-        toolbar = toolbar.child(
-            actions.child(
-                self.button("commands", "Commands", Command::Palette, cx)
-                    .icon(IconName::Ellipsis)
-                    .ghost(),
-            ),
-        );
+        toolbar = toolbar.child(actions);
         let body = if self.screen == Screen::Settings {
             self.settings(cx)
         } else {
@@ -1118,9 +1452,26 @@ impl Render for Sesh {
             .bg(colors.background)
             .text_color(colors.text)
             .font_family(cx.theme().font_family.clone())
-            .text_size(px(13.))
+            .text_size(px(14.))
             .key_context("Sesh")
             .track_focus(&self.focus)
+            .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if !this.palette || !matches!(event.keystroke.key.as_str(), "up" | "down") {
+                    return;
+                }
+                let count = this.commands(cx).len();
+                if count > 0 {
+                    this.command_selected = if event.keystroke.key == "down" {
+                        (this.command_selected + 1) % count
+                    } else {
+                        (this.command_selected + count - 1) % count
+                    };
+                    this.command_scroll
+                        .scroll_to_item(this.command_selected, gpui::ScrollStrategy::Center);
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &Next, window, cx| this.move_selection(1, window, cx)))
             .on_action(
                 cx.listener(|_, _: &platform::CloseWindow, window, _| window.remove_window()),

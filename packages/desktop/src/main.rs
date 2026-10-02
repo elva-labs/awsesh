@@ -14,6 +14,7 @@ use gpui_component::{
 };
 use sdk::{Account, Credential, Sdk, Snapshot};
 use serde_json::{Value, json};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 actions!(
@@ -72,6 +73,9 @@ enum Command {
     OpenLogin,
     CopyAccount,
     CopyProfile,
+    CopyName,
+    SessionAction(String, Box<Command>),
+    ItemAction(usize, Box<Command>),
 }
 
 struct Form {
@@ -105,11 +109,17 @@ struct Sesh {
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     busy: bool,
+    active: Option<(&'static str, Value)>,
+    requests: VecDeque<(&'static str, Value)>,
     message: String,
     error: bool,
     form: Option<Form>,
     login: Option<Login>,
     palette: bool,
+    command_search: Entity<InputState>,
+    command_selected: usize,
+    command_scroll: UniformListScrollHandle,
+    pending: Option<(String, Option<String>, Command)>,
     appearance: String,
     _subscriptions: Vec<Subscription>,
 }
@@ -122,7 +132,29 @@ impl Sesh {
             cx.new(|cx| SelectState::new(Vec::<String>::new(), None, window, cx).searchable(true));
         let region = cx.new(|cx| InputState::new(window, cx).placeholder("eu-north-1"));
         let profile = cx.new(|cx| InputState::new(window, cx).placeholder("default"));
+        let command_search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search commands and organizations…")
+        });
         let subscriptions = vec![
+            cx.subscribe_in(
+                &command_search,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.command_selected = 0;
+                        this.command_scroll
+                            .scroll_to_item(0, gpui::ScrollStrategy::Top);
+                        cx.notify();
+                    }
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        if let Some((_, command)) =
+                            this.commands(cx).get(this.command_selected).cloned()
+                        {
+                            this.dispatch(command, window, cx);
+                        }
+                    }
+                },
+            ),
             cx.subscribe_in(
                 &search,
                 window,
@@ -202,11 +234,17 @@ impl Sesh {
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             busy: false,
+            active: None,
+            requests: VecDeque::new(),
             message: String::new(),
             error: false,
             form: None,
             login: None,
             palette: false,
+            command_search,
+            command_selected: 0,
+            command_scroll: UniformListScrollHandle::new(),
+            pending: None,
             appearance: "system".into(),
             _subscriptions: subscriptions,
         };
@@ -245,10 +283,39 @@ impl Sesh {
     }
 
     fn request(&mut self, operation: &'static str, args: Value, cx: &mut Context<Self>) {
-        if self.busy {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|(current, values)| *current == operation && *values == args)
+            || self
+                .requests
+                .iter()
+                .any(|(current, values)| *current == operation && *values == args)
+        {
             return;
         }
+        if self.busy {
+            self.requests.push_back((operation, args));
+            return;
+        }
+        if !self.requests.is_empty() {
+            self.requests.push_back((operation, args));
+            if let Some((operation, args)) = self.requests.pop_front() {
+                self.start_request(operation, args, cx);
+            }
+            return;
+        }
+        self.start_request(operation, args, cx);
+    }
+
+    fn start_request(&mut self, operation: &'static str, args: Value, cx: &mut Context<Self>) {
         self.busy = true;
+        self.active = Some((operation, args.clone()));
+        let request_name = args.get("name").and_then(Value::as_str).map(str::to_owned);
+        let request_account = args
+            .get("accountId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         if operation != "snapshot" {
             self.error = false;
             self.message = match operation {
@@ -279,14 +346,25 @@ impl Sesh {
             let _ = cx.update_window(window, |_, window, cx| {
                 let _ = this.update(cx, |this, cx| {
                     this.busy = false;
+                    this.active = None;
                     match result {
                         Ok(value) => this.receive(operation, value, window, cx),
                         Err(error) => {
+                            if this.pending.as_ref().is_some_and(|(name, account, _)| {
+                                Some(name) == request_name.as_ref() && *account == request_account
+                            }) {
+                                this.pending = None;
+                            }
                             this.error = true;
                             this.message = error.to_string();
-                            if operation == "pollLogin" {
+                            if matches!(operation, "pollLogin" | "startLogin") {
                                 this.login = None;
                             }
+                        }
+                    }
+                    if !this.busy {
+                        if let Some((operation, args)) = this.requests.pop_front() {
+                            this.start_request(operation, args, cx);
                         }
                     }
                     cx.notify();
@@ -316,7 +394,15 @@ impl Sesh {
                     return;
                 }
             };
-            self.data = data;
+            let current = data.session == self.data.session;
+            if !self.initialized || current || matches!(operation, "saveSession" | "removeSession")
+            {
+                self.data = data;
+            } else {
+                self.data.sessions = data.sessions;
+                self.data.credentials = data.credentials;
+                self.data.appearance = data.appearance;
+            }
             self.appearance = self
                 .data
                 .appearance
@@ -374,7 +460,12 @@ impl Sesh {
                 }
                 return;
             }
-            if operation == "selectSession" {
+            if current
+                && operation == "selectSession"
+                && self.screen == Screen::Accounts
+                && self.account.is_none()
+                && self.search.read(cx).value().is_empty()
+            {
                 self.selected = self
                     .data
                     .last_account
@@ -386,7 +477,7 @@ impl Sesh {
                     })
                     .or_else(|| (!self.data.accounts.is_empty()).then_some(0));
                 self.inspect(window, cx);
-            } else if let Some(account) = &self.account {
+            } else if current && let Some(account) = &self.account {
                 let updated = self
                     .data
                     .accounts
@@ -404,7 +495,7 @@ impl Sesh {
                 self.message = "Preference saved".into();
             }
             if operation == "assumeRole" {
-                self.message = "Credentials set. Your CLI profile is ready to use.".into();
+                self.message = "Credentials set".into();
             }
             if matches!(operation, "clearCredential" | "signOut") {
                 self.form = None;
@@ -414,6 +505,20 @@ impl Sesh {
             if let Some(selected) = self.selected {
                 self.selected = Some(selected.min(self.visible(cx).len().saturating_sub(1)));
             }
+            if current
+                && self.pending.as_ref().is_some_and(|(name, account, _)| {
+                    self.data.session.as_ref() == Some(name)
+                        && account.as_ref().is_none_or(|id| {
+                            self.account
+                                .as_ref()
+                                .is_some_and(|value| value.account_id == *id && value.roles_loaded)
+                        })
+                })
+            {
+                if let Some((_, _, command)) = self.pending.take() {
+                    self.dispatch(command, window, cx);
+                }
+            }
         } else if operation == "consoleUrl" {
             if let Some(url) = value.as_str() {
                 cx.open_url(url);
@@ -422,7 +527,7 @@ impl Sesh {
             if let (Some(url), Some(code), Some(name)) = (
                 value["url"].as_str(),
                 value["code"].as_str(),
-                self.data.session.clone(),
+                self.login.as_ref().map(|login| login.name.clone()),
             ) {
                 cx.open_url(url);
                 self.login = Some(Login {
@@ -432,6 +537,8 @@ impl Sesh {
                 });
                 self.focus.focus(window);
                 self.poll(cx);
+            } else {
+                self.request("cancelLogin", json!({"name": self.data.session}), cx);
             }
         } else if operation == "pollLogin" {
             if let Some(login) = &self.login {
@@ -456,7 +563,12 @@ impl Sesh {
     }
 
     fn open_session(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.data.session.as_ref() == Some(&name) {
+            if self.screen != Screen::Accounts {
+                self.reset_search(window, cx);
+            }
+            self.screen = Screen::Accounts;
+            cx.notify();
             return;
         }
         let authenticated = self
@@ -465,6 +577,7 @@ impl Sesh {
             .iter()
             .any(|session| session.name == name && session.authenticated);
         self.screen = Screen::Accounts;
+        self.pending = None;
         self.reset_search(window, cx);
         self.data.session = Some(name.clone());
         self.data.accounts.clear();
@@ -536,8 +649,74 @@ impl Sesh {
         self.roles.read(cx).selected_value().cloned()
     }
 
+    fn commands(&self, cx: &App) -> Vec<(String, Command)> {
+        let mut commands = vec![
+            ("Add SSO session…".into(), Command::NewSession),
+            ("Show accounts".into(), Command::Accounts),
+            ("Show active credentials".into(), Command::Credentials),
+            ("Settings".into(), Command::Settings),
+            ("Refresh".into(), Command::Refresh),
+        ];
+        commands.extend(self.data.sessions.iter().map(|session| {
+            (
+                format!("Switch to {}", session.name),
+                Command::Session(session.name.clone()),
+            )
+        }));
+        if self.data.session.is_some() {
+            commands.extend([
+                ("Edit this session…".into(), Command::EditSession),
+                ("Open SSO portal".into(), Command::Portal),
+                ("Delete this session…".into(), Command::DeleteSession),
+                (
+                    if self.authenticated() {
+                        "Sign out…"
+                    } else {
+                        "Sign in"
+                    }
+                    .into(),
+                    if self.authenticated() {
+                        Command::SignOut
+                    } else {
+                        Command::Login
+                    },
+                ),
+            ]);
+        }
+        if self.account.is_some() {
+            commands.extend([
+                ("Copy account ID".into(), Command::CopyAccount),
+                ("Copy account name".into(), Command::CopyName),
+            ]);
+            if self.role(cx).is_some() {
+                commands.push(("Open AWS Console".into(), Command::Console));
+                if self.authenticated() && !self.preferences_dirty(cx) {
+                    commands.push(("Set credentials".into(), Command::SetCredentials));
+                }
+            }
+        }
+        if self.credential(cx).is_some() {
+            commands.extend([
+                (
+                    "Remove credential profile…".into(),
+                    Command::RemoveCredential,
+                ),
+                ("Copy CLI profile".into(), Command::CopyProfile),
+                ("Copy account ID".into(), Command::CopyAccount),
+                ("Copy account name".into(), Command::CopyName),
+            ]);
+        }
+        let query = self.command_search.read(cx).value().to_lowercase();
+        commands.retain(|(label, _)| {
+            query
+                .split_whitespace()
+                .all(|part| label.to_lowercase().contains(part))
+        });
+        commands
+    }
+
     fn inspect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.screen != Screen::Accounts || self.busy {
+        if self.screen != Screen::Accounts {
             return;
         }
         let account = self.selected.and_then(|selected| {
@@ -553,6 +732,9 @@ impl Sesh {
                 .account
                 .as_ref()
                 .is_none_or(|value| value.account_id != id);
+            if reset {
+                self.pending = None;
+            }
             self.sync_inspector(account, reset, window, cx);
             if load {
                 self.request(
@@ -609,7 +791,7 @@ impl Sesh {
     }
 
     fn move_selection(&mut self, direction: i32, window: &mut Window, cx: &mut Context<Self>) {
-        if self.modal() || self.busy {
+        if self.modal() {
             return;
         }
         let count = self.visible(cx).len();
@@ -631,6 +813,7 @@ impl Sesh {
     }
 
     fn reset_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pending = None;
         self.search
             .update(cx, |state, cx| state.set_value("", window, cx));
         self.selected = None;
@@ -687,16 +870,14 @@ impl Sesh {
 
     fn dispatch(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(command, Command::Cancel) {
-            if self.busy && self.login.is_none() {
-                return;
-            }
             if let Some(login) = self.login.take() {
-                if !self.busy {
-                    self.request("cancelLogin", json!({"name": login.name}), cx);
-                }
+                self.requests
+                    .retain(|(operation, _)| !matches!(*operation, "startLogin" | "pollLogin"));
+                self.request("cancelLogin", json!({"name": login.name}), cx);
             }
             self.form = None;
             self.palette = false;
+            self.pending = None;
             self.focus.focus(window);
             cx.notify();
             return;
@@ -707,13 +888,72 @@ impl Sesh {
             }
             return;
         }
-        if self.busy || self.login.is_some() {
+        if self.login.is_some() {
             return;
         }
         if self.form.is_some() && !matches!(command, Command::Confirm) {
             return;
         }
+        if self.palette {
+            self.focus.focus(window);
+        }
         self.palette = false;
+        if let Command::ItemAction(position, command) = command {
+            self.selected = Some(position);
+            self.focus.focus(window);
+            if self.screen == Screen::Accounts
+                && matches!(*command, Command::CopyAccount | Command::CopyName)
+            {
+                let account = self
+                    .visible(cx)
+                    .get(position)
+                    .and_then(|index| self.data.accounts.get(*index))
+                    .cloned();
+                if let Some(account) = account {
+                    let reset = self
+                        .account
+                        .as_ref()
+                        .is_none_or(|previous| previous.account_id != account.account_id);
+                    self.sync_inspector(account, reset, window, cx);
+                }
+            } else {
+                self.inspect(window, cx);
+            }
+            if matches!(*command, Command::SetCredentials | Command::Console)
+                && self.authenticated()
+                && self
+                    .account
+                    .as_ref()
+                    .is_some_and(|account| !account.roles_loaded)
+            {
+                if let (Some(name), Some(account)) = (&self.data.session, &self.account) {
+                    self.pending = Some((name.clone(), Some(account.account_id.clone()), *command));
+                }
+            } else {
+                self.dispatch(*command, window, cx);
+            }
+            cx.notify();
+            return;
+        }
+        if let Command::SessionAction(name, command) = command {
+            if matches!(*command, Command::Login) {
+                self.open_session(name, window, cx);
+                self.dispatch(*command, window, cx);
+                return;
+            }
+            if self.data.session.as_ref() == Some(&name) {
+                self.dispatch(*command, window, cx);
+                return;
+            }
+            self.screen = Screen::Accounts;
+            self.reset_search(window, cx);
+            self.data.session = Some(name.clone());
+            self.data.accounts.clear();
+            self.account = None;
+            self.pending = Some((name.clone(), None, *command));
+            self.request("snapshot", json!({"name": name}), cx);
+            return;
+        }
         let name = self.data.session.clone();
         let role = self.role(cx);
         let args = json!({"name": name, "accountId": self.account.as_ref().map(|value| &value.account_id), "role": role});
@@ -733,6 +973,13 @@ impl Sesh {
                 }
             }
             Command::SetCredentials => {
+                if !self.authenticated() {
+                    self.error = true;
+                    self.message = "Sign in before setting credentials.".into();
+                } else if self.account.is_some() && role.is_none() {
+                    self.roles.update(cx, |state, cx| state.focus(window, cx));
+                    self.message = "Choose a role before setting credentials.".into();
+                }
                 if self.screen == Screen::Accounts
                     && self.account.is_some()
                     && role.is_some()
@@ -779,6 +1026,9 @@ impl Sesh {
             Command::Console => {
                 if self.account.is_some() && role.is_some() {
                     self.request("consoleUrl", args, cx);
+                } else if self.account.is_some() {
+                    self.roles.update(cx, |state, cx| state.focus(window, cx));
+                    self.message = "Choose a role before opening the AWS Console.".into();
                 }
             }
             Command::Portal => {
@@ -787,7 +1037,13 @@ impl Sesh {
                 }
             }
             Command::Login => {
-                if name.is_some() {
+                if let Some(name) = name {
+                    self.login = Some(Login {
+                        name: name.clone(),
+                        url: String::new(),
+                        code: String::new(),
+                    });
+                    self.focus.focus(window);
                     self.request("startLogin", json!({"name": name}), cx);
                 }
             }
@@ -856,7 +1112,11 @@ impl Sesh {
             }
             Command::Palette => {
                 self.palette = true;
-                self.focus.focus(window);
+                self.command_selected = 0;
+                self.command_search.update(cx, |state, cx| {
+                    state.set_value("", window, cx);
+                    state.focus(window, cx);
+                });
             }
             Command::Appearance(appearance) => self.request(
                 "setAppearance",
@@ -879,7 +1139,20 @@ impl Sesh {
                     self.message = "Profile name copied".into();
                 }
             }
-            Command::Cancel | Command::OpenLogin => {}
+            Command::CopyName => {
+                let value = self
+                    .credential(cx)
+                    .map(|value| value.account_name)
+                    .or_else(|| self.account.as_ref().map(|value| value.name.clone()));
+                if let Some(value) = value {
+                    cx.write_to_clipboard(ClipboardItem::new_string(value));
+                    self.message = "Account name copied".into();
+                }
+            }
+            Command::Cancel
+            | Command::OpenLogin
+            | Command::ItemAction(..)
+            | Command::SessionAction(..) => {}
         }
         cx.notify();
     }

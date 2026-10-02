@@ -22,7 +22,7 @@ pub fn apply_appearance(appearance: &str, window: Option<&mut Window>, cx: &mut 
         "DejaVu Sans"
     }
     .into();
-    theme.font_size = px(13.);
+    theme.font_size = px(14.);
     theme.primary = rgb(if theme.is_dark() { 0x316daf } else { 0x245ea8 }).into();
     theme.primary_foreground = rgb(0xffffff).into();
 }
@@ -70,6 +70,7 @@ pub fn configure(cx: &mut App) {
         KeyBinding::new(&shortcut("f"), Search, Some("Sesh")),
         KeyBinding::new(&shortcut("r"), Refresh, Some("Sesh")),
         KeyBinding::new(&shortcut("p"), Palette, Some("Sesh")),
+        KeyBinding::new(&shortcut("k"), Palette, Some("Sesh")),
         KeyBinding::new(&shortcut("n"), NewSession, Some("Sesh")),
         KeyBinding::new(&shortcut("e"), EditSession, Some("Sesh")),
         KeyBinding::new(&shortcut("b"), Console, Some("Sesh")),
