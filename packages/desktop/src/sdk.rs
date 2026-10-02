@@ -39,6 +39,7 @@ pub struct Credential {
     pub session_name: String,
     pub expiration: String,
     pub is_default: bool,
+    pub region: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -49,6 +50,8 @@ pub struct Snapshot {
     pub accounts: Vec<Account>,
     pub credentials: Vec<Credential>,
     pub last_account: Option<String>,
+    pub last_session: Option<String>,
+    pub appearance: Option<String>,
 }
 
 pub struct Sdk {
@@ -63,7 +66,11 @@ impl Sdk {
         let bundled = executable
             .parent()
             .context("Missing application directory")?
-            .join("awsesh-sdk");
+            .join(if cfg!(target_os = "windows") {
+                "awsesh-sdk.exe"
+            } else {
+                "awsesh-sdk"
+            });
         let mut command = if bundled.is_file() {
             Command::new(bundled)
         } else {

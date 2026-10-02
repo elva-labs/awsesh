@@ -75,10 +75,11 @@ await workflow.assumeRole("production", state.accounts[0].accountId, "ReadOnly")
 Available operations: `snapshot`, `selectSession` (optional force refresh),
 `saveSession` (optional create-only flag), `removeSession`, `startLogin`,
 `pollLogin`, `cancelLogin`, `loadRoles`, `preferRole`, `setRegion`, `setProfile`,
-`assumeRole`, `consoleUrl`, `clearCredential`, and `signOut`.
+`assumeRole`, `consoleUrl`, `clearCredential`, `signOut`, and `setAppearance`.
 
 Snapshots include sessions and their authentication status, cached accounts with
-role/region/profile preferences, active credential metadata, and last selection.
+role/region/profile preferences, active credential metadata, last selection/session,
+and the desktop appearance preference (`system`, `light`, or `dark`).
 `signOut` removes local tokens and tracked credential profiles, not browser sessions.
 
 ### `createAwsesh(options)`

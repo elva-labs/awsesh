@@ -69,9 +69,11 @@ describe("Full Workflow", () => {
     expect(roleRequests).toBe(1);
     await workflow.loadRoles("production", "123456789012", true);
     expect(roleRequests).toBe(2);
+    expect((await workflow.snapshot("production")).accounts[0].preferredRole).toBeUndefined();
     await workflow.preferRole("production", "123456789012", "ReadOnly");
     await workflow.setRegion("production", "123456789012", "eu-north-1");
     await workflow.setProfile("production", "123456789012", "ReadOnly", "main-readonly");
+    expect(await awsesh.credentials.listProfiles()).toEqual([]);
     const state = await workflow.assumeRole("production", "123456789012", "ReadOnly");
     expect(state.accounts[0].preferredRole).toBe("ReadOnly");
     expect(state.accounts[0].region).toBe("eu-north-1");
@@ -90,6 +92,17 @@ describe("Full Workflow", () => {
     expect(signedOut.credentials).toEqual([]);
     expect(signedOut.sessions[0].authenticated).toBe(false);
     expect(await awsesh.credentials.listProfiles()).toEqual([]);
+  });
+
+  test("desktop appearance defaults to the system and persists through the SDK", async () => {
+    const workflow = createWorkflow(awsesh);
+    expect((await workflow.snapshot()).appearance).toBe("system");
+    expect((await workflow.setAppearance("dark")).appearance).toBe("dark");
+    const restarted = createWorkflow(createAwsesh({ configDir: tempConfigDir, dataDir: tempDataDir, awsDir: tempAwsDir }));
+    expect((await restarted.snapshot()).appearance).toBe("dark");
+    await expect(restarted.setAppearance("invalid")).rejects.toThrow("Appearance");
+    expect((await restarted.snapshot()).appearance).toBe("dark");
+    expect((await restarted.setAppearance("system")).appearance).toBe("system");
   });
 
   test("interactive workflow validates session and preference inputs before writing", async () => {

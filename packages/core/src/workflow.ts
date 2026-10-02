@@ -51,18 +51,27 @@ export function createWorkflow(awsesh: Awsesh) {
       session: selected?.name,
       accounts: await Promise.all((cache?.accounts ?? []).map(async (value) => ({
         ...value,
-        preferredRole: value.roles.includes(roles[value.accountId]) ? roles[value.accountId] : value.roles[0],
+        preferredRole: value.roles.includes(roles[value.accountId]) ? roles[value.accountId] : undefined,
         region: regions[value.accountId] ?? selected?.defaultRegion,
         profiles: await awsesh.profileNames.getForAccount(selected?.name ?? "", value.name),
       }))),
       credentials,
       lastSelected: await awsesh.lastSelected.get(),
       lastAccount: selected ? await awsesh.lastAccountPerSession.get(selected.name) : undefined,
+      lastSession: await awsesh.lastSession.get(),
+      appearance: await awsesh.desktopAppearance.get(),
     }
   }
 
   return {
     snapshot,
+    async setAppearance(appearance: string, name?: string) {
+      if (appearance !== "system" && appearance !== "light" && appearance !== "dark") {
+        throw new Error("Appearance must be system, light or dark")
+      }
+      await awsesh.desktopAppearance.save(appearance)
+      return snapshot(name)
+    },
     async selectSession(name: string, refresh = false) {
       const value = await session(name)
       const cache = await awsesh.accounts.get(name)

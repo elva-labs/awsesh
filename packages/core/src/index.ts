@@ -12,6 +12,7 @@ import { Sessions } from "./sessions"
 import { Storage } from "./storage"
 import type {
   AwseshOptions,
+  DesktopAppearance,
   SSOSession,
   SSOLoginInfo,
   TokenCache,
@@ -150,6 +151,16 @@ export function createAwsesh(options: AwseshOptions) {
       },
       save: async (sessionName: string): Promise<void> => {
         await storage.write("preference/last-session", { session: sessionName })
+      },
+    },
+
+    desktopAppearance: {
+      get: async (): Promise<DesktopAppearance> => {
+        const data = await storage.read<{ appearance: unknown }>("preference/desktop-appearance")
+        return data?.appearance === "light" || data?.appearance === "dark" ? data.appearance : "system"
+      },
+      save: async (appearance: DesktopAppearance): Promise<void> => {
+        await storage.write("preference/desktop-appearance", { appearance })
       },
     },
 
