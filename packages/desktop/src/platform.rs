@@ -14,7 +14,7 @@ pub fn titlebar_options() -> TitlebarOptions {
     TitlebarOptions {
         title: Some("Sesh".into()),
         appears_transparent: cfg!(target_os = "macos"),
-        traffic_light_position: cfg!(target_os = "macos").then(|| point(px(18.), px(18.))),
+        traffic_light_position: cfg!(target_os = "macos").then(|| point(px(18.), px(14.))),
     }
 }
 

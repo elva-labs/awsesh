@@ -1,7 +1,7 @@
 use crate::{
     Accounts, Back, Command, Console, Credentials, EditSession, NewSession, Next, Palette,
     Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, ToggleDithering,
-    ToggleSidebar, platform,
+    ToggleSidebar, platform, theme,
 };
 use gpui::{
     AnyElement, Context, ElementId, FontWeight, Hsla, Render, SharedString, Window, div, img,
@@ -16,6 +16,9 @@ use gpui_component::{
     select::Select as RoleSelect,
     slider::Slider,
 };
+
+const HEADER_HEIGHT: f32 = 38.;
+const SIDEBAR_WIDTH: f32 = 216.;
 
 struct Colors {
     background: Hsla,
@@ -56,15 +59,49 @@ fn expiration(value: &str) -> String {
 }
 
 impl Sesh {
+    fn toolbar_button(
+        &self,
+        button: Button,
+        icon: IconName,
+        label: &'static str,
+        cx: &Context<Self>,
+    ) -> Button {
+        button
+            .ghost()
+            .size(px(24.))
+            .p_0()
+            .rounded(px(6.))
+            .cursor_pointer()
+            .child(
+                Icon::new(icon).size(px(16.)).text_color(
+                    cx.theme()
+                        .muted_foreground
+                        .opacity(if self.modal() { 0.5 } else { 1. }),
+                ),
+            )
+            .tooltip(label)
+            .disabled(self.modal())
+            .tab_stop(!self.modal())
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, _| this.window_should_move = false),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, _| this.window_should_move = false),
+            )
+    }
+
     fn window_toolbar(&self, sidebar: f32, window: &Window, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
+        let inset = if window.is_fullscreen() { 0. } else { 82. };
+        let clearance = 16. + (SIDEBAR_WIDTH - (96. + inset)).max(0.) * sidebar;
         let capsule = div()
             .relative()
             .h(px(32.))
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(px(2.))
             .px(px(6.))
             .child(
                 div()
@@ -77,63 +114,35 @@ impl Sesh {
                     .shadow_sm()
                     .opacity(1. - sidebar),
             )
-            .when(!window.is_fullscreen(), |capsule| {
-                capsule.child(div().w(px(66.)).flex_shrink_0())
-            })
-            .children(
-                [
-                    (
-                        "toolbar-sidebar",
-                        IconName::PanelLeft,
-                        "Toggle sidebar · ⌥⌘S",
-                        Command::ToggleSidebar,
-                    ),
-                    (
-                        "toolbar-commands",
-                        IconName::Search,
-                        "Commands · ⌘K",
-                        Command::Palette,
-                    ),
-                    (
-                        "toolbar-settings",
-                        IconName::Settings,
-                        "Settings · ⌘,",
-                        Command::Settings,
-                    ),
-                ]
-                .into_iter()
-                .map(|(id, icon, label, command)| {
-                    self.button(id, "", command.clone(), cx)
-                        .icon(icon)
-                        .ghost()
-                        .size(px(26.))
-                        .p_0()
-                        .rounded(px(7.))
-                        .text_color(if window.is_window_active() {
-                            theme.foreground
-                        } else {
-                            theme.muted_foreground
-                        })
-                        .tooltip(label)
-                        .on_mouse_down(
-                            gpui::MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.window_should_move = false;
-                                cx.stop_propagation();
-                            }),
-                        )
-                        .on_mouse_up(
-                            gpui::MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.window_should_move = false;
-                                cx.stop_propagation();
-                            }),
-                        )
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.dispatch(command.clone(), window, cx);
-                        }))
-                }),
+            .child(div().w(px(inset)).flex_shrink_0())
+            .child(
+                div().flex().items_center().gap(px(2.)).children(
+                    [
+                        (
+                            "toolbar-sidebar",
+                            IconName::PanelLeft,
+                            "Toggle sidebar · ⌥⌘S",
+                            Command::ToggleSidebar,
+                        ),
+                        (
+                            "toolbar-commands",
+                            IconName::Search,
+                            "Commands · ⌘K",
+                            Command::Palette,
+                        ),
+                        (
+                            "toolbar-settings",
+                            IconName::Settings,
+                            "Settings · ⌘,",
+                            Command::Settings,
+                        ),
+                    ]
+                    .into_iter()
+                    .map(|(id, icon, label, command)| {
+                        self.toolbar_button(self.button(id, "", command, cx), icon, label, cx)
+                            .occlude()
+                    }),
+                ),
             );
         div()
             .id("window-toolbar")
@@ -141,10 +150,11 @@ impl Sesh {
             .top_0()
             .left_0()
             .w_full()
-            .h(px(48.))
+            .h(px(HEADER_HEIGHT))
             .flex_shrink_0()
             .flex()
             .items_center()
+            .pt(px(4.))
             .px(px(8.))
             .window_control_area(gpui::WindowControlArea::Drag)
             .on_mouse_down_out(cx.listener(|this, _, _, _| this.window_should_move = false))
@@ -168,7 +178,135 @@ impl Sesh {
             )
             .on_double_click(|_, window, _| window.titlebar_double_click())
             .child(capsule)
+            .child(div().w(px(clearance)).flex_shrink_0())
+            .child(self.workspace_toolbar(cx))
             .into_any_element()
+    }
+
+    fn workspace_toolbar(&self, cx: &Context<Self>) -> AnyElement {
+        let colors = self.colors(cx);
+        let title = match self.screen {
+            Screen::Accounts => self.data.session.as_deref().unwrap_or("Welcome to Sesh"),
+            Screen::Credentials => "Credentials",
+            Screen::Settings => "Settings",
+        };
+        let mut toolbar = div()
+            .id("workspace-toolbar")
+            .h(px(24.))
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .occlude()
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.window_should_move = false;
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.window_should_move = false;
+                    cx.stop_propagation();
+                }),
+            )
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .h(px(24.))
+                    .max_w(px(320.))
+                    .min_w_0()
+                    .px(px(6.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(div().truncate().child(SharedString::from(title.to_owned()))),
+            );
+        let mut actions = div().flex().items_center().flex_shrink_0().gap(px(2.));
+        if self.screen == Screen::Accounts && self.data.session.is_some() {
+            let authenticated = self.authenticated();
+            toolbar = toolbar.child(
+                div()
+                    .h(px(24.))
+                    .flex_shrink_0()
+                    .px(px(6.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .child(self.status(
+                        if authenticated {
+                            "Signed in"
+                        } else {
+                            "Signed out"
+                        },
+                        if authenticated {
+                            colors.success
+                        } else {
+                            colors.warning
+                        },
+                        authenticated,
+                    )),
+            );
+            if !authenticated {
+                actions = actions.child(
+                    self.button("auth-session", "Sign in", Command::Login, cx)
+                        .ghost()
+                        .h(px(24.))
+                        .px(px(6.))
+                        .rounded(px(6.)),
+                );
+            }
+            let view = cx.entity().downgrade();
+            actions = actions.child(
+                self.toolbar_button(
+                    Button::new("session-options"),
+                    IconName::Ellipsis,
+                    "Session actions",
+                    cx,
+                )
+                .dropdown_menu(move |mut menu, _, _| {
+                    for (label, command) in [
+                        ("Edit session…", Command::EditSession),
+                        ("Open SSO portal", Command::Portal),
+                        (
+                            if authenticated {
+                                "Sign out…"
+                            } else {
+                                "Sign in"
+                            },
+                            if authenticated {
+                                Command::SignOut
+                            } else {
+                                Command::Login
+                            },
+                        ),
+                        ("Delete session…", Command::DeleteSession),
+                    ] {
+                        let view = view.clone();
+                        menu =
+                            menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                                let _ = view.update(cx, |this, cx| {
+                                    this.dispatch(command.clone(), window, cx)
+                                });
+                            }));
+                    }
+                    menu
+                }),
+            );
+        }
+        if self.screen != Screen::Settings {
+            actions = actions.child(self.toolbar_button(
+                self.button("refresh", "", Command::Refresh, cx),
+                IconName::Redo,
+                "Refresh",
+                cx,
+            ));
+        }
+        toolbar.child(actions).into_any_element()
     }
 
     fn background_texture(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
@@ -200,7 +338,7 @@ impl Sesh {
         div()
             .flex()
             .items_center()
-            .gap_2()
+            .gap(px(6.))
             .text_size(px(12.))
             .text_color(color)
             .child(
@@ -209,7 +347,7 @@ impl Sesh {
                 } else {
                     IconName::CircleX
                 })
-                .size(px(15.))
+                .size(px(16.))
                 .flex_shrink_0(),
             )
             .child(label.into())
@@ -241,8 +379,9 @@ impl Sesh {
         command: Command,
         cx: &Context<Self>,
     ) -> Button {
+        let label = label.into();
         Button::new(id)
-            .label(label)
+            .when(!label.is_empty(), |button| button.label(label))
             .h(px(36.))
             .px_3()
             .disabled(
@@ -259,9 +398,10 @@ impl Sesh {
                         Command::Confirm | Command::Cancel | Command::OpenLogin
                     ),
             )
-            .on_click(
-                cx.listener(move |this, _, window, cx| this.dispatch(command.clone(), window, cx)),
-            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                this.dispatch(command.clone(), window, cx);
+            }))
     }
 
     pub(super) fn preferences_dirty(&self, cx: &gpui::App) -> bool {
@@ -422,14 +562,16 @@ impl Sesh {
                     })
             });
         div()
-            .w(px(216.))
+            .w(px(SIDEBAR_WIDTH))
             .flex_shrink_0()
             .h_full()
             .flex()
             .flex_col()
             .border_r_1()
             .border_color(colors.border)
-            .when(cfg!(target_os = "macos"), |sidebar| sidebar.pt(px(48.)))
+            .when(cfg!(target_os = "macos"), |sidebar| {
+                sidebar.pt(px(HEADER_HEIGHT))
+            })
             .child(
                 div()
                     .px_5()
@@ -1040,7 +1182,7 @@ impl Sesh {
                     .flex_col()
                     .gap_2()
                     .child(div().font_weight(FontWeight::MEDIUM).child("Role"))
-                    .child(
+                    .child(theme::opaque_select(
                         RoleSelect::new(&self.roles)
                             .placeholder(if self.busy && !account.roles_loaded {
                                 "Loading roles…"
@@ -1050,7 +1192,7 @@ impl Sesh {
                             .h(px(38.))
                             .w_full()
                             .disabled(self.modal()),
-                    )
+                    ))
                     .child(
                         self.button(
                             "prefer-role",
@@ -1224,7 +1366,7 @@ impl Sesh {
                 .child(div().text_color(colors.muted).child("Follow your system, or choose a light or dark workspace."))
                 .child(div().flex().gap_2().children(choices.into_iter().map(|(value, label)| self.button(value, label, Command::Appearance(value.into()), cx).selected(self.appearance.mode == value))))
                 .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Theme"))
-                .child(RoleSelect::new(&self.themes).h(px(38.)).w(px(320.)).disabled(self.modal()))
+                .child(theme::opaque_select(RoleSelect::new(&self.themes).h(px(38.)).w(px(320.)).disabled(self.modal())))
                 .child(div().text_size(px(12.)).text_color(colors.muted).child("Custom themes in your awsesh configuration directory are shared with the TUI. Each interface keeps its own selection. System uses the native desktop palette."))
                 .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Window background"))
                 .child(div().w(px(420.)).flex().flex_col().gap_2()
@@ -1509,112 +1651,6 @@ impl Render for Sesh {
         }
         let sidebar = self.sidebar_progress();
         let colors = self.colors(cx);
-        let title = match self.screen {
-            Screen::Accounts => self.data.session.as_deref().unwrap_or("Welcome to Sesh"),
-            Screen::Credentials => "Credentials",
-            Screen::Settings => "Settings",
-        };
-        let mut toolbar = div()
-            .h(px(56.))
-            .flex_shrink_0()
-            .px_6()
-            .flex()
-            .items_center()
-            .justify_between()
-            .border_b_1()
-            .border_color(colors.border)
-            .child(
-                div()
-                    .min_w_0()
-                    .flex()
-                    .items_center()
-                    .gap_4()
-                    .child(
-                        div()
-                            .truncate()
-                            .text_size(px(16.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(SharedString::from(title.to_owned())),
-                    )
-                    .when(
-                        self.screen == Screen::Accounts && self.data.session.is_some(),
-                        |header| {
-                            header.child(self.status(
-                                if self.authenticated() {
-                                    "Signed in"
-                                } else {
-                                    "Signed out"
-                                },
-                                if self.authenticated() {
-                                    colors.success
-                                } else {
-                                    colors.warning
-                                },
-                                self.authenticated(),
-                            ))
-                        },
-                    ),
-            );
-        let mut actions = div().flex().gap_2();
-        if self.screen == Screen::Accounts && self.data.session.is_some() {
-            if !self.authenticated() {
-                actions = actions.child(
-                    self.button("auth-session", "Sign in", Command::Login, cx)
-                        .primary(),
-                );
-            }
-            let view = cx.entity().downgrade();
-            let authenticated = self.authenticated();
-            let disabled = self.modal();
-            actions = actions.child(
-                Button::new("session-options")
-                    .icon(IconName::Ellipsis)
-                    .ghost()
-                    .h(px(36.))
-                    .w(px(36.))
-                    .tooltip("Session actions")
-                    .disabled(disabled)
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for (label, command) in [
-                            ("Edit session…", Command::EditSession),
-                            ("Open SSO portal", Command::Portal),
-                            (
-                                if authenticated {
-                                    "Sign out…"
-                                } else {
-                                    "Sign in"
-                                },
-                                if authenticated {
-                                    Command::SignOut
-                                } else {
-                                    Command::Login
-                                },
-                            ),
-                            ("Delete session…", Command::DeleteSession),
-                        ] {
-                            let view = view.clone();
-                            menu = menu.item(PopupMenuItem::new(label).on_click(
-                                move |_, window, cx| {
-                                    let _ = view.update(cx, |this, cx| {
-                                        this.dispatch(command.clone(), window, cx)
-                                    });
-                                },
-                            ));
-                        }
-                        menu
-                    }),
-            );
-        }
-        if self.screen != Screen::Settings {
-            actions = actions.child(
-                self.button("refresh", "", Command::Refresh, cx)
-                    .icon(IconName::Redo)
-                    .ghost()
-                    .w(px(36.))
-                    .tooltip("Refresh"),
-            );
-        }
-        toolbar = toolbar.child(actions);
         let body = if self.screen == Screen::Settings {
             self.settings(cx)
         } else {
@@ -1733,7 +1769,7 @@ impl Render for Sesh {
                     .flex()
                     .child(
                         div()
-                            .w(px(216. * sidebar))
+                            .w(px(SIDEBAR_WIDTH * sidebar))
                             .flex_shrink_0()
                             .h_full()
                             .overflow_hidden()
@@ -1746,9 +1782,19 @@ impl Render for Sesh {
                             .flex()
                             .flex_col()
                             .when(cfg!(target_os = "macos"), |main| {
-                                main.child(div().h(px(48.)).flex_shrink_0())
+                                main.child(div().h(px(HEADER_HEIGHT)).flex_shrink_0())
                             })
-                            .child(toolbar)
+                            .when(!cfg!(target_os = "macos"), |main| {
+                                main.child(
+                                    div()
+                                        .h(px(HEADER_HEIGHT))
+                                        .flex_shrink_0()
+                                        .px_4()
+                                        .flex()
+                                        .items_center()
+                                        .child(self.workspace_toolbar(cx)),
+                                )
+                            })
                             .child(body),
                     ),
             )

@@ -43,6 +43,10 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   and capsule background share Zeron's 200 ms ease-out transition, with immediate
   reversal and macOS Reduce Motion support. The native traffic lights remain native;
   application buttons toggle the sidebar, open the command bar and open Settings.
+  The organization name, labeled sign-in status, session menu and refresh action
+  share the same 38px top row. They move beside the fixed controls when collapsed.
+  All top-row controls use 24px targets, centered 16px icons and 6px corners, with
+  extra clearance after the native traffic lights.
   Option-Command-S and View → Toggle Sidebar also show/hide the sidebar. Drag the
   empty top strip to move the window; double-click it to follow the system titlebar
   action. Double-clicking a toolbar button does not zoom the window.
@@ -53,9 +57,9 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
 - Role retrieval and credential setting run in the background without disabling
   navigation or other controls. SDK requests are ordered; stale organization
   responses cannot replace the account list you are currently viewing.
-- Controls have larger targets; the compact header contains authentication status,
-  refresh and a session-actions menu. Default credentials are green; named profiles
-  use a distinct secondary color.
+- Workspace controls have larger targets; the compact top row contains authentication
+  status, refresh and a session-actions menu. Default credentials are green; named
+  profiles use a distinct secondary color.
 - Account names and IDs in the inspector are clickable to copy, with hover feedback
   and a “Click to copy” tooltip.
 - Select a role in the inspector, then use Set Credentials or Command-Enter.
@@ -72,6 +76,8 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   menus and dialogs remain opaque. Tab focuses the slider; Left/Right adjusts it
   and Home/End selects the limits. Older enabled settings are capped at 10%; older
   disabled settings become 0%.
+- Theme/role dropdowns and contextual menus have opaque backgrounds regardless of
+  window translucency; filtering and selection remain keyboard-accessible.
 - The Dithered texture checkbox adds a subtle ordered monochrome dot pattern behind
   workspace content while translucency is above 0%. Its selection is saved independently;
   Tab then Space/Enter toggles the checkbox.
@@ -151,6 +157,15 @@ The rebuilt, signature-verified bundle restored the saved custom theme, mode,
 10% translucency and texture after restart. Workspace typechecks, 213 existing
 tests and the existing Rust palette test passed. Isolated AWS files, preferred
 roles and TUI preferences were unchanged; verification processes were closed.
+
+The unified-header pass checked the 38px top row with the sidebar open, animating
+and collapsed, at 960×620 and in fullscreen. Theme/role dropdown and session-menu
+fills were identical at 0% and 10% translucency while the workspace tint changed.
+Search and keyboard role selection, Settings-button input, fixed traffic-light
+positions, button double-click guards, empty-strip drag/zoom and native minimize
+and fullscreen passed on macOS 27. The rebuilt bundle's signature, workspace
+typechecks, 213 existing tests and the Rust palette test passed. Isolated AWS files,
+preferred roles and TUI preferences remained unchanged; no live AWS operation ran.
 
 Setting credentials updates `~/.aws/credentials` through the SDK, including its
 existing tracking and preferences. It cannot change the environment of an already

@@ -1,5 +1,8 @@
 use crate::platform;
-use gpui::{App, Hsla, Window, rgb};
+use gpui::{
+    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, Hsla, InspectorElementId,
+    IntoElement, LayoutId, Pixels, Window, rgb,
+};
 use gpui_component::{Colorize, Theme};
 use serde::Deserialize;
 
@@ -77,12 +80,79 @@ fn contrasting_text(background: Hsla) -> Hsla {
 pub fn apply(appearance: &Appearance, window: Option<&mut Window>, cx: &mut App) {
     platform::apply_appearance(&appearance.mode, window, cx);
     apply_palette(appearance, cx);
+    Theme::global_mut(cx).popover.a = 1.;
 }
 
 pub fn apply_translucency(amount: f32, window: &Window, cx: &mut App) {
     let amount = amount.clamp(0., 10.);
     platform::apply_window_background(amount > 0., window);
     Theme::global_mut(cx).background.a = 1. - amount / 100.;
+}
+
+pub fn opaque_select(select: impl IntoElement) -> impl IntoElement {
+    OpaqueSelect(select.into_any_element())
+}
+
+struct OpaqueSelect(AnyElement);
+
+impl IntoElement for OpaqueSelect {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for OpaqueSelect {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let background = Theme::global(cx).background;
+        Theme::global_mut(cx).background.a = 1.;
+        let layout = self.0.request_layout(window, cx);
+        Theme::global_mut(cx).background = background;
+        (layout, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.0.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.0.paint(window, cx);
+    }
 }
 
 fn apply_palette(appearance: &Appearance, cx: &mut App) {

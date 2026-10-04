@@ -133,6 +133,12 @@ One window tint covers the workspace, sidebar and status bar; those window-sized
 panels do not paint a second tint over it. This avoids alpha stacking that previously
 made the sidebar appear opaque. Component surfaces retain their own theme colors.
 Text and icon opacity is unchanged, and popovers and dialogs retain opaque surfaces.
+GPUI's select component uses the global window background for both its field and
+dropdown. `theme::opaque_select` scopes an opaque version of that token to the
+select's layout/render traversal, then restores the window tint before sibling
+elements render. Both the role and theme selectors use it; searchable-list state,
+deferred popup placement and keyboard behavior remain owned by gpui-component.
+Popup menus use the separate, opaque `popover` token. No dependency fork is needed.
 The slider previews locally and debounces persistence by 150 ms, without queueing
 a helper write for every drag event. Its strength is retained when switching themes
 or light/dark modes. Legacy `translucent: false` settings become 0%; enabled legacy
@@ -177,7 +183,7 @@ The pinned GPUI 0.2.2 already exposes the required window setup:
 titlebar: Some(gpui::TitlebarOptions {
     title: Some("Sesh".into()),
     appears_transparent: true,
-    traffic_light_position: Some(gpui::point(gpui::px(18.), gpui::px(18.))),
+    traffic_light_position: Some(gpui::point(gpui::px(18.), gpui::px(14.))),
 }),
 ```
 
@@ -188,6 +194,15 @@ The leading traffic-light slot disappears in fullscreen, where AppKit owns its
 auto-revealing controls; it returns when fullscreen exits. Application actions have
 fixed-width slots, keyboard focus and tooltips. Sidebar width and capsule-background
 opacity share Zeron's 200 ms CSS ease-out curve (`cubic-bezier(0, 0, 0.58, 1)`).
+The organization/screen title, labeled authentication status, session menu and
+refresh action occupy the same 38px top row instead of a second 56px header below
+an empty titlebar strip. Their horizontal clearance follows the same sidebar
+progress and finishes just after the fixed capsule when collapsed. Controls are
+24px high with centered 16px icons, 6px corners and 2px action spacing; title/status
+groups use 8px separation. Native traffic lights have a larger reserved leading
+slot, and a 4px top inset aligns the row optically. Icon-only buttons omit empty
+labels rather than reserving a text gap beside the icon. Windows/Linux use the
+same compact workspace header below their existing native decorations.
 A manual, persistent transition starts reversals from the painted progress and
 does not replay on screen changes; macOS Reduce Motion snaps to the target.
 Empty-surface drag follows Zeron's
