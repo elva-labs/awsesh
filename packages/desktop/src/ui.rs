@@ -1,17 +1,20 @@
 use crate::{
     Accounts, Back, Command, Console, Credentials, EditSession, NewSession, Next, Palette,
-    Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, platform,
+    Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, ToggleDithering,
+    ToggleSidebar, platform,
 };
 use gpui::{
-    AnyElement, Context, ElementId, FontWeight, Hsla, Render, SharedString, Window, div,
-    prelude::*, px, rgb, uniform_list,
+    AnyElement, Context, ElementId, FontWeight, Hsla, Render, SharedString, Window, div, img,
+    prelude::*, px, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Selectable,
+    ActiveTheme, Disableable, Icon, IconName, InteractiveElementExt, Selectable,
     button::{Button, ButtonVariants},
+    checkbox::Checkbox,
     input::Input,
     menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
     select::Select as RoleSelect,
+    slider::Slider,
 };
 
 struct Colors {
@@ -53,6 +56,146 @@ fn expiration(value: &str) -> String {
 }
 
 impl Sesh {
+    fn window_toolbar(&self, sidebar: f32, window: &Window, cx: &Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let capsule = div()
+            .relative()
+            .h(px(32.))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .px(px(6.))
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .rounded(px(12.))
+                    .border_1()
+                    .border_color(theme.border.opacity(0.55))
+                    .bg(theme.title_bar)
+                    .shadow_sm()
+                    .opacity(1. - sidebar),
+            )
+            .when(!window.is_fullscreen(), |capsule| {
+                capsule.child(div().w(px(66.)).flex_shrink_0())
+            })
+            .children(
+                [
+                    (
+                        "toolbar-sidebar",
+                        IconName::PanelLeft,
+                        "Toggle sidebar · ⌥⌘S",
+                        Command::ToggleSidebar,
+                    ),
+                    (
+                        "toolbar-commands",
+                        IconName::Search,
+                        "Commands · ⌘K",
+                        Command::Palette,
+                    ),
+                    (
+                        "toolbar-settings",
+                        IconName::Settings,
+                        "Settings · ⌘,",
+                        Command::Settings,
+                    ),
+                ]
+                .into_iter()
+                .map(|(id, icon, label, command)| {
+                    self.button(id, "", command.clone(), cx)
+                        .icon(icon)
+                        .ghost()
+                        .size(px(26.))
+                        .p_0()
+                        .rounded(px(7.))
+                        .text_color(if window.is_window_active() {
+                            theme.foreground
+                        } else {
+                            theme.muted_foreground
+                        })
+                        .tooltip(label)
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.window_should_move = false;
+                                cx.stop_propagation();
+                            }),
+                        )
+                        .on_mouse_up(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.window_should_move = false;
+                                cx.stop_propagation();
+                            }),
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.dispatch(command.clone(), window, cx);
+                        }))
+                }),
+            );
+        div()
+            .id("window-toolbar")
+            .absolute()
+            .top_0()
+            .left_0()
+            .w_full()
+            .h(px(48.))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .px(px(8.))
+            .window_control_area(gpui::WindowControlArea::Drag)
+            .on_mouse_down_out(cx.listener(|this, _, _, _| this.window_should_move = false))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, _| this.window_should_move = true),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, _| this.window_should_move = false),
+            )
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, _| {
+                    if this.window_should_move
+                        && event.pressed_button == Some(gpui::MouseButton::Left)
+                    {
+                        this.window_should_move = false;
+                        platform::start_window_move(window);
+                    }
+                }),
+            )
+            .on_double_click(|_, window, _| window.titlebar_double_click())
+            .child(capsule)
+            .into_any_element()
+    }
+
+    fn background_texture(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
+        let mut texture = div()
+            .absolute()
+            .inset_0()
+            .overflow_hidden()
+            .opacity(self.translucency.read(cx).value().end() / 100. * 0.18);
+        let viewport = window.viewport_size();
+        let mut y = px(0.);
+        while y < viewport.height {
+            let mut x = px(0.);
+            while x < viewport.width {
+                texture = texture.child(
+                    img(self.texture.clone())
+                        .absolute()
+                        .left(x)
+                        .top(y)
+                        .size(px(256.)),
+                );
+                x += px(256.);
+            }
+            y += px(256.);
+        }
+        texture.into_any_element()
+    }
+
     fn status(&self, label: impl Into<SharedString>, color: Hsla, active: bool) -> AnyElement {
         div()
             .flex()
@@ -73,31 +216,21 @@ impl Sesh {
             .into_any_element()
     }
     fn colors(&self, cx: &Context<Self>) -> Colors {
-        if cx.theme().is_dark() {
-            return Colors {
-                background: rgb(0x1c1e22).into(),
-                sidebar: rgb(0x24262b).into(),
-                border: rgb(0x34373d).into(),
-                text: rgb(0xe9ebef).into(),
-                muted: rgb(0xa1a6b0).into(),
-                selection: rgb(0x253e5d).into(),
-                accent: rgb(0x83b9ff).into(),
-                success: rgb(0x68c99e).into(),
-                warning: rgb(0xe6b566).into(),
-                profile: rgb(0xbda0ed).into(),
-            };
-        }
+        let theme = cx.theme();
         Colors {
-            background: rgb(0xffffff).into(),
-            sidebar: rgb(0xf3f4f6).into(),
-            border: rgb(0xe3e5e9).into(),
-            text: rgb(0x20242c).into(),
-            muted: rgb(0x6d7480).into(),
-            selection: rgb(0xe8f0fc).into(),
-            accent: rgb(0x245ea8).into(),
-            success: rgb(0x23825c).into(),
-            warning: rgb(0xa66a16).into(),
-            profile: rgb(0x8252b3).into(),
+            background: Hsla {
+                a: 1.,
+                ..theme.background
+            },
+            sidebar: theme.sidebar,
+            border: theme.border,
+            text: theme.foreground,
+            muted: theme.muted_foreground,
+            selection: theme.list_active,
+            accent: theme.link,
+            success: theme.success,
+            warning: theme.warning,
+            profile: theme.magenta,
         }
     }
 
@@ -294,9 +427,9 @@ impl Sesh {
             .h_full()
             .flex()
             .flex_col()
-            .bg(colors.sidebar)
             .border_r_1()
             .border_color(colors.border)
+            .when(cfg!(target_os = "macos"), |sidebar| sidebar.pt(px(48.)))
             .child(
                 div()
                     .px_5()
@@ -457,7 +590,7 @@ impl Sesh {
                     .bg(if selected {
                         colors.selection
                     } else {
-                        colors.background
+                        Hsla::transparent_black()
                     })
                     .id(("row-surface", position))
                     .cursor_pointer()
@@ -1086,11 +1219,59 @@ impl Sesh {
             ("2", "Credentials"),
         ];
         div().id("settings-content").flex_1().min_h_0().overflow_y_scroll().p_8().flex().flex_col().gap_6()
-            .child(div().max_w(px(650.)).flex().flex_col().gap_3()
+            .child(div().max_w(px(650.)).flex_shrink_0().flex().flex_col().gap_3()
                 .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Appearance"))
                 .child(div().text_color(colors.muted).child("Follow your system, or choose a light or dark workspace."))
-                .child(div().flex().gap_2().children(choices.into_iter().map(|(value, label)| self.button(value, label, Command::Appearance(value.into()), cx).selected(self.appearance == value)))))
-            .child(div().max_w(px(650.)).flex().flex_col().gap_3().pt_5().border_t_1().border_color(colors.border)
+                .child(div().flex().gap_2().children(choices.into_iter().map(|(value, label)| self.button(value, label, Command::Appearance(value.into()), cx).selected(self.appearance.mode == value))))
+                .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Theme"))
+                .child(RoleSelect::new(&self.themes).h(px(38.)).w(px(320.)).disabled(self.modal()))
+                .child(div().text_size(px(12.)).text_color(colors.muted).child("Custom themes in your awsesh configuration directory are shared with the TUI. Each interface keeps its own selection. System uses the native desktop palette."))
+                .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Window background"))
+                .child(div().w(px(420.)).flex().flex_col().gap_2()
+                    .child(div().flex().items_center().justify_between()
+                        .child("Translucency")
+                        .child(div().text_color(colors.muted).child(format!("{:.0}%", self.translucency.read(cx).value().end()))))
+                    .child(div().id("translucency-control").px_2().py_1().rounded_md()
+                        .border_1().border_color(Hsla::transparent_black())
+                        .track_focus(&self.translucency_focus)
+                        .tab_stop(!self.modal())
+                        .key_context("Translucency")
+                        .focus(move |style| style.border_color(colors.accent))
+                        .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, window, cx| {
+                            if !this.modal() {
+                                this.translucency_focus.focus(window);
+                                cx.notify();
+                            }
+                        }))
+                        .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                            if this.modal() { return; }
+                            let value = this.translucency.read(cx).value().end();
+                            let amount = match event.keystroke.key.as_str() {
+                                "left" => value - 1.,
+                                "right" => value + 1.,
+                                "home" => 0.,
+                                "end" => 10.,
+                                _ => return,
+                            };
+                            this.dispatch(Command::Translucency(amount), window, cx);
+                            cx.stop_propagation();
+                        }))
+                        .child(Slider::new(&self.translucency).disabled(self.modal()))))
+                .child(Checkbox::new("dither-texture")
+                    .label("Dithered texture")
+                    .checked(self.appearance.dithering)
+                    .disabled(self.translucency.read(cx).value().end() == 0. || self.modal())
+                    .key_context("DitherTexture")
+                    .on_action(cx.listener(|this, _: &ToggleDithering, window, cx| {
+                        if this.translucency.read(cx).value().end() > 0. && !this.modal() {
+                            this.dispatch(Command::Dithering(!this.appearance.dithering), window, cx);
+                        }
+                    }))
+                    .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                        this.dispatch(Command::Dithering(*checked), window, cx);
+                    })))
+                .child(div().text_size(px(12.)).text_color(colors.muted).child("0% is opaque. Reveal up to 10% of the desktop through your theme, including the sidebar. Text, icons and menus stay opaque.")))
+            .child(div().max_w(px(650.)).flex_shrink_0().flex().flex_col().gap_3().pt_5().border_t_1().border_color(colors.border)
                 .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Keyboard shortcuts"))
                 .children(shortcuts.into_iter().map(|(key, label)| div().flex().items_center().justify_between().py_1().child(label).child(div().text_color(colors.muted).child(platform::shortcut_label(key)))))
                 .child(div().text_size(px(12.)).text_color(colors.muted).child("Arrow keys inspect items. Enter inspects an account; it never writes credentials. Escape dismisses a dialog.")))
@@ -1149,7 +1330,11 @@ impl Sesh {
                 );
             }
             if self.error {
-                panel = panel.child(div().text_color(rgb(0xc24840)).child(self.message.clone()));
+                panel = panel.child(
+                    div()
+                        .text_color(cx.theme().danger)
+                        .child(self.message.clone()),
+                );
             }
             let confirm = self
                 .button(
@@ -1314,7 +1499,15 @@ impl Sesh {
 }
 
 impl Render for Sesh {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some((_, started)) = self.sidebar_transition {
+            if started.elapsed().as_secs_f32() >= 0.2 || platform::reduced_motion() {
+                self.sidebar_transition = None;
+            } else {
+                window.request_animation_frame();
+            }
+        }
+        let sidebar = self.sidebar_progress();
         let colors = self.colors(cx);
         let title = match self.screen {
             Screen::Accounts => self.data.session.as_deref().unwrap_or("Welcome to Sesh"),
@@ -1449,7 +1642,6 @@ impl Render for Sesh {
             .size_full()
             .flex()
             .flex_col()
-            .bg(colors.background)
             .text_color(colors.text)
             .font_family(cx.theme().font_family.clone())
             .text_size(px(14.))
@@ -1527,18 +1719,35 @@ impl Render for Sesh {
             .on_action(cx.listener(|this, _: &Palette, window, cx| {
                 this.dispatch(Command::Palette, window, cx)
             }))
+            .on_action(cx.listener(|this, _: &ToggleSidebar, window, cx| {
+                this.dispatch(Command::ToggleSidebar, window, cx)
+            }))
+            .when(
+                self.translucency.read(cx).value().end() > 0. && self.appearance.dithering,
+                |root| root.child(self.background_texture(window, cx)),
+            )
             .child(
                 div()
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(self.sidebar(cx))
+                    .child(
+                        div()
+                            .w(px(216. * sidebar))
+                            .flex_shrink_0()
+                            .h_full()
+                            .overflow_hidden()
+                            .when(sidebar > 0., |container| container.child(self.sidebar(cx))),
+                    )
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .flex()
                             .flex_col()
+                            .when(cfg!(target_os = "macos"), |main| {
+                                main.child(div().h(px(48.)).flex_shrink_0())
+                            })
                             .child(toolbar)
                             .child(body),
                     ),
@@ -1553,7 +1762,6 @@ impl Render for Sesh {
                     .gap_4()
                     .border_t_1()
                     .border_color(colors.border)
-                    .bg(colors.sidebar)
                     .text_size(px(11.))
                     .child(
                         div()
@@ -1568,7 +1776,7 @@ impl Render for Sesh {
                             .max_w(px(650.))
                             .truncate()
                             .text_color(if self.error {
-                                rgb(0xc24840).into()
+                                cx.theme().danger
                             } else {
                                 colors.muted
                             })
@@ -1579,6 +1787,9 @@ impl Render for Sesh {
                             }),
                     ),
             );
+        if cfg!(target_os = "macos") {
+            root = root.child(self.window_toolbar(sidebar, window, cx));
+        }
         if let Some(overlay) = self.overlays(cx) {
             root = root.child(overlay);
         }

@@ -59,19 +59,11 @@ export function createWorkflow(awsesh: Awsesh) {
       lastSelected: await awsesh.lastSelected.get(),
       lastAccount: selected ? await awsesh.lastAccountPerSession.get(selected.name) : undefined,
       lastSession: await awsesh.lastSession.get(),
-      appearance: await awsesh.desktopAppearance.get(),
     }
   }
 
   return {
     snapshot,
-    async setAppearance(appearance: string, name?: string) {
-      if (appearance !== "system" && appearance !== "light" && appearance !== "dark") {
-        throw new Error("Appearance must be system, light or dark")
-      }
-      await awsesh.desktopAppearance.save(appearance)
-      return snapshot(name)
-    },
     async selectSession(name: string, refresh = false) {
       const value = await session(name)
       const cache = await awsesh.accounts.get(name)

@@ -2,10 +2,13 @@ import { homedir } from "node:os"
 import path from "node:path"
 import { createInterface } from "node:readline"
 import { createAwsesh, createWorkflow } from "@awsesh/core"
+import { configureAppearance } from "./appearance"
 
+const configDir = path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), ".config"), "awsesh")
+const dataDir = path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "awsesh")
 const workflow = createWorkflow(createAwsesh({
-  configDir: path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), ".config"), "awsesh"),
-  dataDir: path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "awsesh"),
+  configDir,
+  dataDir,
   awsDir: path.join(homedir(), ".aws"),
 }))
 
@@ -27,7 +30,8 @@ async function dispatch(request: unknown) {
   const role = "role" in args ? optional(args.role) : undefined
   switch (request.operation) {
     case "snapshot": return workflow.snapshot(name)
-    case "setAppearance": return workflow.setAppearance("appearance" in args ? string(args.appearance) : "", name)
+    case "getAppearance": return configureAppearance(configDir, dataDir)
+    case "setAppearance": return configureAppearance(configDir, dataDir, args)
     case "selectSession": return workflow.selectSession(string(name), "refresh" in args && args.refresh === true)
     case "saveSession": {
       if (!("startUrl" in args) || !("ssoRegion" in args) || !("defaultRegion" in args)) throw new Error("Incomplete SSO session")

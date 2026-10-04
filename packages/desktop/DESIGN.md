@@ -47,7 +47,8 @@ or tokens in the interface, transport responses or clipboard actions.
 
 Keep GPUI views and the SDK transport shared. Isolate modifier keys, system font
 choices and application menu integration in a small platform module, not separate
-application implementations. Retain conventional window decorations.
+application implementations. Retain native window controls; only macOS uses the
+floating titlebar treatment.
 
 - macOS: Command shortcuts, standard application/Edit/View menus, system fonts
   and appearance, native clipboard integration.
@@ -96,31 +97,130 @@ observed usage rather than speculative configuration.
 - Document what was actually tested, especially macOS-only verification and
   remaining feature parity or platform gaps.
 
-## TUI theme comparison
+## Shared themes, separate appearance preferences
 
-The TUI has 35 bundled JSON themes under
-`packages/awsesh/src/cli/cmd/tui/context/theme/`, plus custom `themes/*.json` in its
-configuration directory. `context/theme.tsx` resolves named definitions, references,
-light/dark variants and terminal ANSI colors into semantic tokens. Its theme picker
-previews choices and restores the previous choice on cancel. Theme name and mode
-are persisted through the CLI configuration layer. The `system` theme derives its
-colors from the terminal palette.
+`@awsesh/themes` owns the 35 bundled JSON definitions, custom-file discovery,
+validation and reference/light/dark/ANSI resolution. It has no AWS, OpenTUI or GPUI
+dependencies and returns normalized hex colors. Both interfaces discover custom
+files in `$XDG_CONFIG_HOME/awsesh/themes/*.json`, defaulting to
+`~/.config/awsesh/themes/*.json`. Invalid files are skipped individually with warnings.
+See [the theme format](../themes/README.md).
 
-The desktop currently supports persisted System/Light/Dark appearance, not named
-themes. Its workspace colors in `src/ui.rs` and GPUI component colors in
-`src/platform.rs` are still separate. Default/named credential status follows the
-same success/secondary distinction as the TUI, but that does not make palettes shared.
+The TUI adapts those colors into OpenTUI `RGBA` values. Its `system` palette remains
+terminal-derived; its picker still previews choices and restores the original on
+cancel. The existing `config.json` theme and theme_mode preferences are unchanged.
 
-Named-theme support is a contained follow-up, not a view rewrite:
+Desktop settings and the command bar expose the same named catalog. The Bun helper
+loads and resolves themes through separate `getAppearance`/`setAppearance`
+operations, not through `createWorkflow()` or AWS snapshots. Rust receives the
+selected theme's light and dark palettes and maps them into GPUI's global theme:
+workspace surfaces, inputs, buttons, menus, hover/focus/selection, disabled text and
+semantic status colors. Theme tokens containing alpha are first composited over
+the native palette. Optional window translucency is applied afterward, so it works
+with both named themes and the native system palette without modifying definitions.
 
-1. Move the JSON catalog, custom-file discovery and color resolution into a
-   presentation-independent SDK API. Return validated resolved RGBA/hex tokens,
-   not OpenTUI `RGBA` objects. Keep terminal palette generation in the TUI adapter.
-2. Map those tokens into both the workspace palette and GPUI's `Theme` fields,
-   including input, button, popup, hover, focus, selection and disabled states.
-3. Expose theme selection/preview in desktop settings and the command bar, with
-   SDK-owned persistence. Retain a native desktop default and OS mode detection;
-   a terminal-derived system palette has no desktop equivalent.
+Desktop selection and System/Light/Dark mode are saved in `desktop.json`, independent
+of TUI preferences. The old desktop appearance preference is retained as a read-only
+migration fallback. System uses the native desktop palette; system-mode changes
+select the appropriate resolved variant locally without another helper request.
+Theme and mode writes are partial, ordered updates so changing both quickly cannot
+overwrite the other choice with an earlier value.
 
-No new rendering dependency is needed. The remaining work is token/persistence
-integration and contrast/interaction verification, not just importing JSON files.
+Desktop-only `translucency` and `dithering` preferences also live in `desktop.json`.
+The 0–10% slider defaults to 0% (opaque). Values above 0% request GPUI's native blurred
+window background and reduce the theme tint's opacity by the selected percentage.
+One window tint covers the workspace, sidebar and status bar; those window-sized
+panels do not paint a second tint over it. This avoids alpha stacking that previously
+made the sidebar appear opaque. Component surfaces retain their own theme colors.
+Text and icon opacity is unchanged, and popovers and dialogs retain opaque surfaces.
+The slider previews locally and debounces persistence by 150 ms, without queueing
+a helper write for every drag event. Its strength is retained when switching themes
+or light/dark modes. Legacy `translucent: false` settings become 0%; enabled legacy
+strengths are capped at 10%. Subsequent writes omit the removed boolean. Native blur support depends on the
+platform; the current application bundle is verified on macOS.
+The slider controls tint opacity, not blur radius. GPUI 0.2.2 uses the AppKit
+`Selection` effect material, which no longer supplies backdrop blur on recent macOS.
+After each blurred-background request, `platform::apply_window_background` obtains
+the borrowed AppKit view from GPUI's raw window handle, validates its runtime type
+and changes only GPUI's `BlurredView` to the public `UnderWindowBackground` material
+with `BehindWindow` blending. This follows Zeron's backend correction without
+vendoring GPUI or changing its lifecycle; GPUI still creates, resizes and removes
+the effect view. The raw pointer is used only during the borrowed window's lifetime
+on GPUI's UI thread. The system can still disable effects for accessibility.
+
+The optional dithered texture uses one embedded, cached 256px monochrome SVG tile.
+Its ordered dot pattern is tiled at a fixed logical-pixel scale behind workspace
+content, rather than stretched with the window or generated every frame. Its
+intensity follows translucency strength; opaque mode hides it without clearing
+the saved checkbox preference. It does not overlay text, controls or dialogs.
+Zeron's reference dithers its background artwork with a 4×4 Bayer threshold matrix;
+Sesh applies an ordered texture to the window tint, not color quantization to the
+desktop image.
+
+Theme import UI and desktop preview/cancel can be added later without moving themes
+into the SDK. File-based installation already makes a definition available to both
+interfaces, without forcing either interface to select it.
+
+## macOS floating window toolbar
+
+The supplied screenshot shows a compact, rounded titlebar toolbar around the native
+traffic lights, not a bottom status bar. One GPUI control group is pinned above the
+sidebar at the window's top-left. Its position and identity do not change when the
+sidebar toggles: the background integrates with the open sidebar and becomes an
+inset, theme-tinted capsule when closed. AppKit owns close, minimize and fullscreen controls. Its existing useful
+actions are Toggle Sidebar, Commands and Settings; no navigation-history subsystem
+was added merely to reproduce the screenshot's arrows.
+
+The pinned GPUI 0.2.2 already exposes the required window setup:
+
+```rust
+titlebar: Some(gpui::TitlebarOptions {
+    title: Some("Sesh".into()),
+    appears_transparent: true,
+    traffic_light_position: Some(gpui::point(gpui::px(18.), gpui::px(18.))),
+}),
+```
+
+`appears_transparent` enables full-size content behind the titlebar on macOS;
+`traffic_light_position` moves the actual AppKit standard window buttons. Keep
+`titlebar: Some(...)`: removing it is not the way to preserve the standard controls.
+The leading traffic-light slot disappears in fullscreen, where AppKit owns its
+auto-revealing controls; it returns when fullscreen exits. Application actions have
+fixed-width slots, keyboard focus and tooltips. Sidebar width and capsule-background
+opacity share Zeron's 200 ms CSS ease-out curve (`cubic-bezier(0, 0, 0.58, 1)`).
+A manual, persistent transition starts reversals from the painted progress and
+does not replay on screen changes; macOS Reduce Motion snaps to the target.
+Empty-surface drag follows Zeron's
+titlebar event handling. GPUI 0.2.2's macOS `start_window_move()` is a no-op, so the
+platform adapter calls AppKit's public `performWindowDragWithEvent` with the current
+event; double-click delegates to GPUI's system titlebar action. Toolbar buttons clear
+pending drag state and stop mouse/click propagation. GPUI's content view receives an
+ivar-free subclass that overrides AppKit's private `_opaqueRectForWindowMoveWhenInTitlebar`
+hook, matching Zeron's app-owned-titlebar boundary. This prevents AppKit from also
+interpreting toolbar double-clicks as native titlebar zoom, without disabling window
+movement or tiling. GPUI keeps its inherited rendering, input and destruction methods;
+the subclass adds no instance storage and is installed on the UI thread. This hook
+needs re-verification on older/newer macOS versions. Inactive-window
+actions use muted text. Sidebar visibility is transient, not another preference.
+
+**Glass is a separate choice.** A tinted translucent capsule needs no extra
+dependency. `WindowBackgroundAppearance::Blurred` is available for native blur
+behind the window; in the macOS implementation it installs an NSVisualEffectView
+behind the whole GPUI content view. It is not a per-element backdrop filter and
+does not automatically blur GPUI content inside the application under a toolbar.
+An exact within-window glass effect would need a separate rendering/AppKit
+integration experiment; a screenshot cannot establish which method its app uses.
+
+Windows/Linux retain their existing decorations. Full macOS accessibility coverage
+and older macOS releases remain part of the native-platform acceptance pass.
+
+Source references for the pinned dependencies:
+
+- [GPUI TitlebarOptions and WindowBackgroundAppearance](https://docs.rs/gpui/0.2.2/gpui/struct.TitlebarOptions.html)
+- [gpui-component TitleBar](https://docs.rs/gpui-component/0.5.1/gpui_component/struct.TitleBar.html)
+- GPUI source: `src/platform/mac/window.rs`, `move_traffic_light` and
+  `set_background_appearance`; gpui-component source: `src/title_bar.rs`.
+- [Zeron floating titlebar](https://github.com/zeronsh/zeron/blob/64ad6f6ef03a8282c1847329804542f014c97d54/crates/ui/src/shell.rs)
+  and [ordered background dithering](https://github.com/zeronsh/zeron/blob/64ad6f6ef03a8282c1847329804542f014c97d54/crates/ui/src/new_thread_background_effects.rs).
+- [Zeron's GPUI macOS blur correction](https://github.com/zeronsh/zui/blob/667d0aaf9531d2d1b2d0674a5e55f977df1b09f6/crates/gpui_macos/src/window.rs),
+  `blurred_view_init_with_frame` and `opaque_rect_for_window_move_when_in_titlebar`.

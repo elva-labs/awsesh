@@ -1,11 +1,125 @@
 use crate::{
     Accounts, Console, Credentials, EditSession, NewSession, Palette, Preferences, Quit, Refresh,
-    Search, SetCredentials,
+    Search, SetCredentials, ToggleSidebar,
 };
-use gpui::{App, KeyBinding, Menu, MenuItem, SystemMenuType, Window, actions, px, rgb};
+use gpui::{
+    App, KeyBinding, Menu, MenuItem, SystemMenuType, TitlebarOptions, Window,
+    WindowBackgroundAppearance, actions, point, px, rgb,
+};
 use gpui_component::{Theme, ThemeMode};
 
 actions!(platform, [Hide, HideOthers, ShowAll, CloseWindow]);
+
+pub fn titlebar_options() -> TitlebarOptions {
+    TitlebarOptions {
+        title: Some("Sesh".into()),
+        appears_transparent: cfg!(target_os = "macos"),
+        traffic_light_position: cfg!(target_os = "macos").then(|| point(px(18.), px(18.))),
+    }
+}
+
+pub fn apply_window_background(translucent: bool, window: &Window) {
+    window.set_background_appearance(if translucent {
+        WindowBackgroundAppearance::Blurred
+    } else {
+        WindowBackgroundAppearance::Opaque
+    });
+    #[cfg(target_os = "macos")]
+    if translucent {
+        use objc2_app_kit::{
+            NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectView,
+        };
+        let Some(content) = native_window(window).and_then(|window| window.contentView()) else {
+            return;
+        };
+        for child in content.subviews() {
+            if child.class().name().to_bytes() != b"BlurredView" {
+                continue;
+            }
+            if let Some(effect) = child.downcast_ref::<NSVisualEffectView>() {
+                effect.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
+                effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn native_window(window: &Window) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::NSView;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return None;
+    };
+    let object = unsafe { handle.ns_view.cast::<AnyObject>().as_ref() };
+    object.downcast_ref::<NSView>()?.window()
+}
+
+pub fn start_window_move(window: &Window) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSApplication;
+
+        let Some(thread) = MainThreadMarker::new() else {
+            return;
+        };
+        if let Some(native) = native_window(window)
+            && let Some(event) = NSApplication::sharedApplication(thread).currentEvent()
+        {
+            native.performWindowDragWithEvent(&event);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    window.start_window_move();
+}
+
+pub fn configure_window(_window: &Window) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::{
+            runtime::{AnyClass, AnyObject, ClassBuilder, Sel},
+            sel,
+        };
+        use objc2_app_kit::NSView;
+        use objc2_foundation::NSRect;
+
+        unsafe extern "C-unwind" fn titlebar_content(view: *mut NSView, _: Sel) -> NSRect {
+            unsafe { (*view).bounds() }
+        }
+
+        let Some(content) = native_window(_window).and_then(|window| window.contentView()) else {
+            return;
+        };
+        for view in content.subviews() {
+            if view.class().name().to_bytes() != b"GPUIView" {
+                continue;
+            }
+            let class = AnyClass::get(c"SeshContentView").or_else(|| {
+                let mut class = ClassBuilder::new(c"SeshContentView", view.class())?;
+                let implementation: unsafe extern "C-unwind" fn(*mut NSView, Sel) -> NSRect =
+                    titlebar_content;
+                unsafe {
+                    class.add_method(sel!(_opaqueRectForWindowMoveWhenInTitlebar), implementation);
+                }
+                Some(class.register())
+            });
+            if let Some(class) = class {
+                unsafe { AnyObject::set_class(&view, class) };
+            }
+        }
+    }
+}
+
+pub fn reduced_motion() -> bool {
+    #[cfg(target_os = "macos")]
+    return objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion();
+    #[cfg(not(target_os = "macos"))]
+    false
+}
 
 pub fn apply_appearance(appearance: &str, window: Option<&mut Window>, cx: &mut App) {
     match appearance {
@@ -25,6 +139,17 @@ pub fn apply_appearance(appearance: &str, window: Option<&mut Window>, cx: &mut 
     theme.font_size = px(14.);
     theme.primary = rgb(if theme.is_dark() { 0x316daf } else { 0x245ea8 }).into();
     theme.primary_foreground = rgb(0xffffff).into();
+    let dark = theme.is_dark();
+    theme.background = rgb(if dark { 0x1c1e22 } else { 0xffffff }).into();
+    theme.sidebar = rgb(if dark { 0x24262b } else { 0xf3f4f6 }).into();
+    theme.border = rgb(if dark { 0x34373d } else { 0xe3e5e9 }).into();
+    theme.foreground = rgb(if dark { 0xe9ebef } else { 0x20242c }).into();
+    theme.muted_foreground = rgb(if dark { 0xa1a6b0 } else { 0x6d7480 }).into();
+    theme.list_active = rgb(if dark { 0x253e5d } else { 0xe8f0fc }).into();
+    theme.link = rgb(if dark { 0x83b9ff } else { 0x245ea8 }).into();
+    theme.success = rgb(if dark { 0x68c99e } else { 0x23825c }).into();
+    theme.warning = rgb(if dark { 0xe6b566 } else { 0xa66a16 }).into();
+    theme.magenta = rgb(if dark { 0xbda0ed } else { 0x8252b3 }).into();
 }
 
 pub fn shortcut(key: &str) -> String {
@@ -88,6 +213,7 @@ pub fn configure(cx: &mut App) {
         cx.bind_keys([
             KeyBinding::new("cmd-h", Hide, None),
             KeyBinding::new("alt-cmd-h", HideOthers, None),
+            KeyBinding::new("alt-cmd-s", ToggleSidebar, Some("Sesh")),
         ]);
         cx.set_menus(vec![
             Menu {
@@ -133,6 +259,7 @@ pub fn configure(cx: &mut App) {
                 items: vec![
                     MenuItem::action("Accounts", Accounts),
                     MenuItem::action("Active Credentials", Credentials),
+                    MenuItem::action("Toggle Sidebar", ToggleSidebar),
                     MenuItem::separator(),
                     MenuItem::action("Find…", Search),
                     MenuItem::action("Refresh", Refresh),

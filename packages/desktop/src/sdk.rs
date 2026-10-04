@@ -51,7 +51,6 @@ pub struct Snapshot {
     pub credentials: Vec<Credential>,
     pub last_account: Option<String>,
     pub last_session: Option<String>,
-    pub appearance: Option<String>,
 }
 
 pub struct Sdk {

@@ -4,8 +4,6 @@ export interface AwseshOptions {
   awsDir: string
 }
 
-export type DesktopAppearance = "system" | "light" | "dark"
-
 export interface SSOSession {
   name: string
   startUrl: string

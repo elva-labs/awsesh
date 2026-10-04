@@ -94,17 +94,6 @@ describe("Full Workflow", () => {
     expect(await awsesh.credentials.listProfiles()).toEqual([]);
   });
 
-  test("desktop appearance defaults to the system and persists through the SDK", async () => {
-    const workflow = createWorkflow(awsesh);
-    expect((await workflow.snapshot()).appearance).toBe("system");
-    expect((await workflow.setAppearance("dark")).appearance).toBe("dark");
-    const restarted = createWorkflow(createAwsesh({ configDir: tempConfigDir, dataDir: tempDataDir, awsDir: tempAwsDir }));
-    expect((await restarted.snapshot()).appearance).toBe("dark");
-    await expect(restarted.setAppearance("invalid")).rejects.toThrow("Appearance");
-    expect((await restarted.snapshot()).appearance).toBe("dark");
-    expect((await restarted.setAppearance("system")).appearance).toBe("system");
-  });
-
   test("interactive workflow validates session and preference inputs before writing", async () => {
     const workflow = createWorkflow(awsesh);
     await expect(workflow.saveSession({ ...sampleSession, name: "../escape" })).rejects.toThrow("Session names");

@@ -254,7 +254,10 @@ For a complete working example, see the [awsesh-sdk-example](https://github.com/
 
 ## Themes
 
-Awsesh currently supports a bunch of themes, the base one using your terminal colors.
+Awsesh includes 35 themes shared by the TUI and native desktop app. The TUI's system
+theme uses your terminal colors; desktop uses its native palette. Both discover
+custom JSON definitions in `~/.config/awsesh/themes/`, with independent selections.
+See [the shared theme format](packages/themes/README.md).
 
 ![awsesh themes overview](assets/themes.gif)
 
