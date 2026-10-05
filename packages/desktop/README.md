@@ -83,6 +83,8 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   and a “Click to copy” tooltip.
   Account rows show the most recently used CLI profile when known, including after
   expiration or credential removal. Configuring a profile alone does not mark it used.
+  Rows also show remaining time for active credentials; an active default takes
+  precedence when multiple profiles are active for an account.
 - The inspector selects the preferred role, or the first available role when no
   preference exists. Use Set Credentials or Command-Enter without an extra role
   selection. You can still choose another role; preselection alone does not save
@@ -280,6 +282,13 @@ in-flight value. Invalid profiles retained their input and blocked stale credent
 actions; correction and clearing a profile saved successfully. Rust tests, 213 Bun
 tests and the rebuilt bundle's signature passed. All eight isolated AWS/TUI/account
 preference baselines were restored; no live AWS call ran, and processes were closed.
+
+The expiry-display pass verified named/default account countdowns, default-profile
+precedence and inactive rows in light/dark modes at full size and 960×620. Both
+detail panes kept plain remaining-time/local-expiry cards, and scrolling retained
+credential actions. Workspace typechecks, 213 Bun tests, three Rust tests, the
+release build and bundle signature passed. Isolated AWS/TUI/account-preference
+baselines were restored; no live AWS call ran, and verification processes were closed.
 
 Setting credentials updates `~/.aws/credentials` through the SDK, including its
 existing tracking and preferences. It cannot change the environment of an already

@@ -732,13 +732,7 @@ impl Sesh {
                     .map(|profile| format!("{} · {}", value.account_id, profile))
                     .unwrap_or_else(|| value.account_id.clone()),
                 active
-                    .map(|value| {
-                        if value.is_default {
-                            "Default".to_owned()
-                        } else {
-                            "Active".to_owned()
-                        }
-                    })
+                    .map(|value| remaining(&value.expiration))
                     .unwrap_or_default(),
                 active
                     .map(|value| {
@@ -830,14 +824,31 @@ impl Sesh {
                             )
                             .child(
                                 div()
-                                    .truncate()
-                                    .font_family(platform::mono_font())
-                                    .text_size(px(11.))
-                                    .text_color(colors.muted)
-                                    .child(detail),
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .font_family(platform::mono_font())
+                                            .text_size(px(11.))
+                                            .text_color(colors.muted)
+                                            .child(detail),
+                                    )
+                                    .when(account_row && !status.is_empty(), |line| {
+                                        line.child(
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_size(px(12.))
+                                                .text_color(status_color)
+                                                .child(status.clone()),
+                                        )
+                                    }),
                             ),
                     )
-                    .when(!status.is_empty(), |row| {
+                    .when(!account_row && !status.is_empty(), |row| {
                         row.child(self.status(status, status_color, true))
                     }),
             )
