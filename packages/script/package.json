@@ -7,6 +7,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit --strict --skipLibCheck --target ESNext --module ESNext --moduleResolution bundler --types bun --resolveJsonModule --allowImportingTsExtensions src/*.ts ../scripts/*.ts ../awsesh/script/*.ts ../core/script/*.ts"
+  },
   "devDependencies": {
     "@tsconfig/bun": "1.0.9",
     "@types/bun": "1.4.2",

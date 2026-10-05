@@ -1,0 +1,37 @@
+name: Release Drafter
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: awsesh-release-control
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  draft:
+    if: github.repository == 'elva-labs/awsesh' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preserve frozen candidates
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          drafts=$(gh api --paginate repos/elva-labs/awsesh/releases --jq '.[] | select(.draft and .tag_name != "upcoming") | .tag_name')
+          if [[ -z "$drafts" ]]; then
+            echo 'update=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Draft updates are paused while a release candidate is under review.'
+          fi
+
+      - uses: release-drafter/release-drafter@72967cdc98ddd3160f1fc3dff619de365e137dd0
+        if: steps.candidate.outputs.update == 'true'
+        with:
+          commitish: main
+          footer: "\n[Full changelog](https://github.com/elva-labs/awsesh/compare/$PREVIOUS_TAG...main)\n"

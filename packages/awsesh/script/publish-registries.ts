@@ -1,28 +1,12 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
+import { Script, releaseMetadata } from "@awsesh/script"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
+import { digest, getRelease, requireRepository } from "../../scripts/release"
 
-const version = process.env.AWSESH_VERSION ?? ""
-if (!version) throw new Error("AWSESH_VERSION is required")
-
-function getChannel(): string {
-  if (version.includes("-alpha")) return "alpha"
-  if (version.includes("-beta")) return "beta"
-  return "latest"
-}
-
-function getFormulaName(): string {
-  const channel = getChannel()
-  if (channel === "latest") return "awsesh"
-  if (channel === "beta") return "awsesh-beta"
-  return "awsesh-alpha"
-}
-
-function getFormulaClassName(): string {
-  const channel = getChannel()
-  if (channel === "latest") return "Awsesh"
-  if (channel === "beta") return "AwseshBeta"
-  return "AwseshAlpha"
-}
+const version = Script.version
 
 function getTapToken(): string {
   const token = process.env.TAP_GITHUB_TOKEN?.trim()
@@ -33,14 +17,19 @@ function getTapToken(): string {
 }
 
 async function updateHomebrewTap() {
-  const arm64Sha = await $`sha256sum ./dist/awsesh-linux-arm64.tar.gz | cut -d' ' -f1`.text().then((x) => x.trim())
-  const x64Sha = await $`sha256sum ./dist/awsesh-linux-x64.tar.gz | cut -d' ' -f1`.text().then((x) => x.trim())
-  const macX64Sha = await $`sha256sum ./dist/awsesh-darwin-x64.zip | cut -d' ' -f1`.text().then((x) => x.trim())
-  const macArm64Sha = await $`sha256sum ./dist/awsesh-darwin-arm64.zip | cut -d' ' -f1`.text().then((x) => x.trim())
+  requireRepository()
+  const directory = process.env.AWSESH_ARTIFACTS
+  if (!directory) throw new Error("Verified staged artifacts are required")
+  const release = await getRelease(`v${version}`)
+  if (!release || release.draft) throw new Error("GitHub assets must be public before updating Homebrew")
+  const arm64Sha = await digest(path.join(directory, "awsesh-linux-arm64.tar.gz"))
+  const x64Sha = await digest(path.join(directory, "awsesh-linux-x64.tar.gz"))
+  const macX64Sha = await digest(path.join(directory, "awsesh-darwin-x64.zip"))
+  const macArm64Sha = await digest(path.join(directory, "awsesh-darwin-arm64.zip"))
 
-  const channel = getChannel()
-  const formulaName = getFormulaName()
-  const className = getFormulaClassName()
+  const channel = Script.channel
+  const formulaName = Script.preview ? "awsesh-beta" : "awsesh"
+  const className = Script.preview ? "AwseshBeta" : "Awsesh"
   const channelDesc = channel === "latest" ? "" : ` (${channel})`
 
   const homebrewFormula = [
@@ -100,22 +89,37 @@ async function updateHomebrewTap() {
     "",
   ].join("\n")
 
-  await $`rm -rf ./dist/homebrew-tap`
-
+  const tap = await mkdtemp(path.join(tmpdir(), "awsesh-homebrew-"))
   try {
     const tapToken = getTapToken()
     const tapEnv = { ...process.env, GH_TOKEN: tapToken }
-    await $`gh auth setup-git`.env(tapEnv)
-    await $`git clone https://github.com/elva-labs/homebrew-elva.git ./dist/homebrew-tap`.env(tapEnv)
-    await Bun.file(`./dist/homebrew-tap/Formula/${formulaName}.rb`).write(homebrewFormula)
-    await $`cd ./dist/homebrew-tap && git add Formula/${formulaName}.rb`
-    await $`cd ./dist/homebrew-tap && git config user.name "elva-bot"`
-    await $`cd ./dist/homebrew-tap && git config user.email "gh-bot@elva-group.com"`
-    await $`cd ./dist/homebrew-tap && git commit -m "Update ${formulaName} to v${version}"`
-    await $`cd ./dist/homebrew-tap && git push`.env(tapEnv)
+    const authentication = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"]
+    await $`git ${authentication} clone https://github.com/elva-labs/homebrew-elva.git ${tap}`.env(tapEnv)
+    const formula = Bun.file(path.join(tap, "Formula", `${formulaName}.rb`))
+    const previous = await formula.exists() ? await formula.text() : ""
+    if (previous) {
+      const match = /^\s*version "([^"]+)"/m.exec(previous)
+      if (!match) throw new Error("Homebrew formula has no explicit version")
+      releaseMetadata(match[1], channel)
+      if (Bun.semver.order(match[1], version) > 0) {
+        console.log(`Not moving Homebrew ${formulaName} backwards from ${match[1]}`)
+        return
+      }
+      if (match[1] === version) {
+        if (![arm64Sha, x64Sha, macX64Sha, macArm64Sha].every((checksum) => previous.includes(`sha256 "${checksum}"`))) {
+          throw new Error("Existing Homebrew version has different artifact checksums")
+        }
+        console.log(`Homebrew ${formulaName} is already at ${version}`)
+        return
+      }
+    }
+    await formula.write(homebrewFormula)
+    await $`git add Formula/${formulaName}.rb`.cwd(tap)
+    await $`git -c user.name=elva-bot -c user.email=gh-bot@elva-group.com commit -m ${`chore(${formulaName}): release v${version}`}`.cwd(tap)
+    await $`git ${authentication} push`.cwd(tap).env(tapEnv)
     console.log(`Updated Homebrew formula: ${formulaName}`)
   } finally {
-    await $`rm -rf ./dist/homebrew-tap`
+    await rm(tap, { recursive: true, force: true })
   }
 }
 

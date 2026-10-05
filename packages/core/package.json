@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "bun run ./script/publish.ts"
+    "build": "bun run ./script/build.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sso": "^3.701.0",
