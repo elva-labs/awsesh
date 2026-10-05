@@ -95,6 +95,8 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
 - Credential details use the account inspector's headings, account ID placement,
   field sizing and action spacing. The selected preferred role has no extra status
   label; Make preferred remains available when choosing a different role.
+- Both detail panes show an active credential's remaining time and local expiry
+  without a checkmark or Default/Named profile status badge.
 - Credentials show expiry countdowns, profile metadata, copy actions and confirmed removal.
 - Appearance follows the system by default. Settings and the command bar offer the
   shared named themes; System/Light/Dark and theme selection are saved independently

@@ -1068,6 +1068,29 @@ impl Sesh {
             .into_any_element()
     }
 
+    fn expiry(&self, value: &str, cx: &Context<Self>) -> AnyElement {
+        let colors = self.colors(cx);
+        div()
+            .p_3()
+            .rounded_md()
+            .bg(colors.sidebar)
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(remaining(value)),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(colors.muted)
+                    .child(format!("Expires at {} local time", expiration(value))),
+            )
+            .into_any_element()
+    }
+
     fn inspector(&self, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
         let mut panel = div()
@@ -1120,36 +1143,7 @@ impl Sesh {
                     ))
                     .child(self.metadata("CLI profile", &value.profile_name, cx))
                     .child(self.metadata("Organization", &value.session_name, cx))
-                    .child(
-                        div()
-                            .p_3()
-                            .rounded_md()
-                            .bg(colors.sidebar)
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(self.status(
-                                if value.is_default {
-                                    "Default profile"
-                                } else {
-                                    "Named profile"
-                                },
-                                if value.is_default {
-                                    colors.success
-                                } else {
-                                    colors.profile
-                                },
-                                true,
-                            ))
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(remaining(&value.expiration)),
-                            )
-                            .child(div().text_size(px(12.)).text_color(colors.muted).child(
-                                format!("Expires at {} local time", expiration(&value.expiration)),
-                            )),
-                    )
+                    .child(self.expiry(&value.expiration, cx))
                     .child(
                         div()
                             .flex()
@@ -1314,34 +1308,7 @@ impl Sesh {
                     ),
             );
         if let Some(active) = active {
-            panel = panel.child(
-                div()
-                    .p_3()
-                    .rounded_md()
-                    .bg(colors.sidebar)
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(self.status(
-                        if active.is_default {
-                            "Default profile"
-                        } else {
-                            "Named profile"
-                        },
-                        if active.is_default {
-                            colors.success
-                        } else {
-                            colors.profile
-                        },
-                        true,
-                    ))
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(colors.muted)
-                            .child(remaining(&active.expiration)),
-                    ),
-            );
+            panel = panel.child(self.expiry(&active.expiration, cx));
         }
         if self.preferences_dirty(cx) {
             panel = panel.child(div().text_size(px(11.)).text_color(colors.muted).child(
