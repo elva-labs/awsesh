@@ -97,12 +97,13 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   Search and form inputs use 44px targets, command rows are 44px, and popup-menu
   rows are 36px; native top-row buttons remain compact.
   Popup menus use compact shadows, and light-mode buttons have stronger fill contrast.
-- Dithered wallpaper applies Zeron's 4×4 Bayer color threshold, hue-preserving
-  bright/dark quantization and 2×2 pixel blocks to the current macOS wallpaper.
-  It is cached off-thread and tinted by the translucency slider, not a faint dot
-  overlay. This mode uses wallpaper artwork, not other windows behind Sesh; it
-  does not capture the screen. Disable it to restore the normal native blur.
-  Its selection is saved independently; Tab then Space/Enter toggles the checkbox.
+- Dither texture overlays a fixed-scale 4×4 Bayer pattern on the live, theme-tinted
+  translucent background, below the controls. Native blur remains active; moving
+  the window or changing what is behind it updates the backdrop normally. It does
+  not load wallpaper artwork or capture the screen. This is a texture overlay,
+  not color quantization of the backdrop. It is off by default; its selection is
+  saved independently. Tab then Space/Enter toggles the checkbox. At 0%
+  translucency the texture is hidden.
 - macOS application, File, Edit and View menus expose common operations.
 - Settings ends with the `awsesh --help` ASCII banner, “Open Source AWS Session
   Manager – presented by Elva” linking to https://elva-group.com, and the version;
@@ -224,6 +225,16 @@ visible after credential removal. Zeron-style wallpaper dithering was checked at
 Workspace typechecks, 213 existing Bun tests, both Rust tests and the rebuilt
 bundle's signature passed. Isolated AWS/TUI files and account preferences matched
 their prepared baselines; no live AWS operation ran.
+
+The backdrop correction removed wallpaper loading and restored the dither effect
+as an overlay above the live native blur and theme tint. Composited-screen captures
+and pixel checks verified backdrop color changes and window movement through the
+texture, unchanged opaque selector fills, opaque menus, and texture removal at 0%
+without clearing its preference. Light/dark appearance, 10%/90%/100% translucency,
+the 960×620 layout, restart restoration and Tab/Space/Enter toggling passed.
+Workspace typechecks, 213 Bun tests, Rust tests and bundle signature
+verification passed; isolated AWS/TUI files and account preferences were unchanged.
+No live AWS operation ran, and the application/helper/backdrop windows were closed.
 
 Setting credentials updates `~/.aws/credentials` through the SDK, including its
 existing tracking and preferences. It cannot change the environment of an already

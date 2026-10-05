@@ -369,22 +369,25 @@ impl Sesh {
         toolbar.child(actions).into_any_element()
     }
 
-    fn background_artwork(&self, cx: &Context<Self>) -> AnyElement {
-        div()
-            .absolute()
-            .inset_0()
-            .overflow_hidden()
-            .when_some(self.wallpaper.clone(), |background, image| {
-                background
-                    .child(
-                        img(image)
-                            .absolute()
-                            .size_full()
-                            .object_fit(gpui::ObjectFit::Cover),
-                    )
-                    .child(div().absolute().inset_0().bg(cx.theme().background))
-            })
-            .into_any_element()
+    fn background_texture(&self, window: &Window) -> AnyElement {
+        let mut texture = div().absolute().inset_0().overflow_hidden().opacity(0.12);
+        let viewport = window.viewport_size();
+        let mut y = px(0.);
+        while y < viewport.height {
+            let mut x = px(0.);
+            while x < viewport.width {
+                texture = texture.child(
+                    img(self.texture.clone())
+                        .absolute()
+                        .left(x)
+                        .top(y)
+                        .size(px(256.)),
+                );
+                x += px(256.);
+            }
+            y += px(256.);
+        }
+        texture.into_any_element()
     }
 
     fn status(&self, label: impl Into<SharedString>, color: Hsla, active: bool) -> AnyElement {
@@ -1551,7 +1554,7 @@ impl Sesh {
                     )
                     .child(
                         Checkbox::new("dither-texture")
-                            .label("Dithered wallpaper")
+                            .label("Dither texture")
                             .checked(self.appearance.dithering)
                             .disabled(
                                 self.translucency.read(cx).value().end() == 0. || self.modal(),
@@ -2021,7 +2024,7 @@ impl Render for Sesh {
             }))
             .when(
                 self.translucency.read(cx).value().end() > 0. && self.appearance.dithering,
-                |root| root.child(self.background_artwork(cx)),
+                |root| root.child(self.background_texture(window)),
             )
             .child(
                 div()

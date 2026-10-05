@@ -162,17 +162,16 @@ vendoring GPUI or changing its lifecycle; GPUI still creates, resizes and remove
 the effect view. The raw pointer is used only during the borrowed window's lifetime
 on GPUI's UI thread. The system can still disable effects for accessibility.
 
-The optional dithered wallpaper replaces the former sparse, 18%-maximum monochrome
-overlay. Like Zeron, it decodes source artwork once, limits it to 2048px, applies
-the 4×4 Bayer threshold to peak RGB intensity, preserves hue by scaling bright
-pixels to a 255 peak and dark pixels by 0.08, and writes uniform 2×2 BGRA blocks.
-Sesh uses the current display's macOS wallpaper as its source via NSWorkspace;
-AppKit decoding handles HEIC wallpapers when the image decoder cannot. The raster
-is prepared off-thread and cached independently of layout. The theme tint sits
-above the artwork and below all controls; translucency changes its alpha without
-reprocessing the image. Opaque mode hides the artwork without clearing the saved
-checkbox preference. This is artwork dithering, not screen capture or processing
-of other application windows. Disabling it restores GPUI's native backdrop blur.
+The optional dither texture sits above the native blurred backdrop and the single
+window tint, but below all controls. A cached transparent SVG tiles a 4×4 Bayer
+matrix of balanced bright/dark 2×2 cells at fixed scale; its 12% maximum opacity
+does not fade to invisibility at the default 10% translucency. No second window
+tint is painted, and the live backdrop remains owned by macOS. There is no
+wallpaper loading, screen capture or background-image processing. Disabling the
+texture leaves the same native blur in place; 0% translucency hides it without
+clearing the checkbox preference. This is ordered texture compositing, not the
+color quantization of an image used by Zeron. GPUI does not expose the native
+blurred backdrop pixels for such a filter.
 
 Theme import UI and desktop preview/cancel can be added later without moving themes
 into the SDK. File-based installation already makes a definition available to both

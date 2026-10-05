@@ -497,7 +497,6 @@ dependencies = [
  "gpui",
  "gpui-component",
  "gpui-component-assets",
- "image",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

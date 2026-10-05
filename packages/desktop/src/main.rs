@@ -157,9 +157,7 @@ struct Sesh {
     translucency: Entity<SliderState>,
     translucency_focus: FocusHandle,
     translucency_save: Option<gpui::Task<()>>,
-    wallpaper: Option<Arc<gpui::RenderImage>>,
-    wallpaper_path: Option<std::path::PathBuf>,
-    wallpaper_task: Option<gpui::Task<()>>,
+    texture: Arc<gpui::Image>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -353,9 +351,10 @@ impl Sesh {
             translucency,
             translucency_focus: cx.focus_handle(),
             translucency_save: None,
-            wallpaper: None,
-            wallpaper_path: None,
-            wallpaper_task: None,
+            texture: Arc::new(gpui::Image::from_bytes(
+                gpui::ImageFormat::Svg,
+                include_bytes!("../assets/dither.svg").to_vec(),
+            )),
             _subscriptions: subscriptions,
         };
         cx.spawn(async move |this, cx| {
@@ -419,39 +418,6 @@ impl Sesh {
         }
         theme::apply(&self.appearance, Some(window), cx);
         theme::apply_translucency(self.translucency.read(cx).value().end(), window, cx);
-        self.prepare_wallpaper(window, cx);
-    }
-
-    fn prepare_wallpaper(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if !self.appearance.dithering || self.wallpaper_task.is_some() {
-            return;
-        }
-        let Some(path) = platform::wallpaper(window) else {
-            self.error = true;
-            self.message = "Dithering requires a desktop wallpaper image".into();
-            return;
-        };
-        if self.wallpaper_path.as_ref() == Some(&path) && self.wallpaper.is_some() {
-            return;
-        }
-        self.wallpaper_path = Some(path.clone());
-        let task = cx
-            .background_executor()
-            .spawn(async move { theme::dither_wallpaper(&path) });
-        self.wallpaper_task = Some(cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.wallpaper_task = None;
-                match result {
-                    Ok(image) => this.wallpaper = Some(image),
-                    Err(error) => {
-                        this.error = true;
-                        this.message = format!("Cannot dither wallpaper: {error}");
-                    }
-                }
-                cx.notify();
-            });
-        }));
     }
 
     fn sidebar_progress(&self) -> f32 {
