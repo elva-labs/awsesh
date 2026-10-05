@@ -2,44 +2,117 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
-      - beta
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      bump:
-        description: "Bump major, minor, or patch"
-        required: false
+      operation:
+        description: "Stage a candidate or publish its reviewed artifacts"
+        required: true
         type: choice
-        options:
-          - major
-          - minor
-          - patch
-      version:
-        description: "Override version (optional)"
-        required: false
+        options: [stage, publish]
+      tag:
+        description: "Prepared tag, for example v1.1.0 or v1.1.0-beta.1"
+        required: true
         type: string
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version || inputs.bump }}
+concurrency:
+  group: awsesh-release-control
+  cancel-in-progress: false
 
 permissions:
-  id-token: write
-  contents: write
-  packages: write
+  contents: read
+
+env:
+  AWSESH_TAG: ${{ inputs.tag || github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
-  publish:
+  stage:
+    if: github.repository == 'elva-labs/awsesh' && (github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.operation == 'stage'))
     runs-on: ubuntu-latest
-    if: github.repository == 'elva-labs/awsesh'
+    permissions:
+      contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
 
-      - run: git fetch --force --tags
+      - name: Select approved tagged source
+        id: source
+        run: |
+          [[ "$AWSESH_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]
+          commit=$(git rev-parse --verify "refs/tags/$AWSESH_TAG^{commit}")
+          git merge-base --is-ancestor "$commit" origin/main
+          git checkout --detach "$commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install Mac CLI signature repair tool
+        env:
+          RCODESIGN_VERSION: "0.29.0"
+          RCODESIGN_SHA256: "dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002"
+        run: |
+          archive="apple-codesign-${RCODESIGN_VERSION}-x86_64-unknown-linux-musl"
+          curl -fsSL -o "$RUNNER_TEMP/rcodesign.tar.gz" "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F${RCODESIGN_VERSION}/${archive}.tar.gz"
+          echo "${RCODESIGN_SHA256}  $RUNNER_TEMP/rcodesign.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/rcodesign.tar.gz" -C "$RUNNER_TEMP"
+          sudo install -m 0755 "$RUNNER_TEMP/${archive}/rcodesign" /usr/local/bin/rcodesign
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --os="*" --cpu="*"
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test
+
+      - name: Freeze notes at the tagged commit
+        id: notes
+        uses: release-drafter/release-drafter@72967cdc98ddd3160f1fc3dff619de365e137dd0
+        with:
+          dry-run: true
+          commitish: ${{ steps.source.outputs.commit }}
+          tag: ${{ env.AWSESH_TAG }}
+
+      - name: Stage and verify candidate artifacts
+        run: bun run packages/scripts/publish-start.ts --skip-install
+        env:
+          RELEASE_NOTES: ${{ steps.notes.outputs.body }}
+
+  publish:
+    if: github.repository == 'elva-labs/awsesh' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'publish'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select approved tagged source
+        run: |
+          [[ "$AWSESH_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]
+          commit=$(git rev-parse --verify "refs/tags/$AWSESH_TAG^{commit}")
+          git merge-base --is-ancestor "$commit" origin/main
+          git checkout --detach "$commit"
+
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
 
@@ -47,73 +120,26 @@ jobs:
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
 
-      - name: Setup Git Identity
-        run: |
-          git config --global user.email "gh-bot@elva-group.com"
-          git config --global user.name "elva-bot"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Install rcodesign
+      - name: Publish verified staged artifacts
+        run: bun run packages/scripts/publish-complete.ts
         env:
-          RCODESIGN_VERSION: "0.29.0"
-          RCODESIGN_SHA256: "dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002"
-        run: |
-          archive="apple-codesign-${RCODESIGN_VERSION}-x86_64-unknown-linux-musl"
-          curl -fsSL -o /tmp/rcodesign.tar.gz "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F${RCODESIGN_VERSION}/${archive}.tar.gz"
-          echo "${RCODESIGN_SHA256}  /tmp/rcodesign.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/rcodesign.tar.gz -C /tmp
-          sudo install -m 0755 "/tmp/${archive}/rcodesign" /usr/local/bin/rcodesign
-
-      - name: Install Dependencies
-        run: bun install
-
-      - name: Run Tests
-        run: bun run test
-
-      - name: Publish
-        id: publish
-        run: ./packages/scripts/publish-start.ts
-        env:
-          AWSESH_BUMP: ${{ inputs.bump }}
-          AWSESH_VERSION: ${{ inputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: awsesh-cli
-          path: packages/awsesh/dist
-
-    outputs:
-      release: ${{ steps.publish.outputs.release }}
-      tag: ${{ steps.publish.outputs.tag }}
-      version: ${{ steps.publish.outputs.version }}
-
-  publish-release:
-    needs: publish
-    if: needs.publish.outputs.tag
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.publish.outputs.tag }}
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-
-      - name: Setup Git Identity
-        run: |
-          git config --global user.email "gh-bot@elva-group.com"
-          git config --global user.name "elva-bot"
-
-      - name: Install Dependencies
-        run: bun install
-
-      - run: ./packages/scripts/publish-complete.ts
-        env:
-          AWSESH_VERSION: ${{ needs.publish.outputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Preserve other frozen candidates
+        id: candidate
+        run: |
+          drafts=$(gh api --paginate repos/elva-labs/awsesh/releases --jq '.[] | select(.draft and .tag_name != "upcoming") | .tag_name')
+          if [[ -z "$drafts" ]]; then
+            echo 'update=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: release-drafter/release-drafter@72967cdc98ddd3160f1fc3dff619de365e137dd0
+        if: steps.candidate.outputs.update == 'true'
+        with:
+          commitish: main
+          footer: "\n[Full changelog](https://github.com/elva-labs/awsesh/compare/$PREVIOUS_TAG...main)\n"

@@ -4,6 +4,7 @@ import solidPlugin from "@opentui/solid/bun-plugin"
 import path from "node:path"
 import { $ } from "bun"
 import { fileURLToPath } from "node:url"
+import { allTargets, targetName } from "./targets"
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -17,25 +18,6 @@ import { Script } from "@awsesh/script"
 const singleFlag = process.argv.includes("--single")
 const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
-
-const allTargets: {
-  os: string
-  arch: "arm64" | "x64"
-  abi?: "musl"
-  avx2?: false
-}[] = [
-  { os: "linux", arch: "arm64" },
-  { os: "linux", arch: "x64" },
-  { os: "linux", arch: "x64", avx2: false },
-  { os: "linux", arch: "arm64", abi: "musl" },
-  { os: "linux", arch: "x64", abi: "musl" },
-  { os: "linux", arch: "x64", abi: "musl", avx2: false },
-  { os: "darwin", arch: "arm64" },
-  { os: "darwin", arch: "x64" },
-  { os: "darwin", arch: "x64", avx2: false },
-  { os: "win32", arch: "x64" },
-  { os: "win32", arch: "x64", avx2: false },
-]
 
 const targets = singleFlag
   ? allTargets.filter((item) => {
@@ -58,15 +40,7 @@ if (!skipInstall) {
 }
 
 for (const item of targets) {
-  const name = [
-    "awsesh",
-    item.os === "win32" ? "windows" : item.os,
-    item.arch,
-    item.avx2 === false ? "baseline" : undefined,
-    item.abi === undefined ? undefined : item.abi,
-  ]
-    .filter(Boolean)
-    .join("-")
+  const name = targetName(item)
 
   console.log(`building ${name}`)
   await $`mkdir -p dist/${name}/bin`
@@ -81,8 +55,8 @@ for (const item of targets) {
       autoloadDotenv: false,
       autoloadTsconfig: true,
       autoloadPackageJson: true,
-      target: name.replace("awsesh", "bun") as Parameters<typeof Bun.build>[0]["compile"]["target"],
-      outfile: `dist/${name}/bin/awsesh`,
+      target: item.compile,
+      outfile: `dist/${name}/bin/awsesh${item.os === "win32" ? ".exe" : ""}`,
       execArgv: [`--user-agent=awsesh/${Script.version}`, "--"],
       windows: {},
     },

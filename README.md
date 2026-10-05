@@ -57,9 +57,28 @@ bun run build
 
 ## Releases
 
-Pushes to `main` publish a stable release. The patch version is incremented by default, and the CLI binaries, `@awsesh/core` package, GitHub release, and `awsesh` Homebrew formula are updated.
+Merging into `main` runs CI and updates an unpublished **Release Drafter** draft with merged PRs and contributor links. It does not publish software. Conventional PR titles (`feat:`, `fix:`, and breaking changes) suggest a version; maintainers choose the actual version in a reviewed PR. Beta is a release channel, not an automatic release from the `beta` branch.
 
-Pushes to `beta` publish a prerelease using the `beta` npm tag and `awsesh-beta` Homebrew formula. Manual workflow runs can select a major, minor, or patch bump, or provide an explicit version.
+### Maintainer release process
+
+1. From `main`, create a version branch and run `bun run release:prepare 1.1.0` (or `1.1.0-beta.1`). This updates the root/workspace manifests and `bun.lock`, without committing, tagging, pushing, or publishing. Open a version PR and merge it after review and CI.
+2. Tag that merged commit explicitly: `git tag v1.1.0 <merged-commit>` and `git push origin v1.1.0`. The tag must match every manifest and belong to `main` history. Protect `v*` tags against unauthorized creation, changes, and deletion.
+3. The **Release** workflow stages a separate candidate draft. It typechecks/tests, freezes notes to the tagged commit, builds all 11 existing CLI targets and the SDK (including declarations), then attaches archives, `release.json`, and `SHA256SUMS`. It verifies the uploaded files again. No registry is updated during staging.
+4. Review the candidate's notes, checksums, and downloads. Run **Release** manually from `main`, choose **publish**, and enter the same tag. This verifies and publishes the already-staged SDK tarball, publishes the GitHub release, then advances npm and Homebrew channels. It never rebuilds the SDK or writes to the source branch.
+
+Stable versions use npm `latest`, the GitHub latest release, and the `awsesh` Homebrew formula. `-beta.N` versions are GitHub prereleases and use npm `beta` and `awsesh-beta`. Unsupported prerelease formats and mismatched channels fail validation. Local builds use the checked-in version, never npm state, timestamps, or branch names.
+
+### Drafts, verification, and retries
+
+The `upcoming` draft contains changes since the last **stable** release, even after beta publication. It is not a release candidate and must not be published directly. Candidate notes and source are frozen; while any candidate draft exists, live draft updates pause under a shared workflow concurrency lock. Publication refreshes the upcoming draft. If a candidate is abandoned, delete only its GitHub draft (never reuse or move its tag), then manually run **Release Drafter** to refresh the notes.
+
+Rerun a failed staging workflow, or manually select **stage** with the same tag. Partial drafts can resume uploads; completed candidates are downloaded and verified rather than overwritten. Published assets are never overwritten. `SHA256SUMS` is uploaded last and marks a complete candidate.
+
+Publication is not atomic across GitHub, npm, and Homebrew. npm first receives the verified package under a temporary `candidate` dist-tag; stable/beta pointers change only after GitHub downloads are public. If a later step fails, rerun **publish** with the same tag. An existing npm version must have exactly the staged tarball's integrity. Existing Homebrew versions must have matching checksums. Older retries cannot move stable/beta pointers backwards. Investigate an integrity mismatch instead of suppressing it or replacing artifacts.
+
+Only maintainers with repository write access should create release tags or dispatch publication. Keep `.github/workflows/release.yml` as the npm trusted-publisher identity; publication uses Node 24 and pinned npm 11.21.0 with OIDC, requiring no npm token. Before the first release, enable **Allow npm publish** and **Allow npm dist-tag** on that package's trusted publisher; older configurations allow only publishing by default. The existing `TAP_GITHUB_TOKEN` needs write access to `elva-labs/homebrew-elva` only. Release jobs are restricted to `elva-labs/awsesh`; PR CI has read-only permissions and no publishing/signing credentials. Configure required `main` reviews/CI and tag rules before relying on them—these workflows do not create repository protections or a required-approval environment.
+
+Desktop packages and public signing are intentionally deferred until the native app reaches `main`. Existing CLI downloads and Mac ad-hoc signature repair remain supported. Future GPUI jobs can add verified signed desktop artifacts to staging: Apple Silicon macOS only, a signed Windows installer (no portable desktop ZIP), and validated Linux packages.
 
 ---
 

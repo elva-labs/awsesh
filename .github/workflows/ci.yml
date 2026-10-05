@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches:
       - main
@@ -25,7 +27,7 @@ jobs:
           bun-version: "1.4.2"
 
       - name: Install Dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Typecheck
         run: bun run typecheck
@@ -34,4 +36,7 @@ jobs:
         run: bun run test
 
       - name: Build
-        run: bun run build --single
+        run: bun run build --single --skip-install
+
+      - name: Build SDK
+        run: bun run build:sdk
