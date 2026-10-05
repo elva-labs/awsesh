@@ -1035,32 +1035,35 @@ impl Sesh {
         list.into_any_element()
     }
 
-    fn metadata(
-        &self,
-        label: &str,
-        value: &str,
-        technical: bool,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let colors = self.colors(cx);
-        let value = div()
-            .text_size(px(12.))
-            .child(SharedString::from(value.to_owned()));
+    fn metadata(&self, label: &str, value: &str, cx: &Context<Self>) -> AnyElement {
         div()
             .flex()
             .flex_col()
-            .gap_1()
+            .gap_2()
             .child(
                 div()
-                    .text_size(px(11.))
-                    .text_color(colors.muted)
+                    .font_weight(FontWeight::MEDIUM)
                     .child(SharedString::from(label.to_owned())),
             )
-            .child(if technical {
-                value.font_family(platform::mono_font())
-            } else {
-                value
-            })
+            .child(
+                div()
+                    .min_h(px(44.))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(cx.theme().input)
+                    .bg(cx.theme().background)
+                    .when(cx.theme().shadow, |field| field.shadow_xs())
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_base()
+                            .child(SharedString::from(value.to_owned())),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -1096,6 +1099,34 @@ impl Sesh {
                                 .text_size(px(20.))
                                 .font_weight(FontWeight::SEMIBOLD),
                             )
+                            .child(
+                                self.copy_value(
+                                    "credential-id",
+                                    &value.account_id,
+                                    Command::CopyAccount,
+                                    cx,
+                                )
+                                .font_family(platform::mono_font())
+                                .text_size(px(11.))
+                                .text_color(colors.muted),
+                            ),
+                    )
+                    .child(self.metadata("Role", &value.role_name, cx))
+                    .child(self.metadata(
+                        "Region",
+                        value.region.as_deref().unwrap_or("Not configured"),
+                        cx,
+                    ))
+                    .child(self.metadata("CLI profile", &value.profile_name, cx))
+                    .child(self.metadata("Organization", &value.session_name, cx))
+                    .child(
+                        div()
+                            .p_3()
+                            .rounded_md()
+                            .bg(colors.sidebar)
+                            .flex()
+                            .flex_col()
+                            .gap_2()
                             .child(self.status(
                                 if value.is_default {
                                     "Default profile"
@@ -1108,46 +1139,7 @@ impl Sesh {
                                     colors.profile
                                 },
                                 true,
-                            )),
-                    )
-                    .child(self.metadata("CLI profile", &value.profile_name, true, cx))
-                    .child(self.metadata("Role", &value.role_name, false, cx))
-                    .child(self.metadata("Organization", &value.session_name, false, cx))
-                    .child(self.metadata(
-                        "Region",
-                        value.region.as_deref().unwrap_or("Not configured"),
-                        true,
-                        cx,
-                    ))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(colors.muted)
-                                    .child("Account ID"),
-                            )
-                            .child(
-                                self.copy_value(
-                                    "credential-id",
-                                    &value.account_id,
-                                    Command::CopyAccount,
-                                    cx,
-                                )
-                                .font_family(platform::mono_font()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .p_3()
-                            .rounded_md()
-                            .bg(colors.sidebar)
-                            .flex()
-                            .flex_col()
-                            .gap_2()
+                            ))
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
@@ -1158,18 +1150,33 @@ impl Sesh {
                             )),
                     )
                     .child(
-                        self.button("copy-profile", "Copy profile", Command::CopyProfile, cx)
-                            .icon(IconName::Copy),
-                    )
-                    .child(
-                        self.button(
-                            "remove-credential",
-                            "Remove profile…",
-                            Command::RemoveCredential,
-                            cx,
-                        )
-                        .danger()
-                        .w_full(),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .pt_3()
+                            .border_t_1()
+                            .border_color(colors.border)
+                            .child(
+                                self.button(
+                                    "copy-profile",
+                                    "Copy profile",
+                                    Command::CopyProfile,
+                                    cx,
+                                )
+                                .icon(IconName::Copy)
+                                .w_full(),
+                            )
+                            .child(
+                                self.button(
+                                    "remove-credential",
+                                    "Remove profile…",
+                                    Command::RemoveCredential,
+                                    cx,
+                                )
+                                .danger()
+                                .w_full(),
+                            ),
                     );
             } else {
                 panel = panel.child(
@@ -1255,19 +1262,19 @@ impl Sesh {
                             .w_full()
                             .disabled(self.modal()),
                     ))
-                    .child(
-                        self.button(
-                            "prefer-role",
-                            if role.is_some() && role == account.preferred_role {
-                                "Preferred role"
-                            } else {
-                                "Make preferred"
-                            },
-                            Command::PreferRole,
-                            cx,
-                        )
-                        .ghost()
-                        .disabled(self.modal() || role.is_none() || role == account.preferred_role),
+                    .when(
+                        role.is_some() && role != account.preferred_role,
+                        |section| {
+                            section.child(
+                                self.button(
+                                    "prefer-role",
+                                    "Make preferred",
+                                    Command::PreferRole,
+                                    cx,
+                                )
+                                .ghost(),
+                            )
+                        },
                     ),
             );
         if !account.roles_loaded || account.roles.is_empty() {

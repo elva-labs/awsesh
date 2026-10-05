@@ -90,6 +90,9 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
 - Region and CLI profile changes require their own Save action. Unsaved changes
   block Set Credentials so it cannot silently use old preferences.
 - Role selection is local until Make Preferred or Set Credentials is requested.
+- Credential details use the account inspector's headings, account ID placement,
+  field sizing and action spacing. The selected preferred role has no extra status
+  label; Make preferred remains available when choosing a different role.
 - Credentials show expiry countdowns, profile metadata, copy actions and confirmed removal.
 - Appearance follows the system by default. Settings and the command bar offer the
   shared named themes; System/Light/Dark and theme selection are saved independently
