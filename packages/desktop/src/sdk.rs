@@ -27,6 +27,7 @@ pub struct Account {
     pub preferred_role: Option<String>,
     pub region: Option<String>,
     pub profiles: std::collections::HashMap<String, String>,
+    pub last_profile: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

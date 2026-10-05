@@ -3,7 +3,7 @@ import { Config, defaultConfig, type KeybindsConfig } from "./config";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { bundledThemes, loadThemes, mapThemeColors, resolveTheme, type ThemeMode } from "@awsesh/themes";
-import { configureAppearance } from "../../../desktop/bridge/appearance";
+import { configureAppearance, prepareThemeDirectory } from "../../../desktop/bridge/appearance";
 
 describe("Config", () => {
   describe("getDefaultKeybind", () => {
@@ -147,12 +147,21 @@ describe("Config", () => {
       const data = path.join(directory, "data");
       try {
         expect((await configureAppearance(config, data)).theme).toBe("system");
+        const themes = await prepareThemeDirectory(config);
+        const example = path.join(themes, "theme.json.example");
+        expect(resolveTheme(await Bun.file(example).json(), "light")).toEqual(resolveTheme(bundledThemes.github, "light"));
+        expect(resolveTheme(await Bun.file(example).json(), "dark")).toEqual(resolveTheme(bundledThemes.github, "dark"));
+        const content = `${await Bun.file(example).text()}\n`;
+        await Bun.write(example, content);
+        await prepareThemeDirectory(config);
+        expect(await Bun.file(example).text()).toBe(content);
         const terminal = JSON.stringify({ theme: "nord", theme_mode: "dark" });
         await Bun.write(path.join(config, "config.json"), terminal);
         await Bun.write(path.join(config, "themes", "organization.json"), JSON.stringify(bundledThemes.dracula));
         await Bun.write(path.join(config, "themes", "invalid.json"), "{invalid");
         const catalog = await loadThemes(config);
         expect(catalog.themes.organization).toBeDefined();
+        expect(Object.keys(catalog.themes)).toHaveLength(Object.keys(bundledThemes).length + 1);
         expect(catalog.warnings).toHaveLength(1);
         const selected = await configureAppearance(config, data, { theme: "organization" });
         expect(selected.themes).toContain("organization");
@@ -191,36 +200,46 @@ describe("Config", () => {
       try {
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark" }));
         const initial = await configureAppearance(config, data);
-        expect(initial.translucency).toBe(0);
+        expect(initial.translucency).toBe(10);
         expect(initial.dithering).toBe(false);
-        const selected = await configureAppearance(config, data, { translucency: 5, dithering: true });
+        expect(initial.sidebarVisible).toBe(true);
+        expect(initial.sidebarWidth).toBe(216);
+        const selected = await configureAppearance(config, data, { translucency: 5, dithering: true, sidebarVisible: false, sidebarWidth: 320 });
         expect(selected.theme).toBe("nord");
         expect(selected.mode).toBe("dark");
         const changed = await configureAppearance(config, data, { theme: "github", mode: "light" });
         expect(changed.translucency).toBe(5);
         expect(changed.dithering).toBe(true);
+        expect(changed.sidebarVisible).toBe(false);
+        expect(changed.sidebarWidth).toBe(320);
         await configureAppearance(config, data, { translucency: 0 });
         const persisted = await configureAppearance(config, data);
         expect(persisted.translucency).toBe(0);
         expect(persisted.dithering).toBe(true);
         expect(persisted.theme).toBe("github");
-        for (const translucency of [-1, 11, NaN, Infinity, "5"]) {
+        for (const translucency of [-1, 101, NaN, Infinity, "5"]) {
           await expect(configureAppearance(config, data, { translucency })).rejects.toThrow("Translucency");
         }
         await expect(configureAppearance(config, data, { dithering: "true" })).rejects.toThrow("boolean");
+        await expect(configureAppearance(config, data, { sidebarVisible: "false" })).rejects.toThrow("boolean");
+        for (const sidebarWidth of [191, 401, NaN, Infinity, "216"]) {
+          await expect(configureAppearance(config, data, { sidebarWidth })).rejects.toThrow("Sidebar width");
+        }
         expect(await Bun.file(path.join(config, "desktop.json")).json()).toEqual({
-          theme: "github", mode: "light", translucency: 0, dithering: true,
+          theme: "github", mode: "light", translucency: 0, dithering: true, sidebarVisible: false, sidebarWidth: 320,
         });
         expect((await configureAppearance(config, data, { translucency: 10 })).translucency).toBe(10);
+        expect((await configureAppearance(config, data, { translucency: 100 })).translucency).toBe(100);
+        expect((await configureAppearance(config, data)).translucency).toBe(100);
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark", translucent: true, translucency: 47, dithering: true }));
         const legacy = await configureAppearance(config, data);
-        expect(legacy.translucency).toBe(10);
+        expect(legacy.translucency).toBe(47);
         expect(legacy.dithering).toBe(true);
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark", translucent: false, translucency: 47 }));
         expect((await configureAppearance(config, data)).translucency).toBe(0);
         await configureAppearance(config, data, { mode: "light" });
         expect(await Bun.file(path.join(config, "desktop.json")).json()).toEqual({
-          theme: "nord", mode: "light", translucency: 0, dithering: false,
+          theme: "nord", mode: "light", translucency: 0, dithering: false, sidebarVisible: true, sidebarWidth: 216,
         });
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark", translucent: true }));
         expect((await configureAppearance(config, data)).translucency).toBe(10);

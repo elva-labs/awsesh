@@ -1,8 +1,8 @@
 import path from "node:path"
-import { mkdir, rename } from "node:fs/promises"
-import { loadThemes, resolveTheme, type AppearanceMode } from "@awsesh/themes"
+import { mkdir, rename, writeFile } from "node:fs/promises"
+import { bundledThemes, loadThemes, resolveTheme, type AppearanceMode } from "@awsesh/themes"
 
-function preferences(value: unknown): { theme: string; mode: AppearanceMode; translucency: number; dithering: boolean } {
+function preferences(value: unknown): { theme: string; mode: AppearanceMode; translucency: number; dithering: boolean; sidebarVisible: boolean; sidebarWidth: number } {
   if (typeof value !== "object" || value === null || !("theme" in value) || !("mode" in value)) {
     throw new Error("Appearance preferences must contain theme and mode")
   }
@@ -11,18 +11,26 @@ function preferences(value: unknown): { theme: string; mode: AppearanceMode; tra
     throw new Error("Appearance must be system, light or dark")
   }
   const legacy = "translucent" in value
-  const translucency = "translucency" in value ? value.translucency : legacy && value.translucent === true ? 10 : 0
+  const translucency = "translucency" in value ? value.translucency : legacy && value.translucent === false ? 0 : 10
   const dithering = "dithering" in value ? value.dithering : false
+  const sidebarVisible = "sidebarVisible" in value ? value.sidebarVisible : true
+  const sidebarWidth = "sidebarWidth" in value ? value.sidebarWidth : 216
   if (legacy && typeof value.translucent !== "boolean") throw new Error("Translucent mode must be a boolean")
   if (typeof dithering !== "boolean") throw new Error("Dithering must be a boolean")
-  if (typeof translucency !== "number" || !Number.isFinite(translucency) || translucency < 0 || translucency > (legacy ? 100 : 10)) {
-    throw new Error("Translucency must be between 0 and 10")
+  if (typeof sidebarVisible !== "boolean") throw new Error("Sidebar visibility must be a boolean")
+  if (typeof sidebarWidth !== "number" || !Number.isFinite(sidebarWidth) || sidebarWidth < 192 || sidebarWidth > 400) {
+    throw new Error("Sidebar width must be between 192 and 400")
+  }
+  if (typeof translucency !== "number" || !Number.isFinite(translucency) || translucency < 0 || translucency > 100) {
+    throw new Error("Translucency must be between 0 and 100")
   }
   return {
     theme: value.theme,
     mode: value.mode,
-    translucency: legacy && value.translucent === false ? 0 : Math.min(translucency, 10),
+    translucency: legacy && value.translucent === false ? 0 : translucency,
     dithering,
+    sidebarVisible,
+    sidebarWidth,
   }
 }
 
@@ -54,6 +62,8 @@ export async function configureAppearance(configDir: string, dataDir: string, se
       mode: "mode" in selection ? selection.mode : current.mode,
       translucency: "translucency" in selection ? selection.translucency : current.translucency,
       dithering: "dithering" in selection ? selection.dithering : current.dithering,
+      sidebarVisible: "sidebarVisible" in selection ? selection.sidebarVisible : current.sidebarVisible,
+      sidebarWidth: "sidebarWidth" in selection ? selection.sidebarWidth : current.sidebarWidth,
     }
   }
   const requested = preferences(value)
@@ -82,4 +92,14 @@ export async function configureAppearance(configDir: string, dataDir: string, se
     palettes,
     warnings: catalog.warnings,
   }
+}
+
+export async function prepareThemeDirectory(configDir: string) {
+  const directory = path.join(configDir, "themes")
+  await mkdir(directory, { recursive: true })
+  await writeFile(path.join(directory, "theme.json.example"), `${JSON.stringify(bundledThemes.github, null, 2)}\n`, { flag: "wx" }).catch((error: unknown) => {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") return
+    throw error
+  })
+  return directory
 }

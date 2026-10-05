@@ -121,6 +121,44 @@ pub fn reduced_motion() -> bool {
     false
 }
 
+pub fn wallpaper(_window: &Window) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let screen = native_window(_window)?.screen()?;
+        let url =
+            objc2_app_kit::NSWorkspace::sharedWorkspace().desktopImageURLForScreen(&screen)?;
+        return url
+            .path()
+            .map(|path| std::path::PathBuf::from(path.to_string()));
+    }
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
+pub fn wallpaper_image(path: &std::path::Path) -> anyhow::Result<image::DynamicImage> {
+    let result = image::ImageReader::open(path)?
+        .with_guessed_format()?
+        .decode();
+    #[cfg(target_os = "macos")]
+    if result.is_err() {
+        use objc2::AnyThread;
+        let filename = objc2_foundation::NSString::from_str(&path.to_string_lossy());
+        let image = objc2_app_kit::NSImage::initWithContentsOfFile(
+            objc2_app_kit::NSImage::alloc(),
+            &filename,
+        )
+        .ok_or_else(|| anyhow::anyhow!("Cannot decode the desktop wallpaper"))?;
+        let data = image
+            .TIFFRepresentation()
+            .ok_or_else(|| anyhow::anyhow!("Cannot rasterize the desktop wallpaper"))?;
+        return Ok(image::load_from_memory_with_format(
+            &data.to_vec(),
+            image::ImageFormat::Tiff,
+        )?);
+    }
+    Ok(result?)
+}
+
 pub fn apply_appearance(appearance: &str, window: Option<&mut Window>, cx: &mut App) {
     match appearance {
         "light" => Theme::change(ThemeMode::Light, window, cx),

@@ -43,6 +43,8 @@ export function createWorkflow(awsesh: Awsesh) {
     const cache = selected ? await awsesh.accounts.get(selected.name) : undefined
     const roles = selected ? await awsesh.preferredRoles.getAll(selected.name) : {}
     const regions = selected ? await awsesh.preferredRegions.getAll(selected.name) : {}
+    const profiles = selected ? await awsesh.lastProfiles.getAll(selected.name) : {}
+    const previous = await awsesh.lastSetCredential.get()
     return {
       sessions: await Promise.all(sessions.map(async (value) => ({
         ...value,
@@ -54,6 +56,9 @@ export function createWorkflow(awsesh: Awsesh) {
         preferredRole: value.roles.includes(roles[value.accountId]) ? roles[value.accountId] : undefined,
         region: regions[value.accountId] ?? selected?.defaultRegion,
         profiles: await awsesh.profileNames.getForAccount(selected?.name ?? "", value.name),
+        lastProfile: profiles[value.accountId]
+          ?? (previous?.sessionName === selected?.name && previous?.accountId === value.accountId ? previous.profileName : undefined)
+          ?? credentials.findLast((credential) => credential.sessionName === selected?.name && credential.accountId === value.accountId)?.profileName,
       }))),
       credentials,
       lastSelected: await awsesh.lastSelected.get(),
@@ -173,6 +178,11 @@ export function createWorkflow(awsesh: Awsesh) {
         throw new Error("Active credential not found")
       }
       await awsesh.clearCredential(accountId, role, profile)
+      return snapshot(name)
+    },
+    async clearAllCredentials(name?: string) {
+      if (name) await session(name)
+      await awsesh.clearAllCredentials(true)
       return snapshot(name)
     },
     async signOut(name: string) {

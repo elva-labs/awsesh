@@ -4,13 +4,14 @@ mod theme;
 mod ui;
 
 use gpui::{
-    App, Application, Bounds, ClipboardItem, Context, Entity, FocusHandle, KeyBinding,
+    App, Application, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding,
     Subscription, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions,
     prelude::*, px, size,
 };
 use gpui_component::{
     Root,
-    input::{InputEvent, InputState},
+    input::{InputEvent, InputState, RopeExt},
+    menu::PopupMenu,
     select::{SearchableVec, SelectEvent, SelectState},
     slider::{SliderEvent, SliderState, SliderValue},
 };
@@ -70,12 +71,15 @@ enum Command {
     SaveRegion,
     SaveProfile,
     RemoveCredential,
+    ClearAllCredentials,
     Palette,
     Appearance(String),
     Theme(String),
+    OpenThemeDirectory,
     Translucency(f32),
     Dithering(bool),
     ToggleSidebar,
+    SidebarWidth(f32),
     Confirm,
     Cancel,
     Login,
@@ -103,6 +107,18 @@ struct Login {
     code: String,
 }
 
+fn sso_start_url(value: &str) -> String {
+    let value = value.trim();
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return format!("https://{value}.awsapps.com/start");
+    }
+    value.to_owned()
+}
+
 struct Sesh {
     window: gpui::AnyWindowHandle,
     sdk: Arc<Mutex<Option<Sdk>>>,
@@ -111,6 +127,9 @@ struct Sesh {
     screen: Screen,
     sidebar_visible: bool,
     sidebar_transition: Option<(f32, Instant)>,
+    sidebar_width: f32,
+    sidebar_resize_focus: FocusHandle,
+    sidebar_save: Option<gpui::Task<()>>,
     window_should_move: bool,
     selected: Option<usize>,
     account: Option<Account>,
@@ -128,6 +147,7 @@ struct Sesh {
     form: Option<Form>,
     login: Option<Login>,
     palette: bool,
+    popup: Option<(gpui::Point<gpui::Pixels>, Entity<PopupMenu>, Subscription)>,
     command_search: Entity<InputState>,
     command_selected: usize,
     command_scroll: UniformListScrollHandle,
@@ -137,7 +157,9 @@ struct Sesh {
     translucency: Entity<SliderState>,
     translucency_focus: FocusHandle,
     translucency_save: Option<gpui::Task<()>>,
-    texture: Arc<gpui::Image>,
+    wallpaper: Option<Arc<gpui::RenderImage>>,
+    wallpaper_path: Option<std::path::PathBuf>,
+    wallpaper_task: Option<gpui::Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -163,11 +185,16 @@ impl Sesh {
         let command_search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search commands and organizations…")
         });
-        let translucency = cx.new(|_| SliderState::new().max(10.).step(1.).default_value(0.));
+        let translucency = cx.new(|_| SliderState::new().max(100.).step(1.).default_value(10.));
         let subscriptions = vec![
             cx.subscribe_in(&translucency, window, |this, _, event, window, cx| {
                 if let SliderEvent::Change(SliderValue::Single(value)) = event {
-                    this.dispatch(Command::Translucency(*value), window, cx);
+                    let amount = if (8. ..=12.).contains(value) {
+                        10.
+                    } else {
+                        *value
+                    };
+                    this.dispatch(Command::Translucency(amount), window, cx);
                 }
             }),
             cx.subscribe_in(
@@ -262,6 +289,24 @@ impl Sesh {
                 cx.notify();
             }),
             cx.observe_window_activation(window, |_, _, cx| cx.notify()),
+            cx.observe_keystrokes(|this, event, window, cx| {
+                if event.keystroke.key != "tab" {
+                    return;
+                }
+                let input = this
+                    .form
+                    .iter()
+                    .flat_map(|form| form.fields.iter().map(|(_, input)| input))
+                    .chain([&this.region, &this.profile])
+                    .find(|input| input.read(cx).focus_handle(cx).is_focused(window))
+                    .cloned();
+                if let Some(input) = input {
+                    input.update(cx, |input, cx| {
+                        let end = input.text().offset_to_position(input.text().len());
+                        input.set_cursor_position(end, window, cx);
+                    });
+                }
+            }),
         ];
         let mut view = Self {
             window: window.window_handle(),
@@ -271,6 +316,9 @@ impl Sesh {
             screen: Screen::Accounts,
             sidebar_visible: true,
             sidebar_transition: None,
+            sidebar_width: 216.,
+            sidebar_resize_focus: cx.focus_handle(),
+            sidebar_save: None,
             window_should_move: false,
             selected: None,
             account: None,
@@ -288,6 +336,7 @@ impl Sesh {
             form: None,
             login: None,
             palette: false,
+            popup: None,
             command_search,
             command_selected: 0,
             command_scroll: UniformListScrollHandle::new(),
@@ -295,16 +344,18 @@ impl Sesh {
             appearance: theme::Appearance {
                 theme: "system".into(),
                 mode: "system".into(),
+                translucency: 10.,
+                sidebar_visible: true,
+                sidebar_width: 216.,
                 ..Default::default()
             },
             themes,
             translucency,
             translucency_focus: cx.focus_handle(),
             translucency_save: None,
-            texture: Arc::new(gpui::Image::from_bytes(
-                gpui::ImageFormat::Svg,
-                include_bytes!("../assets/dither.svg").to_vec(),
-            )),
+            wallpaper: None,
+            wallpaper_path: None,
+            wallpaper_task: None,
             _subscriptions: subscriptions,
         };
         cx.spawn(async move |this, cx| {
@@ -337,6 +388,23 @@ impl Sesh {
     }
 
     fn apply_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sidebar_save.is_none()
+            && !self.active.as_ref().is_some_and(|(operation, args)| {
+                *operation == "setAppearance" && args.get("sidebarWidth").is_some()
+            })
+            && !self.requests.iter().any(|(operation, args)| {
+                *operation == "setAppearance" && args.get("sidebarWidth").is_some()
+            })
+        {
+            self.sidebar_width = self.appearance.sidebar_width;
+        }
+        if !self.active.as_ref().is_some_and(|(operation, args)| {
+            *operation == "setAppearance" && args.get("sidebarVisible").is_some()
+        }) && !self.requests.iter().any(|(operation, args)| {
+            *operation == "setAppearance" && args.get("sidebarVisible").is_some()
+        }) {
+            self.sidebar_visible = self.appearance.sidebar_visible;
+        }
         if self.translucency_save.is_none()
             && !self.active.as_ref().is_some_and(|(operation, args)| {
                 *operation == "setAppearance" && args.get("translucency").is_some()
@@ -351,6 +419,39 @@ impl Sesh {
         }
         theme::apply(&self.appearance, Some(window), cx);
         theme::apply_translucency(self.translucency.read(cx).value().end(), window, cx);
+        self.prepare_wallpaper(window, cx);
+    }
+
+    fn prepare_wallpaper(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if !self.appearance.dithering || self.wallpaper_task.is_some() {
+            return;
+        }
+        let Some(path) = platform::wallpaper(window) else {
+            self.error = true;
+            self.message = "Dithering requires a desktop wallpaper image".into();
+            return;
+        };
+        if self.wallpaper_path.as_ref() == Some(&path) && self.wallpaper.is_some() {
+            return;
+        }
+        self.wallpaper_path = Some(path.clone());
+        let task = cx
+            .background_executor()
+            .spawn(async move { theme::dither_wallpaper(&path) });
+        self.wallpaper_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.wallpaper_task = None;
+                match result {
+                    Ok(image) => this.wallpaper = Some(image),
+                    Err(error) => {
+                        this.error = true;
+                        this.message = format!("Cannot dither wallpaper: {error}");
+                    }
+                }
+                cx.notify();
+            });
+        }));
     }
 
     fn sidebar_progress(&self) -> f32 {
@@ -419,7 +520,10 @@ impl Sesh {
             .get("accountId")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        if !matches!(operation, "snapshot" | "getAppearance") {
+        if !matches!(
+            operation,
+            "snapshot" | "getAppearance" | "openThemeDirectory"
+        ) {
             self.error = false;
             self.message = match operation {
                 "pollLogin" => "Waiting for browser authorization…",
@@ -491,7 +595,10 @@ impl Sesh {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !matches!(operation, "snapshot" | "getAppearance") {
+        if !matches!(
+            operation,
+            "snapshot" | "getAppearance" | "openThemeDirectory"
+        ) {
             self.message.clear();
         }
         if matches!(operation, "getAppearance" | "setAppearance") {
@@ -620,7 +727,10 @@ impl Sesh {
             if operation == "assumeRole" {
                 self.message = "Credentials set".into();
             }
-            if matches!(operation, "clearCredential" | "signOut") {
+            if matches!(
+                operation,
+                "clearCredential" | "clearAllCredentials" | "signOut"
+            ) {
                 self.form = None;
                 self.focus.focus(window);
                 self.message = "Local credentials removed".into();
@@ -641,6 +751,10 @@ impl Sesh {
                 if let Some((_, _, command)) = self.pending.take() {
                     self.dispatch(command, window, cx);
                 }
+            }
+        } else if operation == "openThemeDirectory" {
+            if let Some(directory) = value.as_str() {
+                cx.reveal_path(&std::path::Path::new(directory).join("theme.json.example"));
             }
         } else if operation == "consoleUrl" {
             if let Some(url) = value.as_str() {
@@ -730,11 +844,12 @@ impl Sesh {
                 .enumerate()
                 .filter(|(_, value)| {
                     matches(format!(
-                        "{} {} {} {}",
+                        "{} {} {} {} {}",
                         value.name,
                         value.account_id,
                         value.roles.join(" "),
-                        value.region.as_deref().unwrap_or("")
+                        value.region.as_deref().unwrap_or(""),
+                        value.last_profile.as_deref().unwrap_or("")
                     ))
                 })
                 .map(|(index, _)| index)
@@ -777,6 +892,10 @@ impl Sesh {
             ("Add SSO session…".into(), Command::NewSession),
             ("Show accounts".into(), Command::Accounts),
             ("Show active credentials".into(), Command::Credentials),
+            (
+                "Clear all active credentials…".into(),
+                Command::ClearAllCredentials,
+            ),
             ("Settings".into(), Command::Settings),
             ("Refresh".into(), Command::Refresh),
         ];
@@ -803,6 +922,12 @@ impl Sesh {
                 .iter()
                 .map(|name| (format!("Theme: {name}"), Command::Theme(name.clone()))),
         );
+        commands.extend(["system", "light", "dark"].into_iter().map(|mode| {
+            (
+                format!("Appearance mode: {mode}"),
+                Command::Appearance(mode.into()),
+            )
+        }));
         if self.data.session.is_some() {
             commands.extend([
                 ("Edit this session…".into(), Command::EditSession),
@@ -976,22 +1101,47 @@ impl Sesh {
             .map(|(label, value)| {
                 (
                     label.into(),
-                    cx.new(|cx| InputState::new(window, cx).default_value(value)),
+                    cx.new(|cx| {
+                        InputState::new(window, cx)
+                            .default_value(value)
+                            .placeholder(match label {
+                                "startUrl" => "Organization short name or full URL",
+                                _ => "",
+                            })
+                    }),
                 )
             })
             .collect();
         let subscriptions = fields
             .iter()
-            .map(|(_, input)| {
-                cx.subscribe_in(input, window, |this, _, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
-                        this.dispatch(Command::Confirm, window, cx);
-                    }
-                })
+            .map(|(key, input)| {
+                let start_url = key == "startUrl";
+                cx.subscribe_in(
+                    input,
+                    window,
+                    move |this, input, event: &InputEvent, window, cx| {
+                        if matches!(event, InputEvent::Change) {
+                            cx.notify();
+                        }
+                        if start_url && matches!(event, InputEvent::Blur) {
+                            let value = input.read(cx).value();
+                            let url = sso_start_url(&value);
+                            if value.as_str() != url {
+                                input.update(cx, |input, cx| input.set_value(url, window, cx));
+                            }
+                        }
+                        if matches!(event, InputEvent::PressEnter { .. }) {
+                            this.dispatch(Command::Confirm, window, cx);
+                        }
+                    },
+                )
             })
             .collect();
         if let Some((_, input)) = fields.first() {
-            input.update(cx, |input, cx| input.focus(window, cx));
+            input.update(cx, |input, cx| {
+                let end = input.text().offset_to_position(input.text().len());
+                input.set_cursor_position(end, window, cx);
+            });
         } else {
             self.focus.focus(window);
         }
@@ -1001,7 +1151,10 @@ impl Sesh {
             fields,
             operation,
             args,
-            destructive: matches!(operation, "removeSession" | "signOut" | "clearCredential"),
+            destructive: matches!(
+                operation,
+                "removeSession" | "signOut" | "clearCredential" | "clearAllCredentials"
+            ),
             _subscriptions: subscriptions,
         });
         self.error = false;
@@ -1009,6 +1162,7 @@ impl Sesh {
     }
 
     fn dispatch(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        self.popup = None;
         if matches!(command, Command::Cancel) {
             if let Some(login) = self.login.take() {
                 self.requests
@@ -1236,11 +1390,19 @@ impl Sesh {
                     self.show_form("Remove credential profile?", &format!("Removes ‘{}’ from your AWS credentials file and clears its tracking. This cannot be undone.", value.profile_name), vec![], "clearCredential", json!({"name": name, "accountId": value.account_id, "role": value.role_name, "profile": value.profile_name}), window, cx);
                 }
             }
+            Command::ClearAllCredentials => {
+                self.show_form("Clear all active credentials?", "Removes all awsesh-tracked local AWS credential profiles across organizations. Other profiles and SSO sign-ins remain. This cannot be undone.", vec![], "clearAllCredentials", json!({"name": name}), window, cx);
+            }
             Command::Confirm => {
                 if let Some(form) = &self.form {
                     let mut args = form.args.clone();
                     for (key, input) in &form.fields {
-                        args[key] = json!(input.read(cx).value().trim());
+                        let value = input.read(cx).value();
+                        args[key] = json!(if key == "startUrl" {
+                            sso_start_url(&value)
+                        } else {
+                            value.trim().to_owned()
+                        });
                     }
                     if args["originalName"]
                         .as_str()
@@ -1265,6 +1427,7 @@ impl Sesh {
                 self.request("setAppearance", json!({"mode": appearance}), cx)
             }
             Command::Theme(theme) => self.request("setAppearance", json!({"theme": theme}), cx),
+            Command::OpenThemeDirectory => self.request("openThemeDirectory", json!({}), cx),
             Command::Dithering(dithering) => {
                 self.request("setAppearance", json!({"dithering": dithering}), cx)
             }
@@ -1274,9 +1437,27 @@ impl Sesh {
                 self.sidebar_transition =
                     (!platform::reduced_motion()).then(|| (from, Instant::now()));
                 self.focus.focus(window);
+                self.request(
+                    "setAppearance",
+                    json!({"sidebarVisible": self.sidebar_visible}),
+                    cx,
+                );
+            }
+            Command::SidebarWidth(value) => {
+                self.sidebar_width = value.clamp(192., 400.);
+                let width = self.sidebar_width;
+                self.sidebar_save = Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(150))
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.sidebar_save = None;
+                        this.request("setAppearance", json!({"sidebarWidth": width}), cx);
+                    });
+                }));
             }
             Command::Translucency(value) => {
-                let amount = value.clamp(0., 10.);
+                let amount = value.clamp(0., 100.);
                 self.translucency
                     .update(cx, |state, cx| state.set_value(amount, window, cx));
                 theme::apply_translucency(amount, window, cx);
@@ -1328,7 +1509,7 @@ impl Sesh {
 
 fn main() {
     Application::new()
-        .with_assets(gpui_component_assets::Assets)
+        .with_assets(ui::Assets)
         .run(|cx: &mut App| {
             gpui_component::init(cx);
             platform::apply_appearance("system", None, cx);
@@ -1368,4 +1549,30 @@ fn main() {
             .detach();
             cx.activate(true);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sso_start_url;
+
+    #[test]
+    fn resolves_sso_short_names_without_rewriting_urls() {
+        for (input, expected) in [
+            ("  my-org  ", "https://my-org.awsapps.com/start"),
+            ("my_org", "https://my_org.awsapps.com/start"),
+            (
+                "https://example.awsapps.com/start",
+                "https://example.awsapps.com/start",
+            ),
+            (
+                "https://start.cn-north-1.home.awsapps.cn/directory/example#/",
+                "https://start.cn-north-1.home.awsapps.cn/directory/example#/",
+            ),
+            ("http://example.com", "http://example.com"),
+            ("invalid name", "invalid name"),
+            ("", ""),
+        ] {
+            assert_eq!(sso_start_url(input), expected);
+        }
+    }
 }

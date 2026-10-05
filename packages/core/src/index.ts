@@ -170,6 +170,13 @@ export function createAwsesh(options: AwseshOptions) {
       },
     },
 
+    lastProfiles: {
+      getAll: async (sessionName: string): Promise<Record<string, string>> => {
+        const data = await storage.read<Record<string, Record<string, string>>>("preference/last-profiles")
+        return data?.[sessionName] ?? {}
+      },
+    },
+
     profileNames: {
       get: async (sessionName: string, accountName: string, roleName: string): Promise<string | undefined> => {
         const data = await storage.read<Record<string, Record<string, Record<string, string>>>>(
@@ -390,6 +397,12 @@ export function createAwsesh(options: AwseshOptions) {
         sessionName,
         region,
         setAt: new Date().toISOString(),
+      })
+
+      await storage.update<Record<string, Record<string, string>>>("preference/last-profiles", (draft) => {
+        draft[sessionName] ??= {}
+        draft[sessionName][accountId] = profileName
+        return draft
       })
 
       // 4. Update last selected (for UI defaults)

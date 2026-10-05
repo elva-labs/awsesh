@@ -1,24 +1,52 @@
 use crate::{
     Accounts, Back, Command, Console, Credentials, EditSession, NewSession, Next, Palette,
     Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, ToggleDithering,
-    ToggleSidebar, platform, theme,
+    ToggleSidebar, platform, sso_start_url, theme,
 };
 use gpui::{
-    AnyElement, Context, ElementId, FontWeight, Hsla, Render, SharedString, Window, div, img,
-    prelude::*, px, uniform_list,
+    AnyElement, AssetSource, Context, ElementId, Focusable, FontWeight, Hsla, Render, SharedString,
+    Window, anchored, deferred, div, img, prelude::*, px, relative, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, InteractiveElementExt, Selectable,
+    ActiveTheme, Disableable, Icon, IconName, InteractiveElementExt, Selectable, Sizable,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     input::Input,
-    menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
+    menu::{PopupMenu, PopupMenuItem},
     select::Select as RoleSelect,
     slider::Slider,
 };
+use std::borrow::Cow;
 
 const HEADER_HEIGHT: f32 = 38.;
-const SIDEBAR_WIDTH: f32 = 216.;
+
+#[derive(Clone)]
+struct SidebarResize;
+
+impl Render for SidebarResize {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        gpui::Empty
+    }
+}
+
+pub(super) struct Assets;
+
+impl AssetSource for Assets {
+    fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+        if path == "icons/refresh.svg" {
+            return Ok(Some(Cow::Borrowed(include_bytes!("../assets/refresh.svg"))));
+        }
+        gpui_component_assets::Assets.load(path)
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+        let mut assets = gpui_component_assets::Assets.list(path)?;
+        if "icons/refresh.svg".starts_with(path) {
+            assets.push("icons/refresh.svg".into());
+        }
+        Ok(assets)
+    }
+}
 
 struct Colors {
     background: Hsla,
@@ -58,11 +86,49 @@ fn expiration(value: &str) -> String {
         .unwrap_or_else(|_| "Unknown".into())
 }
 
+fn menu_item(label: &'static str) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, _| div().h(px(36.)).flex().items_center().child(label))
+}
+
 impl Sesh {
+    fn show_menu(
+        &mut self,
+        items: Vec<(&'static str, Command, bool)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = cx.entity().downgrade();
+        let focus = self.focus.clone();
+        let menu = PopupMenu::build(window, cx, move |mut menu, _, _| {
+            for (label, command, disabled) in items {
+                let view = view.clone();
+                menu = menu.item(menu_item(label).disabled(disabled).on_click(
+                    move |_, window, cx| {
+                        let _ =
+                            view.update(cx, |this, cx| this.dispatch(command.clone(), window, cx));
+                    },
+                ));
+            }
+            menu.action_context(focus)
+        });
+        let subscription = cx.subscribe_in(
+            &menu,
+            window,
+            |this, _, _: &gpui::DismissEvent, window, cx| {
+                if this.popup.take().is_some() {
+                    this.focus.focus(window);
+                }
+                cx.notify();
+            },
+        );
+        menu.read(cx).focus_handle(cx).focus(window);
+        self.popup = Some((window.mouse_position(), menu, subscription));
+        cx.notify();
+    }
     fn toolbar_button(
         &self,
         button: Button,
-        icon: IconName,
+        icon: impl Into<Icon>,
         label: &'static str,
         cx: &Context<Self>,
     ) -> Button {
@@ -95,7 +161,7 @@ impl Sesh {
     fn window_toolbar(&self, sidebar: f32, window: &Window, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let inset = if window.is_fullscreen() { 0. } else { 82. };
-        let clearance = 16. + (SIDEBAR_WIDTH - (96. + inset)).max(0.) * sidebar;
+        let clearance = 16. + (self.sidebar_width - (96. + inset)).max(0.) * sidebar;
         let capsule = div()
             .relative()
             .h(px(32.))
@@ -260,7 +326,6 @@ impl Sesh {
                         .rounded(px(6.)),
                 );
             }
-            let view = cx.entity().downgrade();
             actions = actions.child(
                 self.toolbar_button(
                     Button::new("session-options"),
@@ -268,8 +333,8 @@ impl Sesh {
                     "Session actions",
                     cx,
                 )
-                .dropdown_menu(move |mut menu, _, _| {
-                    for (label, command) in [
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    let items = [
                         ("Edit session…", Command::EditSession),
                         ("Open SSO portal", Command::Portal),
                         (
@@ -285,23 +350,18 @@ impl Sesh {
                             },
                         ),
                         ("Delete session…", Command::DeleteSession),
-                    ] {
-                        let view = view.clone();
-                        menu =
-                            menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
-                                let _ = view.update(cx, |this, cx| {
-                                    this.dispatch(command.clone(), window, cx)
-                                });
-                            }));
-                    }
-                    menu
-                }),
+                    ]
+                    .into_iter()
+                    .map(|(label, command)| (label, command, false))
+                    .collect();
+                    this.show_menu(items, window, cx);
+                })),
             );
         }
         if self.screen != Screen::Settings {
             actions = actions.child(self.toolbar_button(
                 self.button("refresh", "", Command::Refresh, cx),
-                IconName::Redo,
+                Icon::default().path("icons/refresh.svg"),
                 "Refresh",
                 cx,
             ));
@@ -309,29 +369,22 @@ impl Sesh {
         toolbar.child(actions).into_any_element()
     }
 
-    fn background_texture(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
-        let mut texture = div()
+    fn background_artwork(&self, cx: &Context<Self>) -> AnyElement {
+        div()
             .absolute()
             .inset_0()
             .overflow_hidden()
-            .opacity(self.translucency.read(cx).value().end() / 100. * 0.18);
-        let viewport = window.viewport_size();
-        let mut y = px(0.);
-        while y < viewport.height {
-            let mut x = px(0.);
-            while x < viewport.width {
-                texture = texture.child(
-                    img(self.texture.clone())
-                        .absolute()
-                        .left(x)
-                        .top(y)
-                        .size(px(256.)),
-                );
-                x += px(256.);
-            }
-            y += px(256.);
-        }
-        texture.into_any_element()
+            .when_some(self.wallpaper.clone(), |background, image| {
+                background
+                    .child(
+                        img(image)
+                            .absolute()
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Cover),
+                    )
+                    .child(div().absolute().inset_0().bg(cx.theme().background))
+            })
+            .into_any_element()
     }
 
     fn status(&self, label: impl Into<SharedString>, color: Hsla, active: bool) -> AnyElement {
@@ -454,115 +507,118 @@ impl Sesh {
 
     fn sidebar(&self, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
-        let sessions = self
-            .data
-            .sessions
-            .iter()
-            .enumerate()
-            .map(|(index, session)| {
-                let selected = self.screen == Screen::Accounts
-                    && self.data.session.as_ref() == Some(&session.name);
-                let name = session.name.clone();
-                let session_name = session.name.clone();
-                let authenticated = session.authenticated;
-                let view = cx.entity().downgrade();
-                let disabled = self.modal();
-                div()
-                    .id(("session-container", index))
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        self.button(
-                            ("session", index),
-                            SharedString::from(session.name.clone()),
-                            Command::Session(session.name.clone()),
-                            cx,
-                        )
-                        .icon(IconName::Building2)
+        let sessions =
+            self.data
+                .sessions
+                .iter()
+                .enumerate()
+                .map(|(index, session)| {
+                    let selected = self.screen == Screen::Accounts
+                        && self.data.session.as_ref() == Some(&session.name);
+                    let name = session.name.clone();
+                    let session_name = session.name.clone();
+                    let authenticated = session.authenticated;
+                    let disabled = self.modal();
+                    div()
+                        .id(("session-container", index))
+                        .flex()
+                        .items_center()
+                        .gap_1()
                         .child(
-                            Icon::new(if authenticated {
-                                IconName::CircleCheck
+                            self.button(
+                                ("session", index),
+                                SharedString::from(session.name.clone()),
+                                Command::Session(session.name.clone()),
+                                cx,
+                            )
+                            .icon(IconName::Building2)
+                            .child(
+                                Icon::new(if authenticated {
+                                    IconName::CircleCheck
+                                } else {
+                                    IconName::CircleX
+                                })
+                                .size(px(14.))
+                                .text_color(if authenticated {
+                                    colors.success
+                                } else {
+                                    colors.warning
+                                }),
+                            )
+                            .tooltip(if authenticated {
+                                "Signed in"
                             } else {
-                                IconName::CircleX
+                                "Signed out · double-click to sign in"
                             })
-                            .size(px(14.))
+                            .ghost()
+                            .selected(selected)
                             .text_color(if authenticated {
-                                colors.success
+                                colors.text
                             } else {
-                                colors.warning
-                            }),
-                        )
-                        .tooltip(if authenticated {
-                            "Signed in"
-                        } else {
-                            "Signed out · double-click to sign in"
-                        })
-                        .ghost()
-                        .selected(selected)
-                        .text_color(if authenticated {
-                            colors.text
-                        } else {
-                            colors.muted
-                        })
-                        .cursor_pointer()
-                        .w_full()
-                        .justify_start()
-                        .on_click(cx.listener(
-                            move |this, event: &gpui::ClickEvent, window, cx| {
-                                if this.modal() {
-                                    return;
-                                }
-                                let signed_in =
-                                    this.data.sessions.iter().any(|value| {
+                                colors.muted
+                            })
+                            .cursor_pointer()
+                            .w_full()
+                            .justify_start()
+                            .on_click(cx.listener(
+                                move |this, event: &gpui::ClickEvent, window, cx| {
+                                    if this.modal() {
+                                        return;
+                                    }
+                                    let signed_in = this.data.sessions.iter().any(|value| {
                                         value.name == session_name && value.authenticated
                                     });
-                                let command = if event.click_count() == 2 && !signed_in {
-                                    Command::SessionAction(
-                                        session_name.clone(),
-                                        Box::new(Command::Login),
+                                    let command = if event.click_count() == 2 && !signed_in {
+                                        Command::SessionAction(
+                                            session_name.clone(),
+                                            Box::new(Command::Login),
+                                        )
+                                    } else {
+                                        Command::Session(session_name.clone())
+                                    };
+                                    this.dispatch(command, window, cx);
+                                },
+                            )),
+                        )
+                        .on_mouse_down(
+                            gpui::MouseButton::Right,
+                            cx.listener(move |this, _, window, cx| {
+                                if disabled {
+                                    return;
+                                }
+                                let items = [
+                                    ("Open SSO portal", Command::Portal),
+                                    ("Edit session…", Command::EditSession),
+                                    (
+                                        if authenticated {
+                                            "Sign out…"
+                                        } else {
+                                            "Sign in"
+                                        },
+                                        if authenticated {
+                                            Command::SignOut
+                                        } else {
+                                            Command::Login
+                                        },
+                                    ),
+                                    ("Delete session…", Command::DeleteSession),
+                                ]
+                                .into_iter()
+                                .map(|(label, command)| {
+                                    (
+                                        label,
+                                        Command::SessionAction(name.clone(), Box::new(command)),
+                                        false,
                                     )
-                                } else {
-                                    Command::Session(session_name.clone())
-                                };
-                                this.dispatch(command, window, cx);
-                            },
-                        )),
-                    )
-                    .context_menu(move |mut menu, _, _| {
-                        for (label, command) in [
-                            ("Open SSO portal", Command::Portal),
-                            ("Edit session…", Command::EditSession),
-                            (
-                                if authenticated {
-                                    "Sign out…"
-                                } else {
-                                    "Sign in"
-                                },
-                                if authenticated {
-                                    Command::SignOut
-                                } else {
-                                    Command::Login
-                                },
-                            ),
-                            ("Delete session…", Command::DeleteSession),
-                        ] {
-                            let view = view.clone();
-                            let command = Command::SessionAction(name.clone(), Box::new(command));
-                            menu =
-                                menu.item(PopupMenuItem::new(label).disabled(disabled).on_click(
-                                    move |_, window, cx| {
-                                        let _ = view.update(cx, |this, cx| {
-                                            this.dispatch(command.clone(), window, cx)
-                                        });
-                                    },
-                                ));
-                        }
-                        menu
-                    })
-            });
+                                })
+                                .collect();
+                                this.show_menu(items, window, cx);
+                                cx.stop_propagation();
+                            }),
+                        )
+                });
         div()
-            .w(px(SIDEBAR_WIDTH))
+            .w(px(self.sidebar_width))
             .flex_shrink_0()
             .h_full()
             .flex()
@@ -575,26 +631,7 @@ impl Sesh {
             .child(
                 div()
                     .px_5()
-                    .pt_6()
-                    .pb_5()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Icon::new(IconName::SquareTerminal)
-                            .size(px(22.))
-                            .text_color(colors.accent),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(18.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Sesh"),
-                    ),
-            )
-            .child(
-                div()
-                    .px_5()
+                    .pt_4()
                     .pb_2()
                     .text_size(px(11.))
                     .font_weight(FontWeight::SEMIBOLD)
@@ -672,7 +709,11 @@ impl Sesh {
                 .min_by_key(|credential| !credential.is_default);
             (
                 value.name.clone(),
-                value.account_id.clone(),
+                value
+                    .last_profile
+                    .as_ref()
+                    .map(|profile| format!("{} · {}", value.account_id, profile))
+                    .unwrap_or_else(|| value.account_id.clone()),
                 active
                     .map(|value| {
                         if value.is_default {
@@ -711,7 +752,6 @@ impl Sesh {
         };
         let selected = self.selected == Some(position);
         let cached = self.screen == Screen::Accounts && !self.authenticated();
-        let view = cx.entity().downgrade();
         let disabled = self.modal();
         let account_row = self.screen == Screen::Accounts;
         div()
@@ -803,37 +843,41 @@ impl Sesh {
                     cx.notify();
                 }),
             )
-            .context_menu(move |mut menu, _, _| {
-                let commands = if account_row {
-                    vec![
-                        ("Set credentials", Command::SetCredentials, cached),
-                        ("Open AWS Console", Command::Console, false),
-                        ("Copy account ID", Command::CopyAccount, false),
-                        ("Copy account name", Command::CopyName, false),
-                    ]
-                } else {
-                    vec![
-                        ("Copy CLI profile", Command::CopyProfile, false),
-                        ("Copy account ID", Command::CopyAccount, false),
-                        ("Copy account name", Command::CopyName, false),
-                        ("Remove profile…", Command::RemoveCredential, false),
-                    ]
-                };
-                for (label, command, unavailable) in commands {
-                    let view = view.clone();
-                    let command = Command::ItemAction(position, Box::new(command));
-                    menu = menu.item(
-                        PopupMenuItem::new(label)
-                            .disabled(disabled || unavailable)
-                            .on_click(move |_, window, cx| {
-                                let _ = view.update(cx, |this, cx| {
-                                    this.dispatch(command.clone(), window, cx)
-                                });
-                            }),
-                    );
-                }
-                menu
-            })
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(move |this, _, window, cx| {
+                    if disabled {
+                        return;
+                    }
+                    let commands = if account_row {
+                        vec![
+                            ("Set credentials", Command::SetCredentials, cached),
+                            ("Open AWS Console", Command::Console, false),
+                            ("Copy account ID", Command::CopyAccount, false),
+                            ("Copy account name", Command::CopyName, false),
+                        ]
+                    } else {
+                        vec![
+                            ("Copy CLI profile", Command::CopyProfile, false),
+                            ("Copy account ID", Command::CopyAccount, false),
+                            ("Copy account name", Command::CopyName, false),
+                            ("Remove profile…", Command::RemoveCredential, false),
+                        ]
+                    };
+                    let items = commands
+                        .into_iter()
+                        .map(|(label, command, unavailable)| {
+                            (
+                                label,
+                                Command::ItemAction(position, Box::new(command)),
+                                unavailable,
+                            )
+                        })
+                        .collect();
+                    this.show_menu(items, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
             .into_any_element()
     }
 
@@ -871,7 +915,8 @@ impl Sesh {
             .child(
                 div().px_4().pb_3().child(
                     Input::new(&self.search)
-                        .h(px(38.))
+                        .large()
+                        .min_h(px(44.))
                         .prefix(Icon::new(IconName::Search))
                         .disabled(self.modal()),
                 ),
@@ -1189,7 +1234,8 @@ impl Sesh {
                             } else {
                                 "Select a role"
                             })
-                            .h(px(38.))
+                            .large()
+                            .h(px(44.))
                             .w_full()
                             .disabled(self.modal()),
                     ))
@@ -1224,50 +1270,57 @@ impl Sesh {
                 cx,
             ));
         }
-        panel =
-            panel
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(div().font_weight(FontWeight::MEDIUM).child("Region"))
-                        .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .child(div().flex_1().min_w_0().child(
-                                    Input::new(&self.region).h(px(38.)).disabled(self.modal()),
-                                ))
-                                .child(
-                                    self.button("save-region", "Save", Command::SaveRegion, cx)
-                                        .disabled(self.modal() || !region_dirty),
+        panel = panel
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().font_weight(FontWeight::MEDIUM).child("Region"))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    Input::new(&self.region)
+                                        .large()
+                                        .min_h(px(44.))
+                                        .disabled(self.modal()),
                                 ),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(div().font_weight(FontWeight::MEDIUM).child("CLI profile"))
-                        .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .child(
-                                    div().flex_1().min_w_0().child(
-                                        Input::new(&self.profile)
-                                            .h(px(38.))
-                                            .disabled(self.modal() || role.is_none()),
-                                    ),
-                                )
-                                .child(
-                                    self.button("save-profile", "Save", Command::SaveProfile, cx)
-                                        .disabled(self.modal() || !profile_dirty || role.is_none()),
+                            )
+                            .child(
+                                self.button("save-region", "Save", Command::SaveRegion, cx)
+                                    .h(px(44.))
+                                    .disabled(self.modal() || !region_dirty),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().font_weight(FontWeight::MEDIUM).child("CLI profile"))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    Input::new(&self.profile)
+                                        .large()
+                                        .min_h(px(44.))
+                                        .disabled(self.modal() || role.is_none()),
                                 ),
-                        ),
-                );
+                            )
+                            .child(
+                                self.button("save-profile", "Save", Command::SaveProfile, cx)
+                                    .h(px(44.))
+                                    .disabled(self.modal() || !profile_dirty || role.is_none()),
+                            ),
+                    ),
+            );
         if let Some(active) = active {
             panel = panel.child(
                 div()
@@ -1360,63 +1413,249 @@ impl Sesh {
             ("1", "Accounts"),
             ("2", "Credentials"),
         ];
-        div().id("settings-content").flex_1().min_h_0().overflow_y_scroll().p_8().flex().flex_col().gap_6()
-            .child(div().max_w(px(650.)).flex_shrink_0().flex().flex_col().gap_3()
-                .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Appearance"))
-                .child(div().text_color(colors.muted).child("Follow your system, or choose a light or dark workspace."))
-                .child(div().flex().gap_2().children(choices.into_iter().map(|(value, label)| self.button(value, label, Command::Appearance(value.into()), cx).selected(self.appearance.mode == value))))
-                .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Theme"))
-                .child(theme::opaque_select(RoleSelect::new(&self.themes).h(px(38.)).w(px(320.)).disabled(self.modal())))
-                .child(div().text_size(px(12.)).text_color(colors.muted).child("Custom themes in your awsesh configuration directory are shared with the TUI. Each interface keeps its own selection. System uses the native desktop palette."))
-                .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Window background"))
-                .child(div().w(px(420.)).flex().flex_col().gap_2()
-                    .child(div().flex().items_center().justify_between()
-                        .child("Translucency")
-                        .child(div().text_color(colors.muted).child(format!("{:.0}%", self.translucency.read(cx).value().end()))))
-                    .child(div().id("translucency-control").px_2().py_1().rounded_md()
-                        .border_1().border_color(Hsla::transparent_black())
-                        .track_focus(&self.translucency_focus)
-                        .tab_stop(!self.modal())
-                        .key_context("Translucency")
-                        .focus(move |style| style.border_color(colors.accent))
-                        .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, window, cx| {
-                            if !this.modal() {
-                                this.translucency_focus.focus(window);
-                                cx.notify();
-                            }
-                        }))
-                        .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                            if this.modal() { return; }
-                            let value = this.translucency.read(cx).value().end();
-                            let amount = match event.keystroke.key.as_str() {
-                                "left" => value - 1.,
-                                "right" => value + 1.,
-                                "home" => 0.,
-                                "end" => 10.,
-                                _ => return,
-                            };
-                            this.dispatch(Command::Translucency(amount), window, cx);
-                            cx.stop_propagation();
-                        }))
-                        .child(Slider::new(&self.translucency).disabled(self.modal()))))
-                .child(Checkbox::new("dither-texture")
-                    .label("Dithered texture")
-                    .checked(self.appearance.dithering)
-                    .disabled(self.translucency.read(cx).value().end() == 0. || self.modal())
-                    .key_context("DitherTexture")
-                    .on_action(cx.listener(|this, _: &ToggleDithering, window, cx| {
-                        if this.translucency.read(cx).value().end() > 0. && !this.modal() {
-                            this.dispatch(Command::Dithering(!this.appearance.dithering), window, cx);
-                        }
-                    }))
-                    .on_click(cx.listener(|this, checked: &bool, window, cx| {
-                        this.dispatch(Command::Dithering(*checked), window, cx);
-                    })))
-                .child(div().text_size(px(12.)).text_color(colors.muted).child("0% is opaque. Reveal up to 10% of the desktop through your theme, including the sidebar. Text, icons and menus stay opaque.")))
-            .child(div().max_w(px(650.)).flex_shrink_0().flex().flex_col().gap_3().pt_5().border_t_1().border_color(colors.border)
-                .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Keyboard shortcuts"))
-                .children(shortcuts.into_iter().map(|(key, label)| div().flex().items_center().justify_between().py_1().child(label).child(div().text_color(colors.muted).child(platform::shortcut_label(key)))))
-                .child(div().text_size(px(12.)).text_color(colors.muted).child("Arrow keys inspect items. Enter inspects an account; it never writes credentials. Escape dismisses a dialog.")))
+        div()
+            .id("settings-content")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .p_8()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .child(
+                div()
+                    .max_w(px(650.))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Appearance"),
+                    )
+                    .child(
+                        div()
+                            .text_color(colors.muted)
+                            .child("Follow your system, or choose a light or dark workspace."),
+                    )
+                    .child(div().flex().gap_2().children(choices.into_iter().map(
+                        |(value, label)| {
+                            self.button(value, label, Command::Appearance(value.into()), cx)
+                                .selected(self.appearance.mode == value)
+                        },
+                    )))
+                    .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Theme"))
+                    .child(theme::opaque_select(
+                        RoleSelect::new(&self.themes)
+                            .large()
+                            .h(px(44.))
+                            .w(px(320.))
+                            .disabled(self.modal()),
+                    ))
+                    .child(
+                        self.button(
+                            "open-theme-directory",
+                            "Open theme location",
+                            Command::OpenThemeDirectory,
+                            cx,
+                        )
+                        .icon(IconName::Folder)
+                        .w(px(320.)),
+                    )
+                    .child(
+                        div()
+                            .pt_3()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("Window background"),
+                    )
+                    .child(
+                        div()
+                            .w(px(420.))
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .child("Translucency")
+                                    .child(div().text_color(colors.muted).child(format!(
+                                        "{:.0}%",
+                                        self.translucency.read(cx).value().end()
+                                    ))),
+                            )
+                            .child(
+                                div()
+                                    .id("translucency-control")
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(Hsla::transparent_black())
+                                    .track_focus(&self.translucency_focus)
+                                    .tab_stop(!self.modal())
+                                    .key_context("Translucency")
+                                    .focus(move |style| style.border_color(colors.accent))
+                                    .capture_any_mouse_down(cx.listener(
+                                        |this, event: &gpui::MouseDownEvent, window, cx| {
+                                            if event.button == gpui::MouseButton::Left
+                                                && !this.modal()
+                                            {
+                                                this.translucency_focus.focus(window);
+                                                cx.notify();
+                                            }
+                                        },
+                                    ))
+                                    .on_key_down(cx.listener(
+                                        |this, event: &gpui::KeyDownEvent, window, cx| {
+                                            if this.modal() {
+                                                return;
+                                            }
+                                            let value = this.translucency.read(cx).value().end();
+                                            let amount = match event.keystroke.key.as_str() {
+                                                "left" => value - 1.,
+                                                "right" => value + 1.,
+                                                "home" => 0.,
+                                                "end" => 100.,
+                                                _ => return,
+                                            };
+                                            this.dispatch(
+                                                Command::Translucency(amount),
+                                                window,
+                                                cx,
+                                            );
+                                            cx.stop_propagation();
+                                        },
+                                    ))
+                                    .child(
+                                        div()
+                                            .relative()
+                                            .child(
+                                                div()
+                                                    .absolute()
+                                                    .left(relative(0.1))
+                                                    .top(px(6.))
+                                                    .w(px(1.))
+                                                    .h(px(12.))
+                                                    .bg(colors.muted),
+                                            )
+                                            .child(
+                                                Slider::new(&self.translucency)
+                                                    .disabled(self.modal()),
+                                            ),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        Checkbox::new("dither-texture")
+                            .label("Dithered wallpaper")
+                            .checked(self.appearance.dithering)
+                            .disabled(
+                                self.translucency.read(cx).value().end() == 0. || self.modal(),
+                            )
+                            .key_context("DitherTexture")
+                            .on_action(cx.listener(|this, _: &ToggleDithering, window, cx| {
+                                if this.translucency.read(cx).value().end() > 0. && !this.modal() {
+                                    this.dispatch(
+                                        Command::Dithering(!this.appearance.dithering),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            }))
+                            .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                                this.dispatch(Command::Dithering(*checked), window, cx);
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .max_w(px(650.))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .pt_5()
+                    .border_t_1()
+                    .border_color(colors.border)
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Keyboard shortcuts"),
+                    )
+                    .children(shortcuts.into_iter().map(|(key, label)| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .py_1()
+                            .child(label)
+                            .child(
+                                div()
+                                    .text_color(colors.muted)
+                                    .child(platform::shortcut_label(key)),
+                            )
+                    })),
+            )
+            .child(
+                div()
+                    .max_w(px(650.))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .pt_5()
+                    .border_t_1()
+                    .border_color(colors.border)
+                    .child(
+                        div()
+                            .font_family(platform::mono_font())
+                            .text_size(px(11.))
+                            .line_height(px(17.))
+                            .text_color(colors.accent)
+                            .child(include_str!("../assets/wordmark.txt")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_size(px(12.))
+                            .text_color(colors.muted)
+                            .child("Open Source AWS Session Manager – presented by")
+                            .child(
+                                Button::new("elva-link")
+                                    .link()
+                                    .h(px(24.))
+                                    .p_0()
+                                    .cursor_pointer()
+                                    .child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(colors.accent)
+                                            .text_decoration_1()
+                                            .child("Elva"),
+                                    )
+                                    .disabled(self.modal())
+                                    .tab_stop(!self.modal())
+                                    .tooltip("https://elva-group.com")
+                                    .on_click(|_, _, cx| cx.open_url("https://elva-group.com")),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(colors.muted)
+                            .child(format!(
+                                "Sesh {} · Native desktop client for awsesh",
+                                env!("CARGO_PKG_VERSION")
+                            )),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -1468,7 +1707,24 @@ impl Sesh {
                         .flex_col()
                         .gap_2()
                         .child(SharedString::from(label.to_owned()))
-                        .child(Input::new(input).h(px(38.)).disabled(submitting)),
+                        .child(
+                            Input::new(input)
+                                .large()
+                                .min_h(px(44.))
+                                .disabled(submitting),
+                        )
+                        .when(
+                            key == "startUrl" && !input.read(cx).value().trim().is_empty(),
+                            |field| {
+                                field.child(
+                                    div()
+                                        .font_family(platform::mono_font())
+                                        .text_size(px(11.))
+                                        .text_color(colors.muted)
+                                        .child(sso_start_url(&input.read(cx).value())),
+                                )
+                            },
+                        ),
                 );
             }
             if self.error {
@@ -1557,7 +1813,12 @@ impl Sesh {
             panel = panel
                 .w(px(560.))
                 .p_3()
-                .child(Input::new(&self.command_search).prefix(Icon::new(IconName::Search)))
+                .child(
+                    Input::new(&self.command_search)
+                        .large()
+                        .min_h(px(44.))
+                        .prefix(Icon::new(IconName::Search)),
+                )
                 .child(
                     uniform_list(
                         "command-results",
@@ -1571,7 +1832,7 @@ impl Sesh {
                                     div()
                                         .id(("command-result", index))
                                         .w_full()
-                                        .h(px(40.))
+                                        .h(px(44.))
                                         .px_3()
                                         .flex()
                                         .items_center()
@@ -1600,7 +1861,7 @@ impl Sesh {
                                 .collect::<Vec<_>>()
                         }),
                     )
-                    .h(px((count.min(8) * 40) as f32))
+                    .h(px((count.min(8) * 44) as f32))
                     .w_full()
                     .track_scroll(self.command_scroll.clone()),
                 )
@@ -1760,7 +2021,7 @@ impl Render for Sesh {
             }))
             .when(
                 self.translucency.read(cx).value().end() > 0. && self.appearance.dithering,
-                |root| root.child(self.background_texture(window, cx)),
+                |root| root.child(self.background_artwork(cx)),
             )
             .child(
                 div()
@@ -1769,11 +2030,70 @@ impl Render for Sesh {
                     .flex()
                     .child(
                         div()
-                            .w(px(SIDEBAR_WIDTH * sidebar))
+                            .relative()
+                            .w(px(self.sidebar_width * sidebar))
                             .flex_shrink_0()
                             .h_full()
                             .overflow_hidden()
-                            .when(sidebar > 0., |container| container.child(self.sidebar(cx))),
+                            .when(sidebar > 0., |container| container.child(self.sidebar(cx)))
+                            .when(sidebar == 1. && !self.modal(), |container| {
+                                container.child(
+                                    div()
+                                        .id("sidebar-resize")
+                                        .absolute()
+                                        .right_0()
+                                        .top(px(HEADER_HEIGHT))
+                                        .bottom_0()
+                                        .w(px(6.))
+                                        .cursor_col_resize()
+                                        .track_focus(&self.sidebar_resize_focus)
+                                        .tab_stop(true)
+                                        .focus(|style| style.bg(colors.accent.opacity(0.35)))
+                                        .on_mouse_down(
+                                            gpui::MouseButton::Left,
+                                            cx.listener(|this, _, window, cx| {
+                                                this.sidebar_resize_focus.focus(window);
+                                                cx.notify();
+                                            }),
+                                        )
+                                        .on_key_down(cx.listener(
+                                            |this, event: &gpui::KeyDownEvent, window, cx| {
+                                                let width = match event.keystroke.key.as_str() {
+                                                    "left" => this.sidebar_width - 8.,
+                                                    "right" => this.sidebar_width + 8.,
+                                                    "home" => 192.,
+                                                    "end" => 400.,
+                                                    _ => return,
+                                                };
+                                                this.dispatch(
+                                                    Command::SidebarWidth(width),
+                                                    window,
+                                                    cx,
+                                                );
+                                                cx.stop_propagation();
+                                            },
+                                        ))
+                                        .occlude()
+                                        .hover(|style| style.bg(colors.accent.opacity(0.35)))
+                                        .on_drag(SidebarResize, |value, _, _, cx| {
+                                            cx.new(|_| value.clone())
+                                        })
+                                        .on_drag_move(cx.listener(
+                                            |this,
+                                             event: &gpui::DragMoveEvent<SidebarResize>,
+                                             window,
+                                             cx| {
+                                                this.dispatch(
+                                                    Command::SidebarWidth(f32::from(
+                                                        event.event.position.x,
+                                                    )),
+                                                    window,
+                                                    cx,
+                                                );
+                                            },
+                                        )),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -1835,6 +2155,24 @@ impl Render for Sesh {
             );
         if cfg!(target_os = "macos") {
             root = root.child(self.window_toolbar(sidebar, window, cx));
+        }
+        if let Some((position, menu, _)) = &self.popup {
+            root = root.child(
+                deferred(
+                    anchored()
+                        .position(*position)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(
+                            div().rounded(cx.theme().radius).shadow_sm().child(
+                                div()
+                                    .rounded(cx.theme().radius)
+                                    .overflow_hidden()
+                                    .child(menu.clone()),
+                            ),
+                        ),
+                )
+                .with_priority(1),
+            );
         }
         if let Some(overlay) = self.overlays(cx) {
             root = root.child(overlay);

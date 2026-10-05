@@ -126,8 +126,12 @@ select the appropriate resolved variant locally without another helper request.
 Theme and mode writes are partial, ordered updates so changing both quickly cannot
 overwrite the other choice with an earlier value.
 
-Desktop-only `translucency` and `dithering` preferences also live in `desktop.json`.
-The 0–10% slider defaults to 0% (opaque). Values above 0% request GPUI's native blurred
+Desktop-only `translucency`, `dithering`, `sidebarVisible` and `sidebarWidth`
+preferences also live in `desktop.json`. Sidebar visibility and its 192–400px width
+restore on launch; its divider supports dragging and keyboard focus.
+The 0–100% slider defaults to 10%, with a visible tick and pointer
+snapping within two percentage points. Keyboard adjustments retain 1% precision.
+Values above 0% request GPUI's native blurred
 window background and reduce the theme tint's opacity by the selected percentage.
 One window tint covers the workspace, sidebar and status bar; those window-sized
 panels do not paint a second tint over it. This avoids alpha stacking that previously
@@ -138,11 +142,15 @@ dropdown. `theme::opaque_select` scopes an opaque version of that token to the
 select's layout/render traversal, then restores the window tint before sibling
 elements render. Both the role and theme selectors use it; searchable-list state,
 deferred popup placement and keyboard behavior remain owned by gpui-component.
-Popup menus use the separate, opaque `popover` token. No dependency fork is needed.
+Popup menus use the separate, opaque `popover` token and restore workspace focus
+when dismissed. Main input fields use 44px minimum heights; selectors use large
+search/list sizing, and popup-menu rows use 36px custom labels. No dependency fork
+is needed. Open theme location creates a disabled, non-overwriting example from
+the bundled GitHub definition, then reveals it in the native file manager.
 The slider previews locally and debounces persistence by 150 ms, without queueing
 a helper write for every drag event. Its strength is retained when switching themes
-or light/dark modes. Legacy `translucent: false` settings become 0%; enabled legacy
-strengths are capped at 10%. Subsequent writes omit the removed boolean. Native blur support depends on the
+or light/dark modes. Legacy `translucent: false` settings become 0%; saved strengths
+are preserved. Subsequent writes omit the removed boolean. Native blur support depends on the
 platform; the current application bundle is verified on macOS.
 The slider controls tint opacity, not blur radius. GPUI 0.2.2 uses the AppKit
 `Selection` effect material, which no longer supplies backdrop blur on recent macOS.
@@ -154,14 +162,17 @@ vendoring GPUI or changing its lifecycle; GPUI still creates, resizes and remove
 the effect view. The raw pointer is used only during the borrowed window's lifetime
 on GPUI's UI thread. The system can still disable effects for accessibility.
 
-The optional dithered texture uses one embedded, cached 256px monochrome SVG tile.
-Its ordered dot pattern is tiled at a fixed logical-pixel scale behind workspace
-content, rather than stretched with the window or generated every frame. Its
-intensity follows translucency strength; opaque mode hides it without clearing
-the saved checkbox preference. It does not overlay text, controls or dialogs.
-Zeron's reference dithers its background artwork with a 4×4 Bayer threshold matrix;
-Sesh applies an ordered texture to the window tint, not color quantization to the
-desktop image.
+The optional dithered wallpaper replaces the former sparse, 18%-maximum monochrome
+overlay. Like Zeron, it decodes source artwork once, limits it to 2048px, applies
+the 4×4 Bayer threshold to peak RGB intensity, preserves hue by scaling bright
+pixels to a 255 peak and dark pixels by 0.08, and writes uniform 2×2 BGRA blocks.
+Sesh uses the current display's macOS wallpaper as its source via NSWorkspace;
+AppKit decoding handles HEIC wallpapers when the image decoder cannot. The raster
+is prepared off-thread and cached independently of layout. The theme tint sits
+above the artwork and below all controls; translucency changes its alpha without
+reprocessing the image. Opaque mode hides the artwork without clearing the saved
+checkbox preference. This is artwork dithering, not screen capture or processing
+of other application windows. Disabling it restores GPUI's native backdrop blur.
 
 Theme import UI and desktop preview/cancel can be added later without moving themes
 into the SDK. File-based installation already makes a definition available to both

@@ -34,10 +34,17 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
 - Escape dismisses a dialog; organizations remain available in the sidebar.
 - Command-F to search; Command-R to refresh.
 - Command-N / Command-E to create / edit an SSO session.
+- Tab and Shift-Tab place the cursor at the end of session, region and profile
+  fields without changing mouse cursor placement. The SSO start URL accepts an
+  organization short name, previews the full `https://name.awsapps.com/start` URL,
+  and expands on blur or save. Full URLs, including China-region URLs, are preserved.
 - Command-B to open the SSO dashboard or selected account in AWS Console.
 - Command-1 for accounts; Command-2 for credentials; Command-comma for settings.
 - Command-K or Command-P opens the searchable command bar. Type to filter,
   use up/down to navigate and Enter to run a command. Escape dismisses it.
+  Appearance commands select System, Light or Dark directly. Clear all active
+  credentials asks for confirmation, removes every awsesh-tracked local profile
+  and clears credential tracking; unrelated profiles and SSO sign-ins remain.
 - The macOS window controls stay fixed above the sidebar. They integrate with its
   background when open and become a floating capsule when closed. Sidebar width
   and capsule background share Zeron's 200 ms ease-out transition, with immediate
@@ -50,6 +57,9 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   Option-Command-S and View → Toggle Sidebar also show/hide the sidebar. Drag the
   empty top strip to move the window; double-click it to follow the system titlebar
   action. Double-clicking a toolbar button does not zoom the window.
+  Drag the sidebar's right edge to resize it between 192px and 400px. The divider
+  also accepts Tab focus and Left/Right or Home/End for keyboard resizing. Width
+  and visibility are saved in `desktop.json` and restored on launch.
 - Right-click organizations, accounts or credential profiles for contextual actions.
 - The current organization does not reload when clicked again. Signed-out
   organizations and cached accounts are muted but remain available for inspection.
@@ -62,6 +72,8 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   profiles use a distinct secondary color.
 - Account names and IDs in the inspector are clickable to copy, with hover feedback
   and a “Click to copy” tooltip.
+  Account rows show the most recently used CLI profile when known, including after
+  expiration or credential removal. Configuring a profile alone does not mark it used.
 - Select a role in the inspector, then use Set Credentials or Command-Enter.
 - Region and CLI profile changes require their own Save action. Unsaved changes
   block Set Credentials so it cannot silently use old preferences.
@@ -70,18 +82,31 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
 - Appearance follows the system by default. Settings and the command bar offer the
   shared named themes; System/Light/Dark and theme selection are saved independently
   of the TUI in `desktop.json`. See [custom themes](../themes/README.md).
-- Settings offers a 0–10% translucency slider over the selected theme, including
-  the sidebar and status bar. 0% is opaque; no separate background-mode buttons
-  are needed. Changes preview immediately and save automatically. Text, icons,
-  menus and dialogs remain opaque. Tab focuses the slider; Left/Right adjusts it
-  and Home/End selects the limits. Older enabled settings are capped at 10%; older
-  disabled settings become 0%.
+- Settings offers a 0–100% translucency slider over the selected theme, including
+  the sidebar and status bar. The default is 10%, with a visible tick and pointer
+  snapping within two percentage points.
+  Saved amounts are preserved. Changes preview immediately and save automatically.
+  Text, icons, menus and dialogs remain opaque. Clicking the track or thumb, or
+  using Tab, focuses the slider; Left/Right
+  adjusts it by 1% without snapping, and Home/End selects 0%/100%.
+- Open theme location below the theme selector opens the shared themes directory
+  and creates `theme.json.example` if absent. Rename it to a `.json` file and edit
+  its colors to enable it; existing examples are never overwritten.
 - Theme/role dropdowns and contextual menus have opaque backgrounds regardless of
   window translucency; filtering and selection remain keyboard-accessible.
-- The Dithered texture checkbox adds a subtle ordered monochrome dot pattern behind
-  workspace content while translucency is above 0%. Its selection is saved independently;
-  Tab then Space/Enter toggles the checkbox.
+  Search and form inputs use 44px targets, command rows are 44px, and popup-menu
+  rows are 36px; native top-row buttons remain compact.
+  Popup menus use compact shadows, and light-mode buttons have stronger fill contrast.
+- Dithered wallpaper applies Zeron's 4×4 Bayer color threshold, hue-preserving
+  bright/dark quantization and 2×2 pixel blocks to the current macOS wallpaper.
+  It is cached off-thread and tinted by the translucency slider, not a faint dot
+  overlay. This mode uses wallpaper artwork, not other windows behind Sesh; it
+  does not capture the screen. Disable it to restore the normal native blur.
+  Its selection is saved independently; Tab then Space/Enter toggles the checkbox.
 - macOS application, File, Edit and View menus expose common operations.
+- Settings ends with the `awsesh --help` ASCII banner, “Open Source AWS Session
+  Manager – presented by Elva” linking to https://elva-group.com, and the version;
+  the sidebar keeps navigation only, without an application logo or name.
 
 Windows and Linux use Control instead of Command. Their modifiers, technical fonts
 and menu integration live in `src/platform.rs`; the workspace and SDK are shared.
@@ -166,6 +191,39 @@ positions, button double-click guards, empty-strip drag/zoom and native minimize
 and fullscreen passed on macOS 27. The rebuilt bundle's signature, workspace
 typechecks, 213 existing tests and the Rust palette test passed. Isolated AWS files,
 preferred roles and TUI preferences remained unchanged; no live AWS operation ran.
+
+The form and branding pass verified initial focus, Tab/Shift-Tab cursor placement
+in session and inspector fields, preserved mouse placement, the live SSO URL preview,
+blur expansion and saving a short name with Enter before blur. Screenshots checked
+the circular refresh icon, navigation-only sidebar and branding-only Settings footer
+at 960×620 with the sidebar open and collapsed. The rebuilt bundle's signature,
+workspace typechecks, 213 existing tests and both Rust tests passed. Isolated AWS/TUI
+files and inspector preferences remained unchanged; no live AWS operation ran, and
+the verification application/helper were closed.
+
+The Settings and command-bar pass verified direct System/Light/Dark commands,
+the full 0–100% range, pointer snapping at 10%, keyboard 1% precision and the
+default reset on macOS 27. Theme-folder opening created a valid but disabled
+example without replacing an existing file. Credential-clear cancellation kept
+tracking intact; confirmation removed tracked default and named profiles across
+organizations while preserving an unrelated profile. The folded sidebar restored
+after restart, including an immediate toggle/quit check. Taller inputs, dropdowns,
+menus and command rows, popup-menu focus restoration, the linked Elva attribution,
+and full/China SSO URL preservation were checked at 960×620. The rebuilt bundle's
+signature, workspace typechecks, 213 existing tests and both Rust tests passed.
+Isolated AWS configuration, TUI settings and account preferences stayed unchanged;
+no live AWS operation ran, and the verification application/helper were closed.
+
+The appearance and account-list refinement pass verified slider-thumb focus and
+9%/10% arrow-key precision, full-range limits, sidebar mouse and keyboard resizing
+from 192px to 400px, and retained width after folding. Screenshots checked removed
+help/reset controls, stronger light-mode buttons, compact popup shadows and
+post-dismissal account navigation. Named and default last-used profiles remained
+visible after credential removal. Zeron-style wallpaper dithering was checked at
+90% and 100%, in light/dark modes, with normal native blur restored when disabled.
+Workspace typechecks, 213 existing Bun tests, both Rust tests and the rebuilt
+bundle's signature passed. Isolated AWS/TUI files and account preferences matched
+their prepared baselines; no live AWS operation ran.
 
 Setting credentials updates `~/.aws/credentials` through the SDK, including its
 existing tracking and preferences. It cannot change the environment of an already

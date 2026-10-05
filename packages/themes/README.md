@@ -12,6 +12,11 @@ Place a JSON file in `~/.config/awsesh/themes/`, or
 and edit its colors. Files matching a bundled name override that definition;
 `system` is reserved for each interface's native appearance.
 
+Desktop Settings → Open theme location opens this directory and provides a
+`theme.json.example` based on the bundled GitHub theme. Rename it to a `.json`
+file and edit its colors to enable it. The example is not loaded as a theme,
+and opening the directory again does not overwrite it.
+
 The desktop reloads the catalog when Settings opens. Restart the TUI to discover
 new files. Select a theme in desktop Settings/the command bar, or the TUI's theme
 picker. Installing a theme makes it available to both, but selections are independent:

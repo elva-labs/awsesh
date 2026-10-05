@@ -5,6 +5,7 @@ use gpui::{
 };
 use gpui_component::{Colorize, Theme};
 use serde::Deserialize;
+use std::sync::Arc;
 
 #[derive(Clone, Deserialize)]
 #[serde(try_from = "String")]
@@ -53,11 +54,14 @@ pub struct Palettes {
 }
 
 #[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Appearance {
     pub theme: String,
     pub mode: String,
     pub translucency: f32,
     pub dithering: bool,
+    pub sidebar_visible: bool,
+    pub sidebar_width: f32,
     pub themes: Vec<String>,
     pub palettes: Option<Palettes>,
     pub warnings: Vec<String>,
@@ -80,13 +84,65 @@ fn contrasting_text(background: Hsla) -> Hsla {
 pub fn apply(appearance: &Appearance, window: Option<&mut Window>, cx: &mut App) {
     platform::apply_appearance(&appearance.mode, window, cx);
     apply_palette(appearance, cx);
-    Theme::global_mut(cx).popover.a = 1.;
+    let theme = Theme::global_mut(cx);
+    theme.popover.a = 1.;
+    if !theme.is_dark() {
+        let foreground = theme.foreground;
+        theme.secondary = theme.background.blend(foreground.opacity(0.09));
+        theme.secondary_hover = theme.background.blend(foreground.opacity(0.14));
+        theme.secondary_active = theme.background.blend(foreground.opacity(0.18));
+        theme.secondary_foreground = foreground;
+    }
 }
 
 pub fn apply_translucency(amount: f32, window: &Window, cx: &mut App) {
-    let amount = amount.clamp(0., 10.);
+    let amount = amount.clamp(0., 100.);
     platform::apply_window_background(amount > 0., window);
     Theme::global_mut(cx).background.a = 1. - amount / 100.;
+}
+
+fn dither_color([red, green, blue, alpha]: [u8; 4], threshold: u16) -> [u8; 4] {
+    let peak = u16::from(red.max(green).max(blue));
+    let bright = peak * 32 > (threshold * 2 + 1) * 255;
+    let channel = |value: u8| {
+        let value = u16::from(value);
+        let quantized = if bright {
+            (value * 255 + peak / 2) / peak
+        } else {
+            (value * 8 + 50) / 100
+        };
+        u8::try_from(quantized).unwrap_or(255)
+    };
+    [channel(blue), channel(green), channel(red), alpha]
+}
+
+pub fn dither_wallpaper(path: &std::path::Path) -> anyhow::Result<Arc<gpui::RenderImage>> {
+    const BAYER: [[u16; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+    let source = platform::wallpaper_image(path)?
+        .thumbnail(2048, 2048)
+        .to_rgba8();
+    let width = source.width();
+    let height = source.height();
+    let mut output = image::RgbaImage::new(width, height);
+    for y in (0..height).step_by(2) {
+        for x in (0..width).step_by(2) {
+            let threshold = BAYER[usize::try_from(y / 2 % 4)?][usize::try_from(x / 2 % 4)?];
+            let color = dither_color(
+                source
+                    .get_pixel((x + 1).min(width - 1), (y + 1).min(height - 1))
+                    .0,
+                threshold,
+            );
+            for dy in 0..2.min(height - y) {
+                for dx in 0..2.min(width - x) {
+                    output.put_pixel(x + dx, y + dy, image::Rgba(color));
+                }
+            }
+        }
+    }
+    Ok(Arc::new(gpui::RenderImage::new([image::Frame::new(
+        output,
+    )])))
 }
 
 pub fn opaque_select(select: impl IntoElement) -> impl IntoElement {
@@ -243,6 +299,9 @@ fn apply_palette(appearance: &Appearance, cx: &mut App) {
 #[cfg(test)]
 #[test]
 fn validates_color_transport_and_readable_text() -> anyhow::Result<()> {
+    assert_eq!(dither_color([128, 64, 32, 200], 0), [64, 128, 255, 200]);
+    assert_eq!(dither_color([128, 64, 32, 200], 15), [3, 5, 10, 200]);
+    assert_eq!(dither_color([0, 0, 0, 255], 0), [0, 0, 0, 255]);
     assert!(Color::try_from("#ééé".to_owned()).is_err());
     assert!(Color::try_from("#00000g".to_owned()).is_err());
     let color = Color::try_from("#ff000080".to_owned())?;
