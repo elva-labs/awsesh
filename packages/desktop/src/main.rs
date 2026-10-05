@@ -68,8 +68,6 @@ enum Command {
     EditSession,
     DeleteSession,
     SignOut,
-    SaveRegion,
-    SaveProfile,
     RemoveCredential,
     ClearAllCredentials,
     Palette,
@@ -140,6 +138,8 @@ struct Sesh {
     roles: Entity<SelectState<SearchableVec<String>>>,
     region: Entity<InputState>,
     profile: Entity<InputState>,
+    preferences: BTreeMap<&'static str, Value>,
+    preference_save: Option<gpui::Task<()>>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     busy: bool,
@@ -262,6 +262,7 @@ impl Sesh {
                 window,
                 |this, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::Change) {
+                        this.flush_preferences(cx);
                         this.selected = None;
                         this.account = None;
                         this.scroll.scroll_to_item(0, gpui::ScrollStrategy::Top);
@@ -278,6 +279,7 @@ impl Sesh {
                 window,
                 |this, _, event: &SelectEvent<SearchableVec<String>>, window, cx| {
                     if let SelectEvent::Confirm(Some(role)) = event {
+                        this.flush_preferences(cx);
                         let value = this
                             .account
                             .as_ref()
@@ -294,11 +296,11 @@ impl Sesh {
                 &region,
                 window,
                 |this, _, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
-                        this.dispatch(Command::SaveRegion, window, cx);
-                    }
                     if matches!(event, InputEvent::Change) {
-                        cx.notify();
+                        this.schedule_preference("setRegion", window, cx);
+                    }
+                    if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                        this.flush_preferences(cx);
                     }
                 },
             ),
@@ -306,11 +308,11 @@ impl Sesh {
                 &profile,
                 window,
                 |this, _, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
-                        this.dispatch(Command::SaveProfile, window, cx);
-                    }
                     if matches!(event, InputEvent::Change) {
-                        cx.notify();
+                        this.schedule_preference("setProfile", window, cx);
+                    }
+                    if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                        this.flush_preferences(cx);
                     }
                 },
             ),
@@ -358,6 +360,8 @@ impl Sesh {
             roles,
             region,
             profile,
+            preferences: BTreeMap::new(),
+            preference_save: None,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             busy: false,
@@ -548,7 +552,18 @@ impl Sesh {
     }
 
     fn request(&mut self, operation: &'static str, args: Value, cx: &mut Context<Self>) {
-        if operation != "setAppearance"
+        if matches!(operation, "setRegion" | "setProfile") {
+            if self
+                .requests
+                .iter()
+                .rev()
+                .chain(self.active.iter())
+                .find(|(current, _)| *current == operation)
+                .is_some_and(|(_, values)| *values == args)
+            {
+                return;
+            }
+        } else if operation != "setAppearance"
             && (self
                 .active
                 .as_ref()
@@ -572,6 +587,101 @@ impl Sesh {
             return;
         }
         self.start_request(operation, args, cx);
+    }
+
+    fn schedule_preference(
+        &mut self,
+        operation: &'static str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(account) = &self.account else {
+            return;
+        };
+        let role = self.role(cx);
+        let (input, field, saved) = match operation {
+            "setRegion" => (
+                &self.region,
+                "region",
+                account.region.as_deref().unwrap_or(""),
+            ),
+            "setProfile" => (
+                &self.profile,
+                "profile",
+                role.as_ref()
+                    .and_then(|role| account.profiles.get(role))
+                    .map(String::as_str)
+                    .unwrap_or(""),
+            ),
+            _ => return,
+        };
+        if self.screen != Screen::Accounts
+            || !input.read(cx).focus_handle(cx).is_focused(window)
+            || (operation == "setProfile" && role.is_none())
+        {
+            return;
+        }
+        let value = input.read(cx).value().trim().to_owned();
+        let mut args = json!({"name": self.data.session, "accountId": account.account_id});
+        if operation == "setProfile" {
+            args["role"] = json!(role);
+        }
+        let outstanding =
+            self.active
+                .iter()
+                .chain(self.requests.iter())
+                .any(|(current, values)| {
+                    *current == operation
+                        && values["name"] == args["name"]
+                        && values["accountId"] == args["accountId"]
+                        && values["role"] == args["role"]
+                });
+        if value == saved && !outstanding {
+            self.preferences.remove(operation);
+            if self.preferences.is_empty() {
+                self.preference_save = None;
+            }
+            cx.notify();
+            return;
+        }
+        args[field] = json!(value);
+        self.preferences.insert(operation, args);
+        self.preference_save = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(400))
+                .await;
+            let _ = this.update(cx, |this, cx| this.flush_preferences(cx));
+        }));
+        cx.notify();
+    }
+
+    fn flush_preferences(&mut self, cx: &mut Context<Self>) {
+        self.preference_save = None;
+        for (operation, args) in std::mem::take(&mut self.preferences) {
+            self.request(operation, args, cx);
+        }
+        cx.notify();
+    }
+
+    fn preferences_saving(&self, cx: &App) -> bool {
+        let Some(account) = &self.account else {
+            return false;
+        };
+        let role = self.role(cx);
+        let saving = |operation: &str, args: &Value| {
+            matches!(operation, "setRegion" | "setProfile")
+                && args["name"].as_str() == self.data.session.as_deref()
+                && args["accountId"].as_str() == Some(account.account_id.as_str())
+                && (operation != "setProfile" || args["role"].as_str() == role.as_deref())
+        };
+        self.preferences
+            .iter()
+            .any(|(operation, args)| saving(operation, args))
+            || self
+                .active
+                .iter()
+                .chain(self.requests.iter())
+                .any(|(operation, args)| saving(operation, args))
     }
 
     fn start_request(&mut self, operation: &'static str, args: Value, cx: &mut Context<Self>) {
@@ -1099,6 +1209,9 @@ impl Sesh {
                 .or_else(|| account.preferred_role.clone())
         }
         .or_else(|| account.roles.first().cloned());
+        if reset || self.role(cx) != role {
+            self.flush_preferences(cx);
+        }
         self.roles.update(cx, |state, cx| {
             state.set_items(account.roles.clone().into(), window, cx);
             if let Some(role) = &role {
@@ -1152,6 +1265,7 @@ impl Sesh {
     }
 
     fn reset_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.flush_preferences(cx);
         self.pending = None;
         self.search
             .update(cx, |state, cx| state.set_value("", window, cx));
@@ -1357,6 +1471,7 @@ impl Sesh {
                 }
             }
             Command::SetCredentials => {
+                self.flush_preferences(cx);
                 if !self.authenticated() {
                     self.error = true;
                     self.message = "Sign in before setting credentials.".into();
@@ -1372,7 +1487,7 @@ impl Sesh {
                     if self.preferences_dirty(cx) {
                         self.error = true;
                         self.message =
-                            "Save region and profile changes before setting credentials.".into();
+                            "Region and profile changes must finish saving before setting credentials.".into();
                     } else {
                         self.request("assumeRole", args, cx);
                     }
@@ -1463,16 +1578,6 @@ impl Sesh {
             Command::SignOut => {
                 if name.is_some() {
                     self.show_form("Sign out of this organization?", "Removes its local access token and tracked AWS credential profiles. Your browser session is not signed out.", vec![], "signOut", json!({"name": name}), window, cx);
-                }
-            }
-            Command::SaveRegion => {
-                if self.account.is_some() {
-                    self.request("setRegion", json!({"name": name, "accountId": self.account.as_ref().map(|value| &value.account_id), "region": self.region.read(cx).value().trim()}), cx);
-                }
-            }
-            Command::SaveProfile => {
-                if self.account.is_some() && role.is_some() {
-                    self.request("setProfile", json!({"name": name, "accountId": self.account.as_ref().map(|value| &value.account_id), "role": role, "profile": self.profile.read(cx).value().trim()}), cx);
                 }
             }
             Command::RemoveCredential => {

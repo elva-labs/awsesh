@@ -478,7 +478,8 @@ impl Sesh {
             return false;
         };
         let role = self.role(cx);
-        self.region.read(cx).value().trim() != account.region.as_deref().unwrap_or("")
+        self.preferences_saving(cx)
+            || self.region.read(cx).value().trim() != account.region.as_deref().unwrap_or("")
             || self.profile.read(cx).value().trim()
                 != role
                     .as_ref()
@@ -1206,14 +1207,6 @@ impl Sesh {
         };
         let role = self.role(cx);
         let ready = role.is_some() && self.authenticated();
-        let region_dirty =
-            self.region.read(cx).value().trim() != account.region.as_deref().unwrap_or("");
-        let profile_dirty = self.profile.read(cx).value().trim()
-            != role
-                .as_ref()
-                .and_then(|role| account.profiles.get(role))
-                .map(String::as_str)
-                .unwrap_or("");
         let active = self.data.credentials.iter().find(|value| {
             value.account_id == account.account_id
                 && Some(&value.session_name) == self.data.session.as_ref()
@@ -1301,22 +1294,10 @@ impl Sesh {
                     .gap_2()
                     .child(div().font_weight(FontWeight::MEDIUM).child("Region"))
                     .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div().flex_1().min_w_0().child(
-                                    Input::new(&self.region)
-                                        .large()
-                                        .min_h(px(44.))
-                                        .disabled(self.modal()),
-                                ),
-                            )
-                            .child(
-                                self.button("save-region", "Save", Command::SaveRegion, cx)
-                                    .h(px(44.))
-                                    .disabled(self.modal() || !region_dirty),
-                            ),
+                        Input::new(&self.region)
+                            .large()
+                            .min_h(px(44.))
+                            .disabled(self.modal()),
                     ),
             )
             .child(
@@ -1326,22 +1307,10 @@ impl Sesh {
                     .gap_2()
                     .child(div().font_weight(FontWeight::MEDIUM).child("CLI profile"))
                     .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div().flex_1().min_w_0().child(
-                                    Input::new(&self.profile)
-                                        .large()
-                                        .min_h(px(44.))
-                                        .disabled(self.modal() || role.is_none()),
-                                ),
-                            )
-                            .child(
-                                self.button("save-profile", "Save", Command::SaveProfile, cx)
-                                    .h(px(44.))
-                                    .disabled(self.modal() || !profile_dirty || role.is_none()),
-                            ),
+                        Input::new(&self.profile)
+                            .large()
+                            .min_h(px(44.))
+                            .disabled(self.modal() || role.is_none()),
                     ),
             );
         if let Some(active) = active {
@@ -1375,12 +1344,13 @@ impl Sesh {
             );
         }
         if self.preferences_dirty(cx) {
-            panel = panel.child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(colors.muted)
-                    .child("Save your changes before setting credentials."),
-            );
+            panel = panel.child(div().text_size(px(11.)).text_color(colors.muted).child(
+                if self.preferences_saving(cx) {
+                    "Saving preferences…"
+                } else {
+                    "Preferences could not be saved. Check the region and profile."
+                },
+            ));
         }
         panel = panel.child(
             div()

@@ -87,8 +87,10 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   preference exists. Use Set Credentials or Command-Enter without an extra role
   selection. You can still choose another role; preselection alone does not save
   a preference or set credentials.
-- Region and CLI profile changes require their own Save action. Unsaved changes
-  block Set Credentials so it cannot silently use old preferences.
+- Region and CLI profile changes save after a 400 ms debounce, or immediately on
+  blur or Enter. Edits retain their original account/role when navigating away.
+  Pending or invalid changes block Set Credentials so it cannot use stale
+  preferences. Failed saves leave the current input intact for correction.
 - Role selection is local until Make Preferred or Set Credentials is requested.
 - Credential details use the account inspector's headings, account ID placement,
   field sizing and action spacing. The selected preferred role has no extra status
@@ -268,6 +270,14 @@ data. Command-B folded the sidebar; Rust binding checks verified Command-O for
 AWS Console. Typechecks, 213 Bun tests, three Rust tests, the release build and
 bundle signature passed. Isolated AWS/TUI files and account preferences remained
 unchanged; no live AWS operation ran, and verification processes were closed.
+
+The inspector autosave pass verified focused debounce, immediate blur saving,
+account/role switches and programmatic input resets. Suspending the isolated helper
+verified that the latest queued edit wins, including a reversal to an earlier
+in-flight value. Invalid profiles retained their input and blocked stale credential
+actions; correction and clearing a profile saved successfully. Rust tests, 213 Bun
+tests and the rebuilt bundle's signature passed. All eight isolated AWS/TUI/account
+preference baselines were restored; no live AWS call ran, and processes were closed.
 
 Setting credentials updates `~/.aws/credentials` through the SDK, including its
 existing tracking and preferences. It cannot change the environment of an already

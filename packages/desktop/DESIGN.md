@@ -30,7 +30,9 @@ and a distinct secondary color for active named profiles.
   Double-clicking explicitly sets credentials using the selected/preferred role.
   Without an available selected role, focus the role chooser instead.
 - Account inspector: role selection, region, CLI profile and active credential
-  details in one place. Changes to preferences have explicit Save actions.
+  details in one place. Region/profile preferences save after a 400 ms debounce,
+  blur or Enter; captured edits remain bound to their original account/role.
+  Pending or invalid preferences cannot silently be used to acquire credentials.
 - Explicit primary actions: Set Credentials and Open AWS Console. A role choice
   remains local until Set Credentials or Make Preferred is requested.
 - Credential workspace: active profiles, their account/role/session, expiration
