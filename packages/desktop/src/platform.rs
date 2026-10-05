@@ -3,10 +3,11 @@ use crate::{
     Search, SetCredentials, ToggleSidebar,
 };
 use gpui::{
-    App, KeyBinding, Menu, MenuItem, SystemMenuType, TitlebarOptions, Window,
+    Action, App, KeyBinding, Keystroke, Menu, MenuItem, SystemMenuType, TitlebarOptions, Window,
     WindowBackgroundAppearance, actions, point, px, rgb,
 };
 use gpui_component::{Theme, ThemeMode};
+use std::{collections::BTreeMap, rc::Rc};
 
 actions!(platform, [Hide, HideOthers, ShowAll, CloseWindow]);
 
@@ -163,20 +164,204 @@ pub fn shortcut(key: &str) -> String {
     )
 }
 
-pub fn shortcut_label(key: &str) -> String {
-    let key = if !cfg!(target_os = "macos") && key == "↵" {
-        "Enter"
-    } else {
-        key
-    };
-    format!(
-        "{}{key}",
-        if cfg!(target_os = "macos") {
-            "⌘"
-        } else {
-            "Ctrl+"
+pub struct Shortcut {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub default: String,
+    action: Box<dyn Action>,
+}
+
+impl Shortcut {
+    pub fn value<'a>(&'a self, overrides: &'a BTreeMap<String, String>) -> &'a str {
+        overrides
+            .get(self.id)
+            .map(String::as_str)
+            .unwrap_or(&self.default)
+    }
+}
+
+pub fn shortcuts() -> Vec<Shortcut> {
+    fn entry(
+        id: &'static str,
+        label: &'static str,
+        default: String,
+        action: impl Action,
+    ) -> Shortcut {
+        Shortcut {
+            id,
+            label,
+            default,
+            action: Box::new(action),
         }
-    )
+    }
+    vec![
+        entry("search", "Search the current list", shortcut("f"), Search),
+        entry("commands", "Open command bar", shortcut("k"), Palette),
+        entry(
+            "commands_alternative",
+            "Open command bar (alternative)",
+            shortcut("p"),
+            Palette,
+        ),
+        entry(
+            "new_session",
+            "Add an SSO session",
+            shortcut("n"),
+            NewSession,
+        ),
+        entry(
+            "edit_session",
+            "Edit the current session",
+            shortcut("e"),
+            EditSession,
+        ),
+        entry(
+            "set_credentials",
+            "Set credentials explicitly",
+            shortcut("enter"),
+            SetCredentials,
+        ),
+        entry("console", "Open AWS Console", shortcut("b"), Console),
+        entry("accounts", "Accounts", shortcut("1"), Accounts),
+        entry("credentials", "Credentials", shortcut("2"), Credentials),
+        entry(
+            "refresh",
+            "Refresh the current list",
+            shortcut("r"),
+            Refresh,
+        ),
+        entry("settings", "Settings", shortcut(","), Preferences),
+        entry(
+            "toggle_sidebar",
+            "Toggle sidebar",
+            format!("alt-{}", shortcut("s")),
+            ToggleSidebar,
+        ),
+    ]
+}
+
+pub fn shortcut_label(id: &str, overrides: &BTreeMap<String, String>) -> String {
+    shortcuts()
+        .into_iter()
+        .find(|shortcut| shortcut.id == id)
+        .filter(|shortcut| !shortcut.value(overrides).is_empty())
+        .and_then(|shortcut| Keystroke::parse(shortcut.value(overrides)).ok())
+        .map(|stroke| gpui_component::kbd::Kbd::format(&stroke))
+        .unwrap_or_else(|| "Unassigned".into())
+}
+
+pub fn validate_shortcuts(
+    overrides: &BTreeMap<String, String>,
+    fixed: &[KeyBinding],
+) -> anyhow::Result<BTreeMap<String, String>> {
+    let definitions = shortcuts();
+    let mut normalized = BTreeMap::new();
+    for (id, value) in overrides {
+        let definition = definitions
+            .iter()
+            .find(|shortcut| shortcut.id == id)
+            .ok_or_else(|| anyhow::anyhow!("Unknown shortcut action: {id}"))?;
+        if value.is_empty() {
+            normalized.insert(id.clone(), String::new());
+            continue;
+        }
+        if value.len() > 64 || value.chars().any(char::is_whitespace) {
+            anyhow::bail!("Use a single key combination");
+        }
+        let stroke = Keystroke::parse(value)?;
+        let function = stroke
+            .key
+            .strip_prefix('f')
+            .and_then(|key| key.parse::<u8>().ok())
+            .is_some_and(|key| (1..=24).contains(&key));
+        if !((stroke.key.chars().count() == 1 && !stroke.key.chars().any(char::is_control))
+            || function
+            || matches!(
+                stroke.key.as_str(),
+                "enter"
+                    | "space"
+                    | "tab"
+                    | "escape"
+                    | "backspace"
+                    | "delete"
+                    | "left"
+                    | "right"
+                    | "up"
+                    | "down"
+                    | "home"
+                    | "end"
+                    | "pageup"
+                    | "pagedown"
+            ))
+        {
+            anyhow::bail!("Unsupported shortcut key");
+        }
+        if !(stroke.modifiers.control
+            || stroke.modifiers.platform
+            || stroke.modifiers.alt
+            || function)
+        {
+            anyhow::bail!("Include Command, Control or Option/Alt, or use a function key");
+        }
+        if stroke == Keystroke::parse(&definition.default)? {
+            continue;
+        }
+        if fixed.iter().any(|binding| {
+            binding.keystrokes().len() == 1 && binding.keystrokes()[0].inner() == &stroke
+        }) {
+            anyhow::bail!("This shortcut is reserved for text editing or window controls");
+        }
+        normalized.insert(id.clone(), stroke.unparse());
+    }
+    let mut assigned = BTreeMap::new();
+    for definition in definitions {
+        let value = definition.value(&normalized);
+        if value.is_empty() {
+            continue;
+        }
+        let stroke = Keystroke::parse(value)?;
+        if let Some(label) = assigned.insert(stroke.unparse(), definition.label) {
+            anyhow::bail!(
+                "{} is assigned to both {label} and {}",
+                gpui_component::kbd::Kbd::format(&stroke),
+                definition.label
+            );
+        }
+    }
+    Ok(normalized)
+}
+
+pub fn shortcut_bindings(overrides: &BTreeMap<String, String>) -> anyhow::Result<Vec<KeyBinding>> {
+    let context = Rc::new(gpui::KeyBindingContextPredicate::parse("Sesh")?);
+    let mut bindings = Vec::new();
+    for definition in shortcuts() {
+        let value = definition.value(overrides).to_owned();
+        if value.is_empty() {
+            continue;
+        }
+        bindings.push(KeyBinding::load(
+            &value,
+            definition.action,
+            Some(context.clone()),
+            false,
+            None,
+            &gpui::DummyKeyboardMapper,
+        )?);
+    }
+    Ok(bindings)
+}
+
+pub fn apply_shortcuts(
+    overrides: &BTreeMap<String, String>,
+    fixed: &[KeyBinding],
+    cx: &mut App,
+) -> anyhow::Result<()> {
+    let bindings = shortcut_bindings(overrides)?;
+    cx.clear_key_bindings();
+    cx.bind_keys(fixed.iter().cloned());
+    cx.bind_keys(bindings);
+    configure_menus(cx);
+    Ok(())
 }
 
 pub fn mono_font() -> &'static str {
@@ -191,19 +376,6 @@ pub fn mono_font() -> &'static str {
 
 pub fn configure(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.bind_keys([
-        KeyBinding::new(&shortcut("f"), Search, Some("Sesh")),
-        KeyBinding::new(&shortcut("r"), Refresh, Some("Sesh")),
-        KeyBinding::new(&shortcut("p"), Palette, Some("Sesh")),
-        KeyBinding::new(&shortcut("k"), Palette, Some("Sesh")),
-        KeyBinding::new(&shortcut("n"), NewSession, Some("Sesh")),
-        KeyBinding::new(&shortcut("e"), EditSession, Some("Sesh")),
-        KeyBinding::new(&shortcut("b"), Console, Some("Sesh")),
-        KeyBinding::new(&shortcut("1"), Accounts, Some("Sesh")),
-        KeyBinding::new(&shortcut("2"), Credentials, Some("Sesh")),
-        KeyBinding::new(&shortcut(","), Preferences, Some("Sesh")),
-        KeyBinding::new(&shortcut("enter"), SetCredentials, Some("Sesh")),
-    ]);
     cx.bind_keys([KeyBinding::new(&shortcut("q"), Quit, None)]);
     cx.bind_keys([KeyBinding::new(&shortcut("w"), CloseWindow, Some("Sesh"))]);
     if cfg!(target_os = "macos") {
@@ -213,8 +385,12 @@ pub fn configure(cx: &mut App) {
         cx.bind_keys([
             KeyBinding::new("cmd-h", Hide, None),
             KeyBinding::new("alt-cmd-h", HideOthers, None),
-            KeyBinding::new("alt-cmd-s", ToggleSidebar, Some("Sesh")),
         ]);
+    }
+}
+
+fn configure_menus(cx: &mut App) {
+    if cfg!(target_os = "macos") {
         cx.set_menus(vec![
             Menu {
                 name: "Sesh".into(),

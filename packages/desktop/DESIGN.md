@@ -129,6 +129,13 @@ overwrite the other choice with an earlier value.
 Desktop-only `translucency`, `dithering`, `sidebarVisible` and `sidebarWidth`
 preferences also live in `desktop.json`. Sidebar visibility and its 192–400px width
 restore on launch; its divider supports dragging and keyboard focus.
+The same desktop-only file stores sparse application shortcut overrides. A single
+Rust action catalog owns default bindings, Settings rows and tooltip labels. The
+shortcut recorder intercepts keys before action dispatch; validation rejects
+duplicates, unsupported keys and editing/window-control conflicts. Rebuilding the
+keymap retains the component/navigation/system bindings captured at startup, then
+recreates native menus from the current application bindings. Empty string values
+disable individual shortcuts; clearing the override map restores defaults.
 The 0–100% slider defaults to 10%, with a visible tick and pointer
 snapping within two percentage points. Keyboard adjustments retain 1% precision.
 Values above 0% request GPUI's native blurred

@@ -129,7 +129,7 @@ impl Sesh {
         &self,
         button: Button,
         icon: impl Into<Icon>,
-        label: &'static str,
+        label: impl Into<SharedString>,
         cx: &Context<Self>,
     ) -> Button {
         button
@@ -187,24 +187,31 @@ impl Sesh {
                         (
                             "toolbar-sidebar",
                             IconName::PanelLeft,
-                            "Toggle sidebar · ⌥⌘S",
+                            "Toggle sidebar",
+                            "toggle_sidebar",
                             Command::ToggleSidebar,
                         ),
                         (
                             "toolbar-commands",
                             IconName::Search,
-                            "Commands · ⌘K",
+                            "Commands",
+                            "commands",
                             Command::Palette,
                         ),
                         (
                             "toolbar-settings",
                             IconName::Settings,
-                            "Settings · ⌘,",
+                            "Settings",
+                            "settings",
                             Command::Settings,
                         ),
                     ]
                     .into_iter()
-                    .map(|(id, icon, label, command)| {
+                    .map(|(id, icon, label, shortcut, command)| {
+                        let label = format!(
+                            "{label} · {}",
+                            platform::shortcut_label(shortcut, &self.shortcuts)
+                        );
                         self.toolbar_button(self.button(id, "", command, cx), icon, label, cx)
                             .occlude()
                     }),
@@ -444,14 +451,20 @@ impl Sesh {
                 self.modal()
                     && !matches!(
                         command,
-                        Command::Confirm | Command::Cancel | Command::OpenLogin
+                        Command::Confirm
+                            | Command::Cancel
+                            | Command::OpenLogin
+                            | Command::ClearShortcut(_)
                     ),
             )
             .tab_stop(
                 !self.modal()
                     || matches!(
                         command,
-                        Command::Confirm | Command::Cancel | Command::OpenLogin
+                        Command::Confirm
+                            | Command::Cancel
+                            | Command::OpenLogin
+                            | Command::ClearShortcut(_)
                     ),
             )
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -1405,17 +1418,6 @@ impl Sesh {
     fn settings(&self, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
         let choices = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
-        let shortcuts = [
-            ("F", "Search the current list"),
-            ("K", "Open command bar"),
-            ("P", "Open command bar (alternative)"),
-            ("N", "Add an SSO session"),
-            ("E", "Edit the current session"),
-            ("↵", "Set credentials explicitly"),
-            ("B", "Open AWS Console"),
-            ("1", "Accounts"),
-            ("2", "Credentials"),
-        ];
         div()
             .id("settings-content")
             .flex_1()
@@ -1586,21 +1588,45 @@ impl Sesh {
                     .border_color(colors.border)
                     .child(
                         div()
-                            .text_size(px(16.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Keyboard shortcuts"),
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_size(px(16.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Keyboard shortcuts"),
+                            )
+                            .child(
+                                self.button(
+                                    "reset-shortcuts",
+                                    "Restore defaults",
+                                    Command::ResetShortcuts,
+                                    cx,
+                                )
+                                .disabled(
+                                    self.modal()
+                                        || (self.shortcuts.is_empty()
+                                            && self.appearance.shortcuts.is_empty()),
+                                ),
+                            ),
                     )
-                    .children(shortcuts.into_iter().map(|(key, label)| {
+                    .children(platform::shortcuts().into_iter().map(|shortcut| {
                         div()
                             .flex()
                             .items_center()
                             .justify_between()
                             .py_1()
-                            .child(label)
+                            .gap_4()
+                            .child(div().flex_1().child(shortcut.label))
                             .child(
-                                div()
-                                    .text_color(colors.muted)
-                                    .child(platform::shortcut_label(key)),
+                                self.button(
+                                    shortcut.id,
+                                    platform::shortcut_label(shortcut.id, &self.shortcuts),
+                                    Command::RecordShortcut(shortcut.id),
+                                    cx,
+                                )
+                                .min_w(px(112.)),
                             )
                     })),
             )
@@ -1675,7 +1701,46 @@ impl Sesh {
             .border_color(colors.border)
             .rounded_lg()
             .shadow_lg();
-        if let Some(form) = &self.form {
+        if let Some(id) = self.recording {
+            let label = platform::shortcuts()
+                .into_iter()
+                .find(|shortcut| shortcut.id == id)
+                .map(|shortcut| shortcut.label)
+                .unwrap_or("Shortcut");
+            panel = panel
+                .child(
+                    div()
+                        .text_size(px(18.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Change shortcut"),
+                )
+                .child(label)
+                .child(
+                    div()
+                        .p_4()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(colors.accent)
+                        .text_color(colors.muted)
+                        .child("Press a key combination. Escape cancels."),
+                )
+                .when_some(self.shortcut_error.clone(), |panel, error| {
+                    panel.child(div().text_color(cx.theme().danger).child(error))
+                })
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap_2()
+                        .child(self.button(
+                            "disable-shortcut",
+                            "Disable shortcut",
+                            Command::ClearShortcut(id),
+                            cx,
+                        ))
+                        .child(self.button("cancel-shortcut", "Cancel", Command::Cancel, cx)),
+                );
+        } else if let Some(form) = &self.form {
             let submitting = self
                 .active
                 .as_ref()
@@ -1946,6 +2011,11 @@ impl Render for Sesh {
             .font_family(cx.theme().font_family.clone())
             .text_size(px(14.))
             .key_context("Sesh")
+            .on_key_up(cx.listener(|this, event: &gpui::KeyUpEvent, _, _| {
+                if this.shortcut_release.as_deref() == Some(event.keystroke.key.as_str()) {
+                    this.shortcut_release = None;
+                }
+            }))
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if !this.palette || !matches!(event.keystroke.key.as_str(), "up" | "down") {

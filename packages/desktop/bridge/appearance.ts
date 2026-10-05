@@ -2,7 +2,7 @@ import path from "node:path"
 import { mkdir, rename, writeFile } from "node:fs/promises"
 import { bundledThemes, loadThemes, resolveTheme, type AppearanceMode } from "@awsesh/themes"
 
-function preferences(value: unknown): { theme: string; mode: AppearanceMode; translucency: number; dithering: boolean; sidebarVisible: boolean; sidebarWidth: number } {
+function preferences(value: unknown): { theme: string; mode: AppearanceMode; translucency: number; dithering: boolean; sidebarVisible: boolean; sidebarWidth: number; shortcuts: Record<string, string> } {
   if (typeof value !== "object" || value === null || !("theme" in value) || !("mode" in value)) {
     throw new Error("Appearance preferences must contain theme and mode")
   }
@@ -15,6 +15,17 @@ function preferences(value: unknown): { theme: string; mode: AppearanceMode; tra
   const dithering = "dithering" in value ? value.dithering : false
   const sidebarVisible = "sidebarVisible" in value ? value.sidebarVisible : true
   const sidebarWidth = "sidebarWidth" in value ? value.sidebarWidth : 216
+  const shortcuts = "shortcuts" in value ? value.shortcuts : {}
+  if (typeof shortcuts !== "object" || shortcuts === null || Array.isArray(shortcuts)) {
+    throw new Error("Shortcuts must be an object")
+  }
+  const bindings: Record<string, string> = {}
+  for (const [action, shortcut] of Object.entries(shortcuts)) {
+    if (!/^[a-z][a-z_]{0,63}$/.test(action) || typeof shortcut !== "string" || shortcut.length > 64 || /\s/.test(shortcut)) {
+      throw new Error("Invalid shortcut preference")
+    }
+    bindings[action] = shortcut
+  }
   if (legacy && typeof value.translucent !== "boolean") throw new Error("Translucent mode must be a boolean")
   if (typeof dithering !== "boolean") throw new Error("Dithering must be a boolean")
   if (typeof sidebarVisible !== "boolean") throw new Error("Sidebar visibility must be a boolean")
@@ -31,6 +42,7 @@ function preferences(value: unknown): { theme: string; mode: AppearanceMode; tra
     dithering,
     sidebarVisible,
     sidebarWidth,
+    shortcuts: bindings,
   }
 }
 
@@ -64,6 +76,7 @@ export async function configureAppearance(configDir: string, dataDir: string, se
       dithering: "dithering" in selection ? selection.dithering : current.dithering,
       sidebarVisible: "sidebarVisible" in selection ? selection.sidebarVisible : current.sidebarVisible,
       sidebarWidth: "sidebarWidth" in selection ? selection.sidebarWidth : current.sidebarWidth,
+      shortcuts: "shortcuts" in selection ? selection.shortcuts : current.shortcuts,
     }
   }
   const requested = preferences(value)

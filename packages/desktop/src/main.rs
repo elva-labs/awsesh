@@ -17,7 +17,7 @@ use gpui_component::{
 };
 use sdk::{Account, Credential, Sdk, Snapshot};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -80,6 +80,9 @@ enum Command {
     Dithering(bool),
     ToggleSidebar,
     SidebarWidth(f32),
+    RecordShortcut(&'static str),
+    ClearShortcut(&'static str),
+    ResetShortcuts,
     Confirm,
     Cancel,
     Login,
@@ -158,6 +161,11 @@ struct Sesh {
     translucency_focus: FocusHandle,
     translucency_save: Option<gpui::Task<()>>,
     texture: Arc<gpui::Image>,
+    shortcuts: BTreeMap<String, String>,
+    fixed_bindings: Vec<KeyBinding>,
+    recording: Option<&'static str>,
+    shortcut_release: Option<String>,
+    shortcut_error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -184,7 +192,33 @@ impl Sesh {
             InputState::new(window, cx).placeholder("Search commands and organizations…")
         });
         let translucency = cx.new(|_| SliderState::new().max(100.).step(1.).default_value(10.));
+        let view = cx.entity().downgrade();
         let subscriptions = vec![
+            cx.intercept_keystrokes(move |event, window, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    if this.shortcut_release.as_deref() == Some(event.keystroke.key.as_str()) {
+                        cx.stop_propagation();
+                        return;
+                    }
+                    this.shortcut_release = None;
+                    if this.recording.is_none() {
+                        return;
+                    }
+                    let stroke = &event.keystroke;
+                    if (stroke.key == "tab"
+                        && !(stroke.modifiers.control
+                            || stroke.modifiers.platform
+                            || stroke.modifiers.alt
+                            || stroke.modifiers.function))
+                        || (stroke.modifiers.number_of_modifiers() == 0
+                            && matches!(stroke.key.as_str(), "enter" | "space"))
+                    {
+                        return;
+                    }
+                    cx.stop_propagation();
+                    this.record_shortcut(stroke, window, cx);
+                });
+            }),
             cx.subscribe_in(&translucency, window, |this, _, event, window, cx| {
                 if let SliderEvent::Change(SliderValue::Single(value)) = event {
                     let amount = if (8. ..=12.).contains(value) {
@@ -355,6 +389,11 @@ impl Sesh {
                 gpui::ImageFormat::Svg,
                 include_bytes!("../assets/dither.svg").to_vec(),
             )),
+            shortcuts: BTreeMap::new(),
+            fixed_bindings: cx.key_bindings().borrow().bindings().cloned().collect(),
+            recording: None,
+            shortcut_release: None,
+            shortcut_error: None,
             _subscriptions: subscriptions,
         };
         cx.spawn(async move |this, cx| {
@@ -377,13 +416,70 @@ impl Sesh {
         })
         .detach();
         view.focus.focus(window);
+        if let Err(error) = view.update_shortcuts(&BTreeMap::new(), cx) {
+            view.error = true;
+            view.message = format!("Cannot configure shortcuts: {error}");
+        }
         view.request("getAppearance", json!({}), cx);
         view.request("snapshot", json!({}), cx);
         view
     }
 
     fn modal(&self) -> bool {
-        self.form.is_some() || self.login.is_some() || self.palette
+        self.form.is_some() || self.login.is_some() || self.palette || self.recording.is_some()
+    }
+
+    fn update_shortcuts(
+        &mut self,
+        overrides: &BTreeMap<String, String>,
+        cx: &mut Context<Self>,
+    ) -> anyhow::Result<()> {
+        let shortcuts = platform::validate_shortcuts(overrides, &self.fixed_bindings)?;
+        platform::apply_shortcuts(&shortcuts, &self.fixed_bindings, cx)?;
+        self.shortcuts = shortcuts;
+        Ok(())
+    }
+
+    fn save_shortcuts(
+        &mut self,
+        shortcuts: BTreeMap<String, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.update_shortcuts(&shortcuts, cx) {
+            self.shortcut_error = Some(error.to_string());
+            cx.notify();
+            return;
+        }
+        self.recording = None;
+        self.shortcut_error = None;
+        self.focus.focus(window);
+        self.request("setAppearance", json!({"shortcuts": self.shortcuts}), cx);
+    }
+
+    fn record_shortcut(
+        &mut self,
+        stroke: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.recording else {
+            return;
+        };
+        if stroke.key == "escape" && stroke.modifiers.number_of_modifiers() == 0 {
+            self.dispatch(Command::Cancel, window, cx);
+            return;
+        }
+        if matches!(
+            stroke.key.as_str(),
+            "shift" | "control" | "alt" | "platform" | "function"
+        ) {
+            return;
+        }
+        let mut shortcuts = self.shortcuts.clone();
+        shortcuts.insert(id.into(), stroke.unparse());
+        self.save_shortcuts(shortcuts, window, cx);
+        self.shortcut_release = Some(stroke.key.clone());
     }
 
     fn apply_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -528,6 +624,8 @@ impl Sesh {
                                     state.set_selected_value(&this.appearance.theme, window, cx);
                                 });
                                 this.apply_appearance(window, cx);
+                                let shortcuts = this.appearance.shortcuts.clone();
+                                let _ = this.update_shortcuts(&shortcuts, cx);
                             }
                             if this.pending.as_ref().is_some_and(|(name, account, _)| {
                                 Some(name) == request_name.as_ref() && *account == request_account
@@ -572,6 +670,15 @@ impl Sesh {
                 Ok(appearance) => {
                     self.appearance = appearance;
                     self.apply_appearance(window, cx);
+                    if !self.requests.iter().any(|(operation, args)| {
+                        *operation == "setAppearance" && args.get("shortcuts").is_some()
+                    }) {
+                        let shortcuts = self.appearance.shortcuts.clone();
+                        if let Err(error) = self.update_shortcuts(&shortcuts, cx) {
+                            self.error = true;
+                            self.message = format!("Cannot apply shortcuts: {error}");
+                        }
+                    }
                     self.themes.update(cx, |state, cx| {
                         state.set_items(self.appearance.themes.clone().into(), window, cx);
                         state.set_selected_value(&self.appearance.theme, window, cx);
@@ -1130,6 +1237,8 @@ impl Sesh {
     fn dispatch(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         self.popup = None;
         if matches!(command, Command::Cancel) {
+            self.recording = None;
+            self.shortcut_error = None;
             if let Some(login) = self.login.take() {
                 self.requests
                     .retain(|(operation, _)| !matches!(*operation, "startLogin" | "pollLogin"));
@@ -1140,6 +1249,9 @@ impl Sesh {
             self.pending = None;
             self.focus.focus(window);
             cx.notify();
+            return;
+        }
+        if self.recording.is_some() && !matches!(command, Command::ClearShortcut(_)) {
             return;
         }
         if matches!(command, Command::OpenLogin) {
@@ -1218,6 +1330,17 @@ impl Sesh {
         let role = self.role(cx);
         let args = json!({"name": name, "accountId": self.account.as_ref().map(|value| &value.account_id), "role": role});
         match command {
+            Command::RecordShortcut(id) => {
+                self.recording = Some(id);
+                self.shortcut_error = None;
+                self.focus.focus(window);
+            }
+            Command::ClearShortcut(id) => {
+                let mut shortcuts = self.shortcuts.clone();
+                shortcuts.insert(id.into(), String::new());
+                self.save_shortcuts(shortcuts, window, cx);
+            }
+            Command::ResetShortcuts => self.save_shortcuts(BTreeMap::new(), window, cx),
             Command::Session(name) => self.open_session(name, window, cx),
             Command::Inspect => {
                 if self.selected.is_none() {
@@ -1520,6 +1643,74 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::sso_start_url;
+
+    #[test]
+    fn validates_shortcut_overrides_and_replaces_bindings() -> anyhow::Result<()> {
+        use crate::{Search, platform};
+        use gpui::{KeyBinding, Keymap, Keystroke};
+        use std::collections::BTreeMap;
+
+        let fixed = [KeyBinding::new(&platform::shortcut("q"), crate::Quit, None)];
+        let selection = |id: &str, key: &str| BTreeMap::from([(id.to_owned(), key.to_owned())]);
+        for (id, key) in [
+            ("unknown", "alt-f"),
+            ("search", "a"),
+            ("search", "cmd"),
+            ("search", "cmd-invalid"),
+            ("search", "cmd-\0"),
+            ("search", "cmd-f cmd-k"),
+        ] {
+            assert!(platform::validate_shortcuts(&selection(id, key), &fixed).is_err());
+        }
+        assert!(
+            platform::validate_shortcuts(&selection("search", &platform::shortcut("q")), &fixed)
+                .is_err()
+        );
+        assert!(
+            platform::validate_shortcuts(&selection("search", &platform::shortcut("r")), &fixed)
+                .is_err()
+        );
+        assert!(
+            platform::validate_shortcuts(&selection("search", &platform::shortcut("f")), &fixed)?
+                .is_empty()
+        );
+        let overrides = platform::validate_shortcuts(&selection("search", "cmd-alt-f"), &fixed)?;
+        assert_eq!(overrides["search"], "alt-cmd-f");
+        assert_eq!(
+            platform::shortcut_label("search", &overrides),
+            gpui_component::kbd::Kbd::format(&Keystroke::parse("alt-cmd-f")?)
+        );
+        let keymap = Keymap::new(platform::shortcut_bindings(&overrides)?);
+        assert_eq!(
+            keymap
+                .bindings_for_action(&crate::Palette)
+                .next()
+                .map(|binding| binding.keystrokes()[0].inner().unparse()),
+            Some(platform::shortcut("k"))
+        );
+        assert!(
+            keymap
+                .all_bindings_for_input(&[Keystroke::parse(&platform::shortcut("f"))?])
+                .is_empty()
+        );
+        assert_eq!(keymap.bindings_for_action(&Search).count(), 1);
+        assert_eq!(
+            keymap
+                .all_bindings_for_input(&[Keystroke::parse("alt-cmd-f")?])
+                .len(),
+            1
+        );
+        let disabled = selection("search", "");
+        assert!(
+            Keymap::new(platform::shortcut_bindings(&disabled)?)
+                .bindings_for_action(&Search)
+                .next()
+                .is_none()
+        );
+        assert_eq!(platform::shortcut_label("search", &disabled), "Unassigned");
+        assert!(platform::validate_shortcuts(&selection("search", "f8"), &fixed).is_ok());
+        Ok(())
+    }
 
     #[test]
     fn resolves_sso_short_names_without_rewriting_urls() {

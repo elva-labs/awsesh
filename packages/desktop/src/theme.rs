@@ -61,6 +61,8 @@ pub struct Appearance {
     pub dithering: bool,
     pub sidebar_visible: bool,
     pub sidebar_width: f32,
+    #[serde(default)]
+    pub shortcuts: std::collections::BTreeMap<String, String>,
     pub themes: Vec<String>,
     pub palettes: Option<Palettes>,
     pub warnings: Vec<String>,

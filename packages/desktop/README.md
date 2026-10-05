@@ -29,6 +29,15 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
 
 ## Controls
 
+- Application shortcuts are remappable in Settings → Keyboard shortcuts. Click a
+  shortcut and press its replacement; Escape cancels, Disable shortcut removes it,
+  and Restore defaults resets the application bindings. Changes apply immediately
+  and persist in `desktop.json`, independently of the TUI. Conflicts and reserved
+  text-editing/window combinations are rejected without executing the recorded
+  command. Use Command, Control or Option/Alt with a key, or a function key.
+  Native menus, toolbar tooltips and the Settings labels follow the active bindings;
+  standard text editing, window controls and unmodified navigation stay unchanged.
+  The shortcuts below describe the defaults.
 - Click, up/down or Enter to inspect an account. Double-click explicitly sets
   credentials for the selected/preferred role; without a role, choose one first.
 - Escape dismisses a dialog; organizations remain available in the sidebar.
@@ -225,6 +234,17 @@ visible after credential removal. Zeron-style wallpaper dithering was checked at
 Workspace typechecks, 213 existing Bun tests, both Rust tests and the rebuilt
 bundle's signature passed. Isolated AWS/TUI files and account preferences matched
 their prepared baselines; no live AWS operation ran.
+
+The shortcut-remapping pass verified conflict and reserved-Quit rejection,
+cancellation, immediate search/credential remaps, removal of old bindings and
+retained text-editing shortcuts. Disabled alternatives and remaps restored after
+restart alongside the saved sidebar width. Native menu key equivalents and
+toolbar tooltips followed the bindings; recording/holding a key did not execute
+its command before release. Tab/Shift-Tab, disabling, restoring defaults and the
+960×620 Settings layout passed. Workspace typechecks, 213 existing Bun tests,
+three Rust tests and the rebuilt bundle's signature passed. Isolated AWS/TUI files
+and account preferences matched their baselines; no live AWS operation ran, and
+the verification application/helper were closed.
 
 The backdrop correction removed wallpaper loading and restored the dither effect
 as an overlay above the live native blur and theme tint. Composited-screen captures

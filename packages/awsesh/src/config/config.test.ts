@@ -193,7 +193,7 @@ describe("Config", () => {
       }
     });
 
-    test("persists desktop translucency independently of the selected theme", async () => {
+    test("persists desktop preferences independently of the selected theme", async () => {
       const directory = await mkdtemp(path.join(import.meta.dir, ".tmp-translucency-"));
       const config = path.join(directory, "config");
       const data = path.join(directory, "data");
@@ -204,7 +204,9 @@ describe("Config", () => {
         expect(initial.dithering).toBe(false);
         expect(initial.sidebarVisible).toBe(true);
         expect(initial.sidebarWidth).toBe(216);
-        const selected = await configureAppearance(config, data, { translucency: 5, dithering: true, sidebarVisible: false, sidebarWidth: 320 });
+        expect(initial.shortcuts).toEqual({});
+        const shortcuts = { search: "alt-cmd-f", commands: "" };
+        const selected = await configureAppearance(config, data, { translucency: 5, dithering: true, sidebarVisible: false, sidebarWidth: 320, shortcuts });
         expect(selected.theme).toBe("nord");
         expect(selected.mode).toBe("dark");
         const changed = await configureAppearance(config, data, { theme: "github", mode: "light" });
@@ -212,11 +214,13 @@ describe("Config", () => {
         expect(changed.dithering).toBe(true);
         expect(changed.sidebarVisible).toBe(false);
         expect(changed.sidebarWidth).toBe(320);
+        expect(changed.shortcuts).toEqual(shortcuts);
         await configureAppearance(config, data, { translucency: 0 });
         const persisted = await configureAppearance(config, data);
         expect(persisted.translucency).toBe(0);
         expect(persisted.dithering).toBe(true);
         expect(persisted.theme).toBe("github");
+        expect(persisted.shortcuts).toEqual(shortcuts);
         for (const translucency of [-1, 101, NaN, Infinity, "5"]) {
           await expect(configureAppearance(config, data, { translucency })).rejects.toThrow("Translucency");
         }
@@ -225,9 +229,13 @@ describe("Config", () => {
         for (const sidebarWidth of [191, 401, NaN, Infinity, "216"]) {
           await expect(configureAppearance(config, data, { sidebarWidth })).rejects.toThrow("Sidebar width");
         }
+        for (const shortcuts of [null, [], "cmd-f", { search: 4 }, { "invalid action": "cmd-f" }, { search: "cmd-f cmd-k" }]) {
+          await expect(configureAppearance(config, data, { shortcuts })).rejects.toThrow(/shortcut/i);
+        }
         expect(await Bun.file(path.join(config, "desktop.json")).json()).toEqual({
-          theme: "github", mode: "light", translucency: 0, dithering: true, sidebarVisible: false, sidebarWidth: 320,
+          theme: "github", mode: "light", translucency: 0, dithering: true, sidebarVisible: false, sidebarWidth: 320, shortcuts,
         });
+        expect((await configureAppearance(config, data, { shortcuts: {} })).shortcuts).toEqual({});
         expect((await configureAppearance(config, data, { translucency: 10 })).translucency).toBe(10);
         expect((await configureAppearance(config, data, { translucency: 100 })).translucency).toBe(100);
         expect((await configureAppearance(config, data)).translucency).toBe(100);
@@ -239,7 +247,7 @@ describe("Config", () => {
         expect((await configureAppearance(config, data)).translucency).toBe(0);
         await configureAppearance(config, data, { mode: "light" });
         expect(await Bun.file(path.join(config, "desktop.json")).json()).toEqual({
-          theme: "nord", mode: "light", translucency: 0, dithering: false, sidebarVisible: true, sidebarWidth: 216,
+          theme: "nord", mode: "light", translucency: 0, dithering: false, sidebarVisible: true, sidebarWidth: 216, shortcuts: {},
         });
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark", translucent: true }));
         expect((await configureAppearance(config, data)).translucency).toBe(10);
