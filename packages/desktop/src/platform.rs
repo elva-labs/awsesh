@@ -221,7 +221,7 @@ pub fn shortcuts() -> Vec<Shortcut> {
             shortcut("enter"),
             SetCredentials,
         ),
-        entry("console", "Open AWS Console", shortcut("b"), Console),
+        entry("console", "Open AWS Console", shortcut("o"), Console),
         entry("accounts", "Accounts", shortcut("1"), Accounts),
         entry("credentials", "Credentials", shortcut("2"), Credentials),
         entry(
@@ -234,7 +234,7 @@ pub fn shortcuts() -> Vec<Shortcut> {
         entry(
             "toggle_sidebar",
             "Toggle sidebar",
-            format!("alt-{}", shortcut("s")),
+            shortcut("b"),
             ToggleSidebar,
         ),
     ]

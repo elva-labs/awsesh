@@ -1097,7 +1097,8 @@ impl Sesh {
             self.role(cx)
                 .filter(|role| account.roles.contains(role))
                 .or_else(|| account.preferred_role.clone())
-        };
+        }
+        .or_else(|| account.roles.first().cloned());
         self.roles.update(cx, |state, cx| {
             state.set_items(account.roles.clone().into(), window, cx);
             if let Some(role) = &role {
@@ -1681,6 +1682,17 @@ mod tests {
             gpui_component::kbd::Kbd::format(&Keystroke::parse("alt-cmd-f")?)
         );
         let keymap = Keymap::new(platform::shortcut_bindings(&overrides)?);
+        let actions: [(&dyn gpui::Action, &str); 2] =
+            [(&crate::ToggleSidebar, "b"), (&crate::Console, "o")];
+        for (action, key) in actions {
+            assert_eq!(
+                keymap
+                    .bindings_for_action(action)
+                    .next()
+                    .map(|binding| binding.keystrokes()[0].inner().unparse()),
+                Some(platform::shortcut(key))
+            );
+        }
         assert_eq!(
             keymap
                 .bindings_for_action(&crate::Palette)

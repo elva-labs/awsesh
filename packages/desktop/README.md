@@ -39,7 +39,7 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   standard text editing, window controls and unmodified navigation stay unchanged.
   The shortcuts below describe the defaults.
 - Click, up/down or Enter to inspect an account. Double-click explicitly sets
-  credentials for the selected/preferred role; without a role, choose one first.
+  credentials for the selected, preferred or first available role.
 - Escape dismisses a dialog; organizations remain available in the sidebar.
 - Command-F to search; Command-R to refresh.
 - Command-N / Command-E to create / edit an SSO session.
@@ -47,7 +47,7 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   fields without changing mouse cursor placement. The SSO start URL accepts an
   organization short name, previews the full `https://name.awsapps.com/start` URL,
   and expands on blur or save. Full URLs, including China-region URLs, are preserved.
-- Command-B to open the SSO dashboard or selected account in AWS Console.
+- Command-O to open the selected account in AWS Console.
 - Command-1 for accounts; Command-2 for credentials; Command-comma for settings.
 - Command-K or Command-P opens the searchable command bar. Type to filter,
   use up/down to navigate and Enter to run a command. Escape dismisses it.
@@ -63,7 +63,7 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   share the same 38px top row. They move beside the fixed controls when collapsed.
   All top-row controls use 24px targets, centered 16px icons and 6px corners, with
   extra clearance after the native traffic lights.
-  Option-Command-S and View → Toggle Sidebar also show/hide the sidebar. Drag the
+  Command-B and View → Toggle Sidebar also show/hide the sidebar. Drag the
   empty top strip to move the window; double-click it to follow the system titlebar
   action. Double-clicking a toolbar button does not zoom the window.
   Drag the sidebar's right edge to resize it between 192px and 400px. The divider
@@ -83,7 +83,10 @@ embedded Metal shaders at runtime, so no separate Metal compiler is required.
   and a “Click to copy” tooltip.
   Account rows show the most recently used CLI profile when known, including after
   expiration or credential removal. Configuring a profile alone does not mark it used.
-- Select a role in the inspector, then use Set Credentials or Command-Enter.
+- The inspector selects the preferred role, or the first available role when no
+  preference exists. Use Set Credentials or Command-Enter without an extra role
+  selection. You can still choose another role; preselection alone does not save
+  a preference or set credentials.
 - Region and CLI profile changes require their own Save action. Unsaved changes
   block Set Credentials so it cannot silently use old preferences.
 - Role selection is local until Make Preferred or Set Credentials is requested.
@@ -255,6 +258,13 @@ the 960×620 layout, restart restoration and Tab/Space/Enter toggling passed.
 Workspace typechecks, 213 Bun tests, Rust tests and bundle signature
 verification passed; isolated AWS/TUI files and account preferences were unchanged.
 No live AWS operation ran, and the application/helper/backdrop windows were closed.
+
+The role/default-shortcut pass verified first-role preselection, preservation of
+saved preferred roles and an enabled Set Credentials button with isolated sample
+data. Command-B folded the sidebar; Rust binding checks verified Command-O for
+AWS Console. Typechecks, 213 Bun tests, three Rust tests, the release build and
+bundle signature passed. Isolated AWS/TUI files and account preferences remained
+unchanged; no live AWS operation ran, and verification processes were closed.
 
 Setting credentials updates `~/.aws/credentials` through the SDK, including its
 existing tracking and preferences. It cannot change the environment of an already
