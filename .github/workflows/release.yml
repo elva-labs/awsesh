@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "Stage a candidate or publish its reviewed artifacts"
+        description: "Stage from main, or publish from the candidate tag"
         required: true
         type: choice
         options: [stage, publish]
@@ -17,6 +17,7 @@ on:
 
 concurrency:
   group: awsesh-release-control
+  queue: max
   cancel-in-progress: false
 
 permissions:
@@ -92,7 +93,7 @@ jobs:
           RELEASE_NOTES: ${{ steps.notes.outputs.body }}
 
   publish:
-    if: github.repository == 'elva-labs/awsesh' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'publish'
+    if: github.repository == 'elva-labs/awsesh' && github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && github.ref_name == inputs.tag && inputs.operation == 'publish'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -101,14 +102,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Select approved tagged source
         run: |
           [[ "$AWSESH_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]
+          [[ "$GITHUB_REF" == "refs/tags/$AWSESH_TAG" ]]
           commit=$(git rev-parse --verify "refs/tags/$AWSESH_TAG^{commit}")
+          [[ "$GITHUB_SHA" == "$commit" ]]
           git merge-base --is-ancestor "$commit" origin/main
           git checkout --detach "$commit"
 
