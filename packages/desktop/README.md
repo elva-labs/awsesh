@@ -74,9 +74,10 @@ Only the certificate and notarization key are base64-encoded; the other four val
 are plain text. The script validates these encodings and the imported identity and fails closed.
 Credentials are written with restricted permissions to a temporary directory;
 a temporary keychain uses a random per-run password. Signing selects that keychain
-explicitly, without changing the default keychain or manually replacing its search
-list. Native keychain creation temporarily adds it to the search list; deletion
-removes it. Both credential files and the keychain are removed in `finally`.
+explicitly, without changing the default keychain. The temporary keychain is added
+to the search list for certificate-chain discovery while retaining every original
+entry. Native keychain deletion removes its search-list entry. Both credential
+files and the keychain are removed in `finally`.
 
 The compiled SDK helper is signed first with hardened runtime, a timestamp and
 only `com.apple.security.cs.allow-jit`. The outer Rust app is signed last without

@@ -83,10 +83,10 @@ jobs:
           bun --eval '
           import { $ } from "bun"
           import assert from "node:assert/strict"
-          import { generateKeyPairSync } from "node:crypto"
+          import { generateKeyPairSync, randomBytes } from "node:crypto"
           import { mkdtemp, rm } from "node:fs/promises"
           import path from "node:path"
-          import { decodeNotaryKey, verifyHelper } from "./packages/desktop/script/release.ts"
+          import { decodeNotaryKey, keychainSearchList, verifyHelper } from "./packages/desktop/script/release.ts"
           import { desktopArchive, validateDesktopArchive } from "./packages/scripts/release.ts"
           const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString()
           const encoded = Buffer.from(key).toString("base64")
@@ -101,11 +101,22 @@ jobs:
           const directory = await mkdtemp(path.join(temporary, "awsesh-helper-verification-"))
           const app = path.resolve("packages/desktop/dist/Sesh.app")
           const archive = path.join(directory, desktopArchive)
+          const search = await keychainSearchList()
+          const keychain = path.join(directory, "signing.keychain-db")
+          const password = randomBytes(32).toString("hex")
           try {
+            await $`security create-keychain -p ${password} ${keychain}`.quiet()
+            await $`security list-keychains -d user -s ${keychain} ${search}`.quiet()
+            assert.deepEqual(await keychainSearchList(), [keychain, ...search])
             await verifyHelper(path.join(app, "Contents/MacOS/awsesh-sdk"), directory)
             await $`ditto -c -k --sequesterRsrc --keepParent ${app} ${archive}`
             await validateDesktopArchive(archive)
           } finally {
-            await rm(directory, { recursive: true, force: true })
+            try {
+              if (await Bun.file(keychain).exists()) await $`security delete-keychain ${keychain}`.quiet()
+              assert.deepEqual(await keychainSearchList(), search)
+            } finally {
+              await rm(directory, { recursive: true, force: true })
+            }
           }
           '
