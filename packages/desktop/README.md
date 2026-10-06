@@ -5,6 +5,30 @@ sidebar, searchable account list, account inspector and credential management.
 No webview and no Rust AWS implementation. See [DESIGN.md](DESIGN.md) for the
 design direction, delivery phases and platform verification requirements.
 
+## Installation and support
+
+Desktop distribution is Apple Silicon ARM64 only, targeting macOS 13 or newer.
+From the first new desktop-enabled [GitHub release](https://github.com/elva-labs/awsesh/releases),
+download `awsesh-desktop-darwin-arm64.zip`, extract `Sesh.app` and move it to
+`/Applications`. Both executables are bundled: `Contents/MacOS/sesh` is the native
+Rust app and `Contents/MacOS/awsesh-sdk` embeds Bun and the shared JavaScript SDK.
+No external Bun, Node, CLI or source checkout is required to run the installed app.
+
+The first desktop release must be staged from a new tag after the release changes
+reach `main`; do not retrofit `v1.0.19` or move any existing tag. Stable and beta
+desktop archives follow the same immutable candidate and checksum contract as the
+CLI and SDK. The minimum OS is a declared deployment target, not a claim that the
+GUI or SSO has been tested on macOS 13.
+
+### Follow-up acceptance and distribution work
+
+- Verify the company `.p12` encoding, private key and Developer ID Application
+  identity, and obtain an actual Apple notarization `Accepted` result in trusted CI.
+- Exercise the GUI on the oldest supported macOS 13 system and perform real SSO
+  only with explicit authorization and isolated configuration.
+- Homebrew desktop cask, application icon and in-app updating are not implemented.
+- Intel/universal and Windows/Linux desktop distribution are not provided.
+
 ## Development
 
 Requires an Apple Silicon Mac, Xcode, Rust 1.99.0, and Bun 1.4.2. From the repository root:
