@@ -30,6 +30,42 @@ CI uses its positive `GITHUB_RUN_NUMBER` as the bundle build version; local buil
 use the numeric base version. GPUI compiles its
 embedded Metal shaders at runtime, so no separate Metal compiler is required.
 
+## Production signing
+
+`bun run packages/desktop/script/release.ts` is the trusted macOS ARM64 staging
+entry point, not the local build command. It requires all six company secrets:
+
+| Secret | Expected value |
+| --- | --- |
+| `MACOS_CERTIFICATE` | Base64-encoded `.p12` containing a Developer ID Application certificate and private key |
+| `MACOS_CERTIFICATE_PASSWORD` | Password for that `.p12` |
+| `MACOS_SIGN_IDENTITY` | Matching Developer ID Application identity name or SHA-1 fingerprint |
+| `NOTARY_KEY` | Raw, unencrypted PEM `.p8` App Store Connect private key |
+| `NOTARY_KEY_ID` | App Store Connect API key ID |
+| `NOTARY_ISSUER_ID` | App Store Connect issuer UUID |
+
+The script validates the assumed encodings and imported identity and fails closed.
+Credentials are written with restricted permissions to a temporary directory;
+a temporary keychain uses a random per-run password. Signing selects that keychain
+explicitly, without changing the default keychain or manually replacing its search
+list. Native keychain creation temporarily adds it to the search list; deletion
+removes it. Both credential files and the keychain are removed in `finally`.
+
+The compiled SDK helper is signed first with hardened runtime, a timestamp and
+only `com.apple.security.cs.allow-jit`. The outer Rust app is signed last without
+JIT exceptions. Library validation stays enabled; no sandbox entitlement is added.
+The helper's empty snapshot and default appearance checks use isolated HOME/XDG,
+a closed localhost AWS endpoint, disabled instance metadata and no Bun on PATH.
+The GUI is not launched on hosted runners.
+
+Native `ditto` packaging precedes `notarytool --wait`; the script requires Apple's
+`Accepted` response and checks the notarization log for errors. It then staples
+and validates the app and runs Gatekeeper assessment. The final
+`dist/awsesh-desktop-darwin-arm64.zip` is created only after stapling, and removed
+if signing, notarization, verification or cleanup fails. There is no ad-hoc release
+fallback. Company credential compatibility and live Apple acceptance still require
+verification in trusted CI; local ad-hoc verification does not prove notarization.
+
 ## Controls
 
 - Application shortcuts are remappable in Settings → Keyboard shortcuts. Click a
