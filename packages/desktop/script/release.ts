@@ -20,6 +20,22 @@ function required(name: string) {
   return value
 }
 
+export function decodeNotaryKey(value: string) {
+  const encoded = value.replace(/\s/g, "")
+  const decoded = Buffer.from(encoded, "base64")
+  if (!decoded.length || decoded.toString("base64") !== encoded) throw new Error("NOTARY_KEY must be base64 encoded .p8 data")
+  const key = decoded.toString("utf8").trim()
+  if (!key.startsWith("-----BEGIN PRIVATE KEY-----\n") && !key.startsWith("-----BEGIN PRIVATE KEY-----\r\n")) {
+    throw new Error("NOTARY_KEY must decode to raw unencrypted PEM .p8 text")
+  }
+  try {
+    if (createPrivateKey(key).asymmetricKeyType !== "ec") throw new Error("Invalid key type")
+  } catch {
+    throw new Error("NOTARY_KEY must decode to a valid EC private key in PEM .p8 format")
+  }
+  return key
+}
+
 export async function verifyHelper(binary: string, directory: string) {
   const home = path.join(directory, "home")
   await mkdir(home, { recursive: true, mode: 0o700 })
@@ -79,19 +95,11 @@ async function release() {
   const certificate = required("MACOS_CERTIFICATE").replace(/\s/g, "")
   const password = required("MACOS_CERTIFICATE_PASSWORD")
   const identity = required("MACOS_SIGN_IDENTITY").trim()
-  const key = required("NOTARY_KEY").trim()
+  const key = decodeNotaryKey(required("NOTARY_KEY"))
   const keyId = required("NOTARY_KEY_ID").trim()
   const issuer = required("NOTARY_ISSUER_ID").trim()
   const decoded = Buffer.from(certificate, "base64")
   if (!decoded.length || decoded.toString("base64") !== certificate) throw new Error("MACOS_CERTIFICATE must be base64 encoded .p12 data")
-  if (!key.startsWith("-----BEGIN PRIVATE KEY-----\n") && !key.startsWith("-----BEGIN PRIVATE KEY-----\r\n")) {
-    throw new Error("NOTARY_KEY must be raw unencrypted PEM .p8 text")
-  }
-  try {
-    if (createPrivateKey(key).asymmetricKeyType !== "ec") throw new Error("Invalid key type")
-  } catch {
-    throw new Error("NOTARY_KEY must contain a valid EC private key in PEM .p8 format")
-  }
   if (!/^[A-Za-z0-9]{10,}$/.test(keyId)) throw new Error("NOTARY_KEY_ID must be an alphanumeric API key ID")
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(issuer)) throw new Error("NOTARY_ISSUER_ID must be a UUID")
   const keychainPassword = randomBytes(32).toString("hex")

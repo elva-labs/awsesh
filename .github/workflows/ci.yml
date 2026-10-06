@@ -82,10 +82,20 @@ jobs:
           done
           bun --eval '
           import { $ } from "bun"
+          import assert from "node:assert/strict"
+          import { generateKeyPairSync } from "node:crypto"
           import { mkdtemp, rm } from "node:fs/promises"
           import path from "node:path"
-          import { verifyHelper } from "./packages/desktop/script/release.ts"
+          import { decodeNotaryKey, verifyHelper } from "./packages/desktop/script/release.ts"
           import { desktopArchive, validateDesktopArchive } from "./packages/scripts/release.ts"
+          const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString()
+          const encoded = Buffer.from(key).toString("base64")
+          assert.equal(decodeNotaryKey(encoded), key.trim())
+          assert.equal(decodeNotaryKey(encoded.replace(/.{64}/g, "$&\n")), key.trim())
+          assert.throws(() => decodeNotaryKey(encoded + "!"))
+          assert.throws(() => decodeNotaryKey(Buffer.from("invalid key").toString("base64")))
+          const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString()
+          assert.throws(() => decodeNotaryKey(Buffer.from(rsa).toString("base64")))
           const temporary = process.env.RUNNER_TEMP
           if (!temporary) throw new Error("RUNNER_TEMP is required")
           const directory = await mkdtemp(path.join(temporary, "awsesh-helper-verification-"))
