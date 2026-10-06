@@ -26,8 +26,17 @@ export async function publishPackage() {
   if (published && published !== integrity) throw new Error("Published npm version differs from the staged package")
   if (published) return
   await $`bun x --package npm@11.21.0 npm publish ${archive} --ignore-scripts --access public --provenance --tag candidate`
-  const result = await registryMetadata()
-  if (result !== integrity) throw new Error("npm publication integrity verification failed; retry after registry propagation")
+  const deadline = Date.now() + 5 * 60 * 1000
+  for (let delay = 2000; ; delay = Math.min(delay * 2, 30000)) {
+    const result = await registryMetadata()
+    if (result === integrity) return
+    if (result) throw new Error("Published npm version differs from the staged package")
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error("npm registry propagation timed out; retry publication with the same tag")
+    const wait = Math.min(delay, remaining)
+    console.log(`Waiting ${Math.ceil(wait / 1000)}s for npm registry propagation`)
+    await Bun.sleep(wait)
+  }
 }
 
 export async function updateChannel() {
