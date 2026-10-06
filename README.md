@@ -2,6 +2,8 @@
 
 A modern AWS SSO session manager with an interactive TUI, powerful CLI, and a reusable SDK.
 
+A native Apple Silicon macOS client built with Rust and GPUI is available in [packages/desktop](packages/desktop/README.md), targeting macOS 13 or newer.
+
 ![awsesh hero](assets/hero.png)
 
 ## Features
@@ -43,6 +45,20 @@ unzip -o /tmp/awsesh.zip -d ~/.local/bin
 chmod +x ~/.local/bin/awsesh
 rm /tmp/awsesh.zip
 ```
+
+### Sesh desktop (Apple Silicon, macOS 13+)
+
+Starting with the first desktop-enabled release, download
+`awsesh-desktop-darwin-arm64.zip` from [GitHub Releases](https://github.com/elva-labs/awsesh/releases).
+Extract it and move `Sesh.app` to `/Applications`. The ZIP contains the native app
+and its compiled SDK helper; no separate Bun, Node or awsesh CLI installation is
+required. Intel and universal desktop bundles are not provided. Homebrew currently
+installs the CLI, not a desktop cask.
+
+The release pipeline requires Developer ID/hardened signing and Apple notarization
+before freezing the ZIP. Live Apple acceptance, macOS 13 GUI compatibility and
+authorized SSO still need validation; local ad-hoc builds do not establish them.
+See [desktop development and signing](packages/desktop/README.md).
 
 ### Build from Source
 
@@ -246,7 +262,10 @@ For a complete working example, see the [awsesh-sdk-example](https://github.com/
 
 ## Themes
 
-Awsesh currently supports a bunch of themes, the base one using your terminal colors.
+Awsesh includes 35 themes shared by the TUI and native desktop app. The TUI's system
+theme uses your terminal colors; desktop uses its native palette. Both discover
+custom JSON definitions in `~/.config/awsesh/themes/`, with independent selections.
+See [the shared theme format](packages/themes/README.md).
 
 ![awsesh themes overview](assets/themes.gif)
 
@@ -297,17 +316,28 @@ Access settings via `Ctrl+P` > Settings in the TUI, or edit `~/.config/awsesh/co
 
 ## Releases
 
-Use an unused version; `1.0.18` is an example.
+Version preparation keeps JSON manifests, the desktop Cargo manifest and its own
+Cargo.lock package entry aligned. Tagged staging runs on ARM macOS and freezes all
+existing CLI targets, the SDK package and the signed/notarized desktop ZIP in one
+candidate. `SHA256SUMS` is uploaded last as the completion marker. A retry verifies
+a completed candidate instead of rebuilding or overwriting it. Manual publication
+stays on Ubuntu and verifies and publishes only those frozen artifacts; it does
+not rebuild or sign the desktop app. See [desktop signing requirements](packages/desktop/README.md#production-signing).
+
+The first desktop release must use a **new, unused tag** after these changes reach
+`main`. Never retrofit `v1.0.19`, move an existing tag or add desktop assets to a
+frozen release. The `1.0.20` commands below are illustrative only; choose an unused
+stable or `MAJOR.MINOR.PATCH-beta.N` version for the actual version PR.
 
 **1. Prepare a version PR**
 
 ```sh
 git fetch origin main
-git switch -c release/v1.0.18 origin/main
-bun run release:prepare 1.0.18
-git add package.json bun.lock packages/*/package.json
-git commit -m "chore(release): prepare v1.0.18"
-git push -u origin release/v1.0.18
+git switch -c release/v1.0.20 origin/main
+bun run release:prepare 1.0.20
+git add package.json bun.lock packages/*/package.json packages/desktop/Cargo.toml packages/desktop/Cargo.lock
+git commit -m "chore(release): prepare v1.0.20"
+git push -u origin release/v1.0.20
 gh pr create --base main --fill
 ```
 
@@ -318,14 +348,14 @@ Replace `PR_NUMBER` with the version PR number. This also works with rebase merg
 ```sh
 git fetch origin main
 commit=$(gh pr view PR_NUMBER --json mergeCommit --jq '.mergeCommit.oid')
-git tag v1.0.18 "$commit"
-git push origin v1.0.18
+git tag v1.0.20 "$commit"
+git push origin v1.0.20
 ```
 
 **3. Wait for staging to pass, review the candidate, then publish**
 
 ```sh
-gh workflow run release.yml --ref v1.0.18 -f operation=publish -f tag=v1.0.18
+gh workflow run release.yml --ref v1.0.20 -f operation=publish -f tag=v1.0.20
 ```
 
 ---

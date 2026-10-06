@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+  <defs>
+    <pattern id="dither" width="8" height="8" patternUnits="userSpaceOnUse">
+      <path fill="#fff" d="M0 0h2v2H0z"/>
+      <path fill="#fff" fill-opacity=".8667" d="M4 4h2v2H4z"/>
+      <path fill="#fff" fill-opacity=".7333" d="M4 0h2v2H4z"/>
+      <path fill="#fff" fill-opacity=".6" d="M0 4h2v2H0z"/>
+      <path fill="#fff" fill-opacity=".4667" d="M2 2h2v2H2z"/>
+      <path fill="#fff" fill-opacity=".3333" d="M6 6h2v2H6z"/>
+      <path fill="#fff" fill-opacity=".2" d="M6 2h2v2H6z"/>
+      <path fill="#fff" fill-opacity=".0667" d="M2 6h2v2H2z"/>
+      <path fill="#000" fill-opacity=".0667" d="M2 0h2v2H2z"/>
+      <path fill="#000" fill-opacity=".2" d="M6 4h2v2H6z"/>
+      <path fill="#000" fill-opacity=".3333" d="M6 0h2v2H6z"/>
+      <path fill="#000" fill-opacity=".4667" d="M2 4h2v2H2z"/>
+      <path fill="#000" fill-opacity=".6" d="M0 2h2v2H0z"/>
+      <path fill="#000" fill-opacity=".7333" d="M4 6h2v2H4z"/>
+      <path fill="#000" fill-opacity=".8667" d="M4 2h2v2H4z"/>
+      <path fill="#000" d="M0 6h2v2H0z"/>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#dither)"/>
+</svg>

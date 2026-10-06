@@ -18,6 +18,7 @@
       "dependencies": {
         "@awsesh/core": "workspace:*",
         "@awsesh/script": "workspace:*",
+        "@awsesh/themes": "workspace:*",
         "@clack/prompts": "^0.11.0",
         "@opentui/core": "0.5.9",
         "@opentui/solid": "0.5.9",
@@ -48,11 +49,31 @@
         "typescript": "5.8.2",
       },
     },
+    "packages/desktop": {
+      "name": "@awsesh/desktop",
+      "version": "1.0.19",
+      "dependencies": {
+        "@awsesh/core": "workspace:*",
+        "@awsesh/themes": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "1.4.2",
+        "typescript": "5.8.2",
+      },
+    },
     "packages/script": {
       "name": "@awsesh/script",
       "version": "1.0.19",
       "devDependencies": {
         "@tsconfig/bun": "1.0.9",
+        "@types/bun": "1.4.2",
+        "typescript": "5.8.2",
+      },
+    },
+    "packages/themes": {
+      "name": "@awsesh/themes",
+      "version": "1.0.19",
+      "devDependencies": {
         "@types/bun": "1.4.2",
         "typescript": "5.8.2",
       },
@@ -119,7 +140,11 @@
 
     "@awsesh/core": ["@awsesh/core@workspace:packages/core"],
 
+    "@awsesh/desktop": ["@awsesh/desktop@workspace:packages/desktop"],
+
     "@awsesh/script": ["@awsesh/script@workspace:packages/script"],
+
+    "@awsesh/themes": ["@awsesh/themes@workspace:packages/themes"],
 
     "@babel/code-frame": ["@babel/code-frame@7.27.1", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.27.1", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg=="],
 

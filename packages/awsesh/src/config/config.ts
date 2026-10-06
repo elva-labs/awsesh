@@ -1,6 +1,7 @@
 import path from "node:path"
 import { Global } from "@/global"
 import { Log } from "@/util/log"
+import type { AppearanceMode } from "@awsesh/themes"
 
 const log = Log.create({ service: "config" })
 
@@ -36,7 +37,7 @@ export interface KeybindsConfig {
 export type DateFormat = "dd/mm/yyyy" | "mm/dd/yyyy"
 export type TimeFormat = "24h" | "12h"
 
-export type ThemeMode = "dark" | "light" | "system"
+export type ThemeMode = AppearanceMode
 
 export interface AppConfig {
   theme: string

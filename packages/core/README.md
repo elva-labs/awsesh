@@ -54,6 +54,34 @@ For a complete working example, see [awsesh-sdk-example](https://github.com/elva
 
 ## API Reference
 
+### `createWorkflow(awsesh)`
+
+Presentation-independent operations for interactive clients, including the native
+macOS app. Workflow results contain display metadata, never AWS credentials or
+access tokens. All methods are asynchronous.
+
+```typescript
+import { createAwsesh, createWorkflow } from "@awsesh/core"
+
+const workflow = createWorkflow(createAwsesh(options))
+const login = await workflow.startLogin("production")
+// Present login.url and login.code; pollLogin waits the AWS polling interval.
+while (!(await workflow.pollLogin("production")).complete) {}
+const state = await workflow.selectSession("production")
+await workflow.loadRoles("production", state.accounts[0].accountId)
+await workflow.assumeRole("production", state.accounts[0].accountId, "ReadOnly")
+```
+
+Available operations: `snapshot`, `selectSession` (optional force refresh),
+`saveSession` (optional create-only flag), `removeSession`, `startLogin`,
+`pollLogin`, `cancelLogin`, `loadRoles`, `preferRole`, `setRegion`, `setProfile`,
+`assumeRole`, `consoleUrl`, `clearCredential`, `signOut`, and `setAppearance`.
+
+Snapshots include sessions and their authentication status, cached accounts with
+role/region/profile preferences, active credential metadata, last selection/session,
+and the desktop appearance preference (`system`, `light`, or `dark`).
+`signOut` removes local tokens and tracked credential profiles, not browser sessions.
+
 ### `createAwsesh(options)`
 
 Creates an awsesh instance with all SDK functionality.
