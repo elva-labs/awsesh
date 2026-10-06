@@ -1,0 +1,38 @@
+name-template: "Upcoming release ($RESOLVED_VERSION)"
+tag-template: "upcoming"
+prerelease: false
+include-pre-releases: false
+categories:
+  - type: version-resolver
+    semver-increment: major
+    when:
+      - conventional:
+          breaking: true
+      - label: breaking-change
+  - title: Features
+    semver-increment: minor
+    exclusive: true
+    when:
+      - conventional:
+          type: feat
+      - label: enhancement
+  - title: Fixes
+    exclusive: true
+    when:
+      - conventional:
+          type: fix
+      - label: bug
+  - title: Maintenance
+change-template: "- $TITLE ([#$NUMBER]($URL)) by $AUTHORS"
+change-title-escapes: '\<*_&`#@'
+template: |
+  ## Changes
+
+  $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS
+footer: |
+
+  [Full changelog](https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...$RESOLVED_TAG)

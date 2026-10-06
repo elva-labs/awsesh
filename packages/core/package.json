@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@awsesh/core",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "description": "AWS SSO session management SDK",
   "type": "module",
   "exports": {
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "bun run ./script/publish.ts"
+    "build": "bun run ./script/build.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sso": "^3.701.0",

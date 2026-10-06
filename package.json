@@ -1,10 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "awsesh-workspace",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "private": true,
   "packageManager": "bun@1.4.2",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bun run --cwd packages/awsesh --conditions=browser src/index.ts",
     "dev:watch": "bun --watch --cwd packages/awsesh --conditions=browser src/index.ts",
@@ -13,7 +15,9 @@
     "dev:desktop": "bun run --cwd packages/desktop dev",
     "build:desktop": "bun run --cwd packages/desktop build",
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun test --conditions=browser"
+    "test": "bun test --conditions=browser",
+    "build:sdk": "bun run --filter '@awsesh/core' build",
+    "release:prepare": "bun run packages/scripts/prepare-release.ts"
   },
   "devDependencies": {
     "@awsesh/script": "workspace:*"

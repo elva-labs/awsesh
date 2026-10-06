@@ -57,12 +57,6 @@ bun install
 bun run build
 ```
 
-## Releases
-
-Pushes to `main` publish a stable release. The patch version is incremented by default, and the CLI binaries, `@awsesh/core` package, GitHub release, and `awsesh` Homebrew formula are updated.
-
-Pushes to `beta` publish a prerelease using the `beta` npm tag and `awsesh-beta` Homebrew formula. Manual workflow runs can select a major, minor, or patch bump, or provide an explicit version.
-
 ---
 
 ## Interactive TUI
@@ -302,6 +296,41 @@ Access settings via `Ctrl+P` > Settings in the TUI, or edit `~/.config/awsesh/co
   "theme": "dark",
   "logLevel": "info"
 }
+```
+
+---
+
+## Releases
+
+Use an unused version; `1.0.18` is an example.
+
+**1. Prepare a version PR**
+
+```sh
+git fetch origin main
+git switch -c release/v1.0.18 origin/main
+bun run release:prepare 1.0.18
+git add package.json bun.lock packages/*/package.json
+git commit -m "chore(release): prepare v1.0.18"
+git push -u origin release/v1.0.18
+gh pr create --base main --fill
+```
+
+**2. Merge after review and CI, then tag the resulting commit**
+
+Replace `PR_NUMBER` with the version PR number. This also works with rebase merges.
+
+```sh
+git fetch origin main
+commit=$(gh pr view PR_NUMBER --json mergeCommit --jq '.mergeCommit.oid')
+git tag v1.0.18 "$commit"
+git push origin v1.0.18
+```
+
+**3. Wait for staging to pass, review the candidate, then publish**
+
+```sh
+gh workflow run release.yml --ref v1.0.18 -f operation=publish -f tag=v1.0.18
 ```
 
 ---

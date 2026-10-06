@@ -1,11 +1,14 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@awsesh/script",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "description": "Build and release scripts for awsesh",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit --strict --skipLibCheck --target ESNext --module ESNext --moduleResolution bundler --types bun --resolveJsonModule --allowImportingTsExtensions src/*.ts ../scripts/*.ts ../awsesh/script/*.ts ../core/script/*.ts"
   },
   "devDependencies": {
     "@tsconfig/bun": "1.0.9",
