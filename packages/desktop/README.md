@@ -64,11 +64,14 @@ entry point, not the local build command. It requires all six company secrets:
 | `MACOS_CERTIFICATE` | Base64-encoded `.p12` containing a Developer ID Application certificate and private key |
 | `MACOS_CERTIFICATE_PASSWORD` | Password for that `.p12` |
 | `MACOS_SIGN_IDENTITY` | Matching Developer ID Application identity name or SHA-1 fingerprint |
-| `NOTARY_KEY` | Raw, unencrypted PEM `.p8` App Store Connect private key |
+| `NOTARY_KEY` | Base64-encoded, unencrypted PEM `.p8` App Store Connect private key |
 | `NOTARY_KEY_ID` | App Store Connect API key ID |
 | `NOTARY_ISSUER_ID` | App Store Connect issuer UUID |
 
-The script validates the assumed encodings and imported identity and fails closed.
+These formats match the organization secrets consumed by the
+[claude-stats release workflow](https://github.com/elva-labs/claude-stats/blob/main/.github/workflows/release.yml).
+Only the certificate and notarization key are base64-encoded; the other four values
+are plain text. The script validates these encodings and the imported identity and fails closed.
 Credentials are written with restricted permissions to a temporary directory;
 a temporary keychain uses a random per-run password. Signing selects that keychain
 explicitly, without changing the default keychain or manually replacing its search
