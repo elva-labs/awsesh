@@ -7,7 +7,7 @@ design direction, delivery phases and platform verification requirements.
 
 ## Development
 
-Requires macOS, Xcode, a stable Rust toolchain, and Bun. From the repository root:
+Requires an Apple Silicon Mac, Xcode, Rust 1.99.0, and Bun 1.4.2. From the repository root:
 
 ```sh
 bun install
@@ -23,8 +23,11 @@ open packages/desktop/dist/Sesh.app
 
 The build packages both the native executable and a compiled Bun SDK helper.
 The app does not require Bun, Node, the CLI or this checkout at runtime. Builds
-target the Mac's current architecture and are ad-hoc signed for local use;
-distribution signing and notarization are not configured. GPUI compiles its
+target ARM64 with a macOS 13.0 deployment target and are ad-hoc signed for local use.
+Stable and beta release versions are preserved in Rust Settings and the
+`AWSESHReleaseVersion` bundle field; Apple's short version uses the numeric base.
+CI uses its positive `GITHUB_RUN_NUMBER` as the bundle build version; local builds
+use the numeric base version. GPUI compiles its
 embedded Metal shaders at runtime, so no separate Metal compiler is required.
 
 ## Controls

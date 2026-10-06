@@ -310,7 +310,7 @@ Use an unused version; `1.0.18` is an example.
 git fetch origin main
 git switch -c release/v1.0.18 origin/main
 bun run release:prepare 1.0.18
-git add package.json bun.lock packages/*/package.json
+git add package.json bun.lock packages/*/package.json packages/desktop/Cargo.toml packages/desktop/Cargo.lock
 git commit -m "chore(release): prepare v1.0.18"
 git push -u origin release/v1.0.18
 gh pr create --base main --fill

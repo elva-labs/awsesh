@@ -51,7 +51,7 @@
     },
     "packages/desktop": {
       "name": "@awsesh/desktop",
-      "version": "1.0.17",
+      "version": "1.0.19",
       "dependencies": {
         "@awsesh/core": "workspace:*",
         "@awsesh/themes": "workspace:*",
@@ -72,7 +72,7 @@
     },
     "packages/themes": {
       "name": "@awsesh/themes",
-      "version": "1.0.17",
+      "version": "1.0.19",
       "devDependencies": {
         "@types/bun": "1.4.2",
         "typescript": "5.8.2",

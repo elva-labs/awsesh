@@ -1,6 +1,6 @@
 {
   "name": "@awsesh/desktop",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "private": true,
   "type": "module",
   "scripts": {

@@ -3,6 +3,7 @@
 import { $ } from "bun"
 import path from "node:path"
 import { releaseMetadata } from "../script/src/version"
+import { desktopManifests } from "./release"
 
 const version = process.argv[2]
 if (!version || process.argv.length !== 3) throw new Error("Usage: bun run release:prepare <version>")
@@ -18,10 +19,14 @@ const manifests = await Promise.all(files.map(async (file) => {
   }
   return { location, manifest }
 }))
+const desktop = await desktopManifests()
 
 for (const item of manifests) {
   item.manifest.version = version
   await Bun.write(item.location, JSON.stringify(item.manifest, null, 2) + "\n")
 }
+for (const item of desktop) {
+  await Bun.write(item.location, item.contents.replace(item.pattern, (_match: string, prefix: string, _current: string, suffix: string) => prefix + version + suffix))
+}
 await $`bun install --lockfile-only --ignore-scripts`.cwd(root)
-console.log(`Prepared ${version}; review and commit the manifests and bun.lock in a version PR.`)
+console.log(`Prepared ${version}; review and commit the JSON/Cargo manifests and lockfiles in a version PR.`)

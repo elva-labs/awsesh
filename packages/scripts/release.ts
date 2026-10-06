@@ -18,6 +18,26 @@ export function requireRepository() {
   if (process.env.GITHUB_REPOSITORY !== repository) throw new Error(`Releases must run in ${repository}`)
 }
 
+export async function desktopManifests() {
+  return Promise.all(["Cargo.toml", "Cargo.lock"].map(async (file) => {
+    const location = path.join(root, "packages/desktop", file)
+    const contents = await Bun.file(location).text()
+    const manifest: unknown = Bun.TOML.parse(contents)
+    if (!manifest || typeof manifest !== "object" || !("package" in manifest)) throw new Error(`Missing Cargo package: ${file}`)
+    const entries: unknown[] = Array.isArray(manifest.package) ? manifest.package : [manifest.package]
+    const matches = entries.filter((entry) => entry && typeof entry === "object" && "name" in entry && entry.name === "awsesh-desktop")
+    const entry = matches[0]
+    if (matches.length !== 1 || !entry || typeof entry !== "object" || !("version" in entry) || typeof entry.version !== "string") {
+      throw new Error(`Missing or duplicate desktop Cargo version: ${file}`)
+    }
+    const pattern = file === "Cargo.toml"
+      ? /^(\[package\][\s\S]*?^version = ")([^"\r\n]+)(")/m
+      : /^(\[\[package\]\]\r?\nname = "awsesh-desktop"\r?\nversion = ")([^"\r\n]+)(")/m
+    if (pattern.exec(contents)?.[2] !== entry.version) throw new Error(`Unsupported Cargo version formatting: ${file}`)
+    return { location, contents, pattern, version: entry.version }
+  }))
+}
+
 export async function validateTag() {
   const tag = process.env.AWSESH_TAG
   if (tag !== `v${Script.version}`) throw new Error("AWSESH_TAG must match the prepared manifest version")
@@ -32,6 +52,9 @@ export async function validateTag() {
     if (!manifest || typeof manifest !== "object" || !("version" in manifest) || manifest.version !== Script.version) {
       throw new Error(`Manifest version does not match ${tag}: ${file}`)
     }
+  }
+  for (const manifest of await desktopManifests()) {
+    if (manifest.version !== Script.version) throw new Error(`Cargo version does not match ${tag}: ${manifest.location}`)
   }
   return { tag, commit }
 }
