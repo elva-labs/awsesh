@@ -71,6 +71,9 @@ jobs:
       - name: Verify desktop bundle
         run: |
           app=packages/desktop/dist/Sesh.app
+          codesign --force --sign - --options runtime --timestamp=none --entitlements packages/desktop/assets/entitlements.plist "$app/Contents/MacOS/awsesh-sdk"
+          codesign --force --sign - --options runtime --timestamp=none "$app"
+          codesign --verify --strict "$app/Contents/MacOS/awsesh-sdk"
           codesign --verify --deep --strict "$app"
           [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")" == "13.0" ]]
           for name in sesh awsesh-sdk; do
@@ -78,14 +81,20 @@ jobs:
             vtool -show-build "$app/Contents/MacOS/$name" | grep -E 'minos 13\.0$'
           done
           bun --eval '
+          import { $ } from "bun"
           import { mkdtemp, rm } from "node:fs/promises"
           import path from "node:path"
           import { verifyHelper } from "./packages/desktop/script/release.ts"
+          import { desktopArchive, validateDesktopArchive } from "./packages/scripts/release.ts"
           const temporary = process.env.RUNNER_TEMP
           if (!temporary) throw new Error("RUNNER_TEMP is required")
           const directory = await mkdtemp(path.join(temporary, "awsesh-helper-verification-"))
+          const app = path.resolve("packages/desktop/dist/Sesh.app")
+          const archive = path.join(directory, desktopArchive)
           try {
-            await verifyHelper(path.resolve("packages/desktop/dist/Sesh.app/Contents/MacOS/awsesh-sdk"), directory)
+            await verifyHelper(path.join(app, "Contents/MacOS/awsesh-sdk"), directory)
+            await $`ditto -c -k --sequesterRsrc --keepParent ${app} ${archive}`
+            await validateDesktopArchive(archive)
           } finally {
             await rm(directory, { recursive: true, force: true })
           }

@@ -95,7 +95,15 @@ the ARM `macos-15` runner, with Rust 1.99.0. Signing secrets are bound only to t
 trusted staging script step. Linux publication checks the frozen ZIP's paths,
 plist and both ARM64 Mach-O headers without extracting it or rebuilding the app.
 The separate ARM desktop PR CI job uses no signing secrets: it builds ad-hoc,
-verifies the signature and minimum OS, and checks the isolated helper protocol.
+applies the release hardened-runtime/JIT settings, verifies signatures and minimum
+OS, checks the isolated helper protocol and validates a temporary packaged ZIP.
+The repository has access to all six organization secrets. A hosted run requires
+these commits to be pushed and a pull request opened; production signing and
+notarization remain restricted to trusted tagged staging after merging to `main`.
+
+Manual GUI testing on macOS has been confirmed by the application owner. The
+tested OS version was not specified, so macOS 13 and notarized-install acceptance
+remain separate verification requirements.
 
 ## Controls
 
