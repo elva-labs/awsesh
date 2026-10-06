@@ -6,12 +6,22 @@ import { releaseMetadata } from "../../script/src/version"
 import { desktopArchive, validateDesktopArchive } from "../../scripts/release"
 
 async function run(command: string[]) {
-  const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" })
-  const [stdout, _stderr, status] = await Promise.all([
-    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+  const child = Bun.spawn(command, { stdout: "pipe", stderr: "inherit" })
+  const [stdout, status] = await Promise.all([
+    new Response(child.stdout).text(), child.exited,
   ])
   if (status !== 0) throw new Error(`${path.basename(command[0])} ${command[1]} failed (exit ${status})`)
   return stdout.trim()
+}
+
+export async function keychainSearchList() {
+  const output = await run(["/usr/bin/security", "list-keychains", "-d", "user"])
+  if (!output) return []
+  return output.split("\n").map((line) => {
+    const value: unknown = JSON.parse(line.trim())
+    if (typeof value !== "string" || !value) throw new Error("Invalid keychain search list")
+    return value
+  })
 }
 
 function required(name: string) {
@@ -102,6 +112,7 @@ async function release() {
   if (!decoded.length || decoded.toString("base64") !== certificate) throw new Error("MACOS_CERTIFICATE must be base64 encoded .p12 data")
   if (!/^[A-Za-z0-9]{10,}$/.test(keyId)) throw new Error("NOTARY_KEY_ID must be an alphanumeric API key ID")
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(issuer)) throw new Error("NOTARY_ISSUER_ID must be a UUID")
+  const search = await keychainSearchList()
   const keychainPassword = randomBytes(32).toString("hex")
   const temporary = await mkdtemp(path.join(process.env.RUNNER_TEMP || tmpdir(), "awsesh-desktop-release-"))
   const keychain = path.join(temporary, "signing.keychain-db")
@@ -115,6 +126,7 @@ async function release() {
       await run(["/usr/bin/security", "create-keychain", "-p", keychainPassword, keychain])
       await run(["/usr/bin/security", "set-keychain-settings", "-lut", "21600", keychain])
       await run(["/usr/bin/security", "unlock-keychain", "-p", keychainPassword, keychain])
+      await run(["/usr/bin/security", "list-keychains", "-d", "user", "-s", keychain, ...search])
       await run(["/usr/bin/security", "import", certificateFile, "-k", keychain, "-P", password, "-T", "/usr/bin/codesign"])
       await run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", keychainPassword, keychain])
       const identities = (await run(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning", keychain])).split("\n")
