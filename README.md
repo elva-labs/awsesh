@@ -21,7 +21,7 @@ A native Apple Silicon macOS client built with Rust and GPUI is available in [pa
 
 ## Installation
 
-### Homebrew (macOS/Linux)
+### Homebrew CLI (macOS/Linux)
 
 ```sh
 brew tap elva-labs/elva
@@ -48,16 +48,27 @@ rm /tmp/awsesh.zip
 
 ### Sesh desktop (Apple Silicon, macOS 13+)
 
-Starting with the first desktop-enabled release, download
+Install the native app into `/Applications` with the Homebrew cask:
+
+```sh
+brew install --cask elva-labs/elva/awsesh-desktop
+```
+
+On Homebrew versions requiring trusted taps, run `brew tap elva-labs/elva` and
+`brew trust elva-labs/elva` first.
+
+The cask installs the desktop app, while `brew install awsesh` installs the CLI.
+Uninstalling the cask leaves shared AWS credentials and awsesh configuration intact.
+
+Alternatively, starting with the first desktop-enabled release, download
 `awsesh-desktop-darwin-arm64.zip` from [GitHub Releases](https://github.com/elva-labs/awsesh/releases).
 Extract it and move `Sesh.app` to `/Applications`. The ZIP contains the native app
 and its compiled SDK helper; no separate Bun, Node or awsesh CLI installation is
-required. Intel and universal desktop bundles are not provided. Homebrew currently
-installs the CLI, not a desktop cask.
+required. Intel and universal desktop bundles are not provided.
 
 The release pipeline requires Developer ID/hardened signing and Apple notarization
-before freezing the ZIP. Live Apple acceptance, macOS 13 GUI compatibility and
-authorized SSO still need validation; local ad-hoc builds do not establish them.
+before freezing the ZIP. macOS 13 GUI compatibility and authorized SSO still need
+validation; local ad-hoc builds do not establish them.
 See [desktop development and signing](packages/desktop/README.md).
 
 ### Build from Source

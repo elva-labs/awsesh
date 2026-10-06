@@ -8,7 +8,20 @@ design direction, delivery phases and platform verification requirements.
 ## Installation and support
 
 Desktop distribution is Apple Silicon ARM64 only, targeting macOS 13 or newer.
-From the first new desktop-enabled [GitHub release](https://github.com/elva-labs/awsesh/releases),
+Install the native app into `/Applications` with Homebrew:
+
+```sh
+brew install --cask elva-labs/elva/awsesh-desktop
+```
+
+On Homebrew versions requiring trusted taps, run `brew tap elva-labs/elva` and
+`brew trust elva-labs/elva` first.
+
+The cask is separate from the `awsesh` CLI formula. Uninstalling it leaves shared
+AWS credentials and awsesh configuration intact. The Elva tap updates it from
+newer public stable releases after verifying the desktop ZIP against `SHA256SUMS`.
+
+Alternatively, from the first desktop-enabled [GitHub release](https://github.com/elva-labs/awsesh/releases),
 download `awsesh-desktop-darwin-arm64.zip`, extract `Sesh.app` and move it to
 `/Applications`. Both executables are bundled: `Contents/MacOS/sesh` is the native
 Rust app and `Contents/MacOS/awsesh-sdk` embeds Bun and the shared JavaScript SDK.
@@ -22,11 +35,14 @@ GUI or SSO has been tested on macOS 13.
 
 ### Follow-up acceptance and distribution work
 
-- Verify the company `.p12` encoding, private key and Developer ID Application
-  identity, and obtain an actual Apple notarization `Accepted` result in trusted CI.
+The staged `v1.1.2` candidate passed production Developer ID signing, Apple
+notarization, stapling and Gatekeeper assessment. Its frozen artifacts were
+verified locally, and the application owner confirmed the installation works.
+
 - Exercise the GUI on the oldest supported macOS 13 system and perform real SSO
   only with explicit authorization and isolated configuration.
-- Homebrew desktop cask, application icon and in-app updating are not implemented.
+- Application icon and in-app updating are not implemented. Homebrew users update
+  the desktop app with `brew upgrade --cask awsesh-desktop`.
 - Intel/universal and Windows/Linux desktop distribution are not provided.
 
 ## Development
@@ -91,8 +107,7 @@ Native `ditto` packaging precedes `notarytool --wait`; the script requires Apple
 and validates the app and runs Gatekeeper assessment. The final
 `dist/awsesh-desktop-darwin-arm64.zip` is created only after stapling, and removed
 if signing, notarization, verification or cleanup fails. There is no ad-hoc release
-fallback. Company credential compatibility and live Apple acceptance still require
-verification in trusted CI; local ad-hoc verification does not prove notarization.
+fallback. Local ad-hoc verification does not prove notarization.
 
 The existing tagged release workflow stages this ZIP alongside the CLI and SDK on
 the ARM `macos-15` runner, with Rust 1.99.0. Signing secrets are bound only to the
@@ -105,9 +120,9 @@ The repository has access to all six organization secrets. A hosted run requires
 these commits to be pushed and a pull request opened; production signing and
 notarization remain restricted to trusted tagged staging after merging to `main`.
 
-Manual GUI testing on macOS has been confirmed by the application owner. The
-tested OS version was not specified, so macOS 13 and notarized-install acceptance
-remain separate verification requirements.
+Manual installation and GUI testing of the notarized candidate have been confirmed
+by the application owner. The tested OS version was not specified, so macOS 13
+compatibility and authorized live SSO remain separate verification requirements.
 
 ## Controls
 
