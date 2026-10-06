@@ -10,7 +10,7 @@
     },
     "packages/awsesh": {
       "name": "awsesh",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "bin": {
         "awsesh": "./src/index.ts",
         "sesh": "./src/index.ts",
@@ -38,7 +38,7 @@
     },
     "packages/core": {
       "name": "@awsesh/core",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "dependencies": {
         "@aws-sdk/client-sso": "^3.701.0",
         "@aws-sdk/client-sso-oidc": "^3.701.0",
@@ -51,7 +51,7 @@
     },
     "packages/desktop": {
       "name": "@awsesh/desktop",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "dependencies": {
         "@awsesh/core": "workspace:*",
         "@awsesh/themes": "workspace:*",
@@ -63,7 +63,7 @@
     },
     "packages/script": {
       "name": "@awsesh/script",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "devDependencies": {
         "@tsconfig/bun": "1.0.9",
         "@types/bun": "1.4.2",
@@ -72,7 +72,7 @@
     },
     "packages/themes": {
       "name": "@awsesh/themes",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "devDependencies": {
         "@types/bun": "1.4.2",
         "typescript": "5.8.2",
