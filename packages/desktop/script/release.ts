@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { releaseMetadata } from "../../script/src/version"
+import { desktopArchive, validateDesktopArchive } from "../../scripts/release"
 
 async function run(command: string[]) {
   const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" })
@@ -73,7 +74,7 @@ async function release() {
   if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("Desktop releases require ARM64 macOS")
   const directory = path.resolve(import.meta.dir, "..")
   const app = path.join(directory, "dist/Sesh.app")
-  const archive = path.join(directory, "dist/awsesh-desktop-darwin-arm64.zip")
+  const archive = path.join(directory, "dist", desktopArchive)
   await rm(archive, { force: true })
   const certificate = required("MACOS_CERTIFICATE").replace(/\s/g, "")
   const password = required("MACOS_CERTIFICATE_PASSWORD")
@@ -93,11 +94,11 @@ async function release() {
   }
   if (!/^[A-Za-z0-9]{10,}$/.test(keyId)) throw new Error("NOTARY_KEY_ID must be an alphanumeric API key ID")
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(issuer)) throw new Error("NOTARY_ISSUER_ID must be a UUID")
+  const keychainPassword = randomBytes(32).toString("hex")
   const temporary = await mkdtemp(path.join(process.env.RUNNER_TEMP || tmpdir(), "awsesh-desktop-release-"))
   const keychain = path.join(temporary, "signing.keychain-db")
   const certificateFile = path.join(temporary, "certificate.p12")
   const keyFile = path.join(temporary, "notary.p8")
-  const keychainPassword = randomBytes(32).toString("hex")
   try {
     try {
       await writeFile(certificateFile, decoded, { mode: 0o600 })
@@ -135,6 +136,7 @@ async function release() {
       await verifyHelper(helper, temporary)
       const submission = path.join(temporary, "submission.zip")
       await run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, submission])
+      await validateDesktopArchive(submission, version)
       const credentials = ["--key", keyFile, "--key-id", keyId, "--issuer", issuer]
       const result: unknown = JSON.parse(await run(["/usr/bin/xcrun", "notarytool", "submit", submission, ...credentials, "--wait", "--output-format", "json"]))
       if (!result || typeof result !== "object" || !("status" in result) || result.status !== "Accepted"
@@ -149,6 +151,7 @@ async function release() {
       await run(["/usr/sbin/spctl", "--assess", "--type", "execute", app])
       await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app])
       await run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, archive])
+      await validateDesktopArchive(archive, version)
     } finally {
       try {
         if (await Bun.file(keychain).exists()) await run(["/usr/bin/security", "delete-keychain", keychain])

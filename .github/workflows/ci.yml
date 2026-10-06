@@ -40,3 +40,53 @@ jobs:
 
       - name: Build SDK
         run: bun run build:sdk
+
+  desktop:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install ARM64 Rust toolchain
+        run: |
+          [[ "$(uname -m)" == "arm64" ]]
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt
+          rustup default 1.99.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path packages/desktop/Cargo.toml --check
+
+      - name: Test Rust application
+        run: cargo test --manifest-path packages/desktop/Cargo.toml --locked
+
+      - name: Build ad-hoc desktop bundle
+        run: bun run build:desktop
+
+      - name: Verify desktop bundle
+        run: |
+          app=packages/desktop/dist/Sesh.app
+          codesign --verify --deep --strict "$app"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")" == "13.0" ]]
+          for name in sesh awsesh-sdk; do
+            [[ "$(lipo -archs "$app/Contents/MacOS/$name")" == "arm64" ]]
+            vtool -show-build "$app/Contents/MacOS/$name" | grep -E 'minos 13\.0$'
+          done
+          bun --eval '
+          import { mkdtemp, rm } from "node:fs/promises"
+          import path from "node:path"
+          import { verifyHelper } from "./packages/desktop/script/release.ts"
+          const temporary = process.env.RUNNER_TEMP
+          if (!temporary) throw new Error("RUNNER_TEMP is required")
+          const directory = await mkdtemp(path.join(temporary, "awsesh-helper-verification-"))
+          try {
+            await verifyHelper(path.resolve("packages/desktop/dist/Sesh.app/Contents/MacOS/awsesh-sdk"), directory)
+          } finally {
+            await rm(directory, { recursive: true, force: true })
+          }
+          '

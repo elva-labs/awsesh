@@ -66,6 +66,13 @@ if signing, notarization, verification or cleanup fails. There is no ad-hoc rele
 fallback. Company credential compatibility and live Apple acceptance still require
 verification in trusted CI; local ad-hoc verification does not prove notarization.
 
+The existing tagged release workflow stages this ZIP alongside the CLI and SDK on
+the ARM `macos-15` runner, with Rust 1.99.0. Signing secrets are bound only to the
+trusted staging script step. Linux publication checks the frozen ZIP's paths,
+plist and both ARM64 Mach-O headers without extracting it or rebuilding the app.
+The separate ARM desktop PR CI job uses no signing secrets: it builds ad-hoc,
+verifies the signature and minimum OS, and checks the isolated helper protocol.
+
 ## Controls
 
 - Application shortcuts are remappable in Settings → Keyboard shortcuts. Click a

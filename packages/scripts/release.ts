@@ -1,5 +1,5 @@
 import { $ } from "bun"
-import { Script } from "@awsesh/script"
+import { Script, releaseMetadata } from "@awsesh/script"
 import { createHash } from "node:crypto"
 import { createReadStream } from "node:fs"
 import path from "node:path"
@@ -8,9 +8,11 @@ import { allTargets, targetName } from "../awsesh/script/targets"
 export const repository = "elva-labs/awsesh"
 export const root = path.resolve(import.meta.dir, "../..")
 export const sdkArchive = `awsesh-core-${Script.version}.tgz`
+export const desktopArchive = "awsesh-desktop-darwin-arm64.zip"
 export const artifacts = [
   ...allTargets.map((target) => `${targetName(target)}.${target.os === "linux" ? "tar.gz" : "zip"}`),
   sdkArchive,
+  desktopArchive,
   "release.json",
 ]
 
@@ -88,6 +90,68 @@ export async function digest(file: string, algorithm = "sha256") {
   return hash.digest("hex")
 }
 
+export async function validateDesktopArchive(file: string, version = Script.version) {
+  releaseMetadata(version)
+  const validation = String.raw`
+import plistlib, re, stat, struct, sys, zipfile
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    entries = archive.infolist()
+    names = [entry.filename for entry in entries]
+    require(len(names) == len(set(names)), "Duplicate desktop ZIP paths")
+    for entry in entries:
+        name = entry.filename
+        parts = name.rstrip("/").split("/")
+        require(name == entry.orig_filename and "\\" not in name and all(part not in ("", ".", "..") for part in parts), "Unsafe desktop ZIP path")
+        kind = stat.S_IFMT(entry.external_attr >> 16)
+        require(kind in (0, stat.S_IFREG, stat.S_IFDIR), "Unsupported desktop ZIP file type")
+        if parts[0] == "Sesh.app":
+            continue
+        require(parts[0] == "__MACOSX", "Desktop ZIP path outside Sesh.app")
+        if entry.is_dir():
+            require(len(parts) == 1 or parts[1] == "Sesh.app", "Unexpected ditto metadata directory")
+            continue
+        require((len(parts) == 2 and parts[1] == "._Sesh.app") or (len(parts) > 2 and parts[1] == "Sesh.app" and parts[-1].startswith("._")), "Unexpected ditto metadata path")
+        target = "/".join(parts[1:-1] + [parts[-1][2:]])
+        require(target in names or target + "/" in names, "Orphaned ditto metadata")
+        with archive.open(entry) as stream:
+            require(stream.read(4) == b"\x00\x05\x16\x07", "Invalid AppleDouble metadata")
+    require(archive.testzip() is None, "Corrupt desktop ZIP contents")
+    required = ["Sesh.app/Contents/Info.plist", "Sesh.app/Contents/MacOS/sesh", "Sesh.app/Contents/MacOS/awsesh-sdk"]
+    for name in required:
+        require(name in names and archive.getinfo(name).file_size > 0 and not archive.getinfo(name).is_dir(), "Missing or empty desktop bundle member: " + name)
+    require(archive.getinfo(required[0]).file_size <= 1048576, "Oversized desktop Info.plist")
+    plist = plistlib.loads(archive.read(required[0]))
+    require(isinstance(plist, dict), "Invalid desktop Info.plist")
+    version = sys.argv[2]
+    base = version.split("-")[0]
+    expected = {
+        "CFBundleIdentifier": "se.elva.awsesh.desktop",
+        "CFBundleExecutable": "sesh",
+        "CFBundlePackageType": "APPL",
+        "LSMinimumSystemVersion": "13.0",
+        "AWSESHReleaseVersion": version,
+        "CFBundleShortVersionString": base,
+    }
+    for key, value in expected.items():
+        require(plist.get(key) == value, "Desktop bundle metadata mismatch: " + key)
+    build = plist.get("CFBundleVersion")
+    require(isinstance(build, str) and (build == base or (re.fullmatch(r"[1-9][0-9]*", build) is not None and int(build) <= 9007199254740991)), "Invalid numeric Apple build version")
+    for name in required[1:]:
+        require(archive.getinfo(name).external_attr >> 16 & 0o111, "Desktop binary is not executable: " + name)
+        with archive.open(name) as stream:
+            header = stream.read(32)
+        require(len(header) == 32, "Truncated Mach-O header: " + name)
+        magic, cpu, subtype, filetype, commands, size, flags, reserved = struct.unpack("<8I", header)
+        require(magic == 0xfeedfacf and cpu == 0x0100000c and filetype == 2, "Desktop binary must be ARM64 Mach-O: " + name)
+`
+  await $`python3 -c ${validation} ${file} ${version}`.quiet()
+}
+
 export async function validateArtifacts(directory: string, tag: string, commit: string) {
   const lines = (await Bun.file(path.join(directory, "SHA256SUMS")).text()).trim().split("\n")
   const checksums = new Map<string, string>()
@@ -115,6 +179,7 @@ export async function validateArtifacts(directory: string, tag: string, commit: 
       throw new Error(`Unexpected archive contents: ${archive}`)
     }
   }
+  await validateDesktopArchive(path.join(directory, desktopArchive))
   const archive = path.join(directory, sdkArchive)
   const sdk: unknown = JSON.parse(await $`tar -xOf ${archive} package/package.json`.text())
   if (!sdk || typeof sdk !== "object" || !("name" in sdk) || sdk.name !== "@awsesh/core"

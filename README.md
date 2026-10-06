@@ -302,6 +302,14 @@ Access settings via `Ctrl+P` > Settings in the TUI, or edit `~/.config/awsesh/co
 
 ## Releases
 
+Version preparation keeps JSON manifests, the desktop Cargo manifest and its own
+Cargo.lock package entry aligned. Tagged staging runs on ARM macOS and freezes all
+existing CLI targets, the SDK package and the signed/notarized desktop ZIP in one
+candidate. `SHA256SUMS` is uploaded last as the completion marker. A retry verifies
+a completed candidate instead of rebuilding or overwriting it. Manual publication
+stays on Ubuntu and verifies and publishes only those frozen artifacts; it does
+not rebuild or sign the desktop app. See [desktop signing requirements](packages/desktop/README.md#production-signing).
+
 Use an unused version; `1.0.18` is an example.
 
 **1. Prepare a version PR**
