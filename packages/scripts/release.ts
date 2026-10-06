@@ -37,9 +37,9 @@ export async function validateTag() {
 }
 
 export async function getRelease(tag: string) {
-  const result = await $`gh api repos/${repository}/releases/tags/${tag}`.quiet().nothrow()
+  const result = await $`gh release view ${tag} --repo ${repository} --json isDraft,isPrerelease,targetCommitish,assets --jq '{draft: .isDraft, prerelease: .isPrerelease, target_commitish: .targetCommitish, assets: .assets}'`.quiet().nothrow()
   if (result.exitCode !== 0) {
-    if (result.stderr.toString().includes("(HTTP 404)")) return undefined
+    if (result.stderr.toString().trim() === "release not found") return undefined
     throw new Error(`Cannot read release ${tag}: ${result.stderr.toString()}`)
   }
   const release: unknown = JSON.parse(result.stdout.toString())
