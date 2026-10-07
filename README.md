@@ -1,8 +1,6 @@
 # awsesh
 
-A modern AWS SSO session manager with an interactive TUI, powerful CLI, and a reusable SDK.
-
-A native Apple Silicon macOS client built with Rust and GPUI is available in [packages/desktop](packages/desktop/README.md), targeting macOS 13 or newer.
+A modern AWS SSO session manager based on an SDK, with an interactive TUI, powerful CLI and a desktop app.
 
 ![awsesh hero](assets/hero.png)
 
@@ -10,6 +8,7 @@ A native Apple Silicon macOS client built with Rust and GPUI is available in [pa
 
 - Interactive terminal UI for managing AWS SSO sessions
 - Interactive CLI if that's more your jam
+- MacOS app if you prefer to not use the terminal
 - Fast fuzzy search across accounts and roles
 - Multiple SSO profile support
 - Automatic credential management
@@ -21,7 +20,7 @@ A native Apple Silicon macOS client built with Rust and GPUI is available in [pa
 
 ## Installation
 
-### Homebrew CLI (macOS/Linux)
+### Homebrew TUI/CLI (macOS/Linux)
 
 ```sh
 brew tap elva-labs/elva
@@ -32,44 +31,11 @@ brew install awsesh
 
 Download the latest release from the [Releases page](https://github.com/elva-labs/awsesh/releases/latest).
 
-```sh
-# Linux (x64)
-mkdir -p ~/.local/bin
-curl -fL https://github.com/elva-labs/awsesh/releases/latest/download/awsesh-linux-x64.tar.gz | tar -xz -C ~/.local/bin
-chmod +x ~/.local/bin/awsesh
-
-# macOS (Apple Silicon)
-mkdir -p ~/.local/bin
-curl -fL https://github.com/elva-labs/awsesh/releases/latest/download/awsesh-darwin-arm64.zip -o /tmp/awsesh.zip
-unzip -o /tmp/awsesh.zip -d ~/.local/bin
-chmod +x ~/.local/bin/awsesh
-rm /tmp/awsesh.zip
-```
-
-### Sesh desktop (Apple Silicon, macOS 13+)
-
-Install the native app into `/Applications` with the Homebrew cask:
+### MacOS Desktop Application
 
 ```sh
 brew install --cask elva-labs/elva/awsesh-desktop
 ```
-
-On Homebrew versions requiring trusted taps, run `brew tap elva-labs/elva` and
-`brew trust elva-labs/elva` first.
-
-The cask installs the desktop app, while `brew install awsesh` installs the CLI.
-Uninstalling the cask leaves shared AWS credentials and awsesh configuration intact.
-
-Alternatively, starting with the first desktop-enabled release, download
-`awsesh-desktop-darwin-arm64.zip` from [GitHub Releases](https://github.com/elva-labs/awsesh/releases).
-Extract it and move `Sesh.app` to `/Applications`. The ZIP contains the native app
-and its compiled SDK helper; no separate Bun, Node or awsesh CLI installation is
-required. Intel and universal desktop bundles are not provided.
-
-The release pipeline requires Developer ID/hardened signing and Apple notarization
-before freezing the ZIP. macOS 13 GUI compatibility and authorized SSO still need
-validation; local ad-hoc builds do not establish them.
-See [desktop development and signing](packages/desktop/README.md).
 
 ### Build from Source
 
@@ -81,6 +47,14 @@ cd awsesh
 bun install
 bun run build
 ```
+
+---
+
+## Desktop Application
+
+Currently only available on MacOS but coming for Windows and Linux soon.
+
+![sesh desktop app](assets/mac-app.png)
 
 ---
 
@@ -198,6 +172,7 @@ Options:
 Add this to your shell config for seamless environment variable integration:
 
 **Bash/Zsh:**
+
 ```bash
 sesh() { # i personally prefer "sesh" over "awsesh"
     eval "$(command awsesh --eval "$@")"
@@ -205,6 +180,7 @@ sesh() { # i personally prefer "sesh" over "awsesh"
 ```
 
 **Fish:**
+
 ```fish
 function sesh
     eval (command awsesh --eval $argv)
@@ -292,6 +268,7 @@ awsesh migrate
 ```
 
 Options:
+
 - `--dry-run` - Preview changes without applying
 - `--force` - Force migration even if config exists
 - `--no-backup` - Skip backup (not recommended)
@@ -327,54 +304,51 @@ Access settings via `Ctrl+P` > Settings in the TUI, or edit `~/.config/awsesh/co
 
 ## Releases
 
-Version preparation keeps JSON manifests, the desktop Cargo manifest and its own
-Cargo.lock package entry aligned. Tagged staging runs on ARM macOS and freezes all
-existing CLI targets, the SDK package and the signed/notarized desktop ZIP in one
-candidate. `SHA256SUMS` is uploaded last as the completion marker. A retry verifies
-a completed candidate instead of rebuilding or overwriting it. Manual publication
-stays on Ubuntu and verifies and publishes only those frozen artifacts; it does
-not rebuild or sign the desktop app. See [desktop signing requirements](packages/desktop/README.md#production-signing).
-
-The first desktop release must use a **new, unused tag** after these changes reach
-`main`. Never retrofit `v1.0.19`, move an existing tag or add desktop assets to a
-frozen release. The `1.0.20` commands below are illustrative only; choose an unused
-stable or `MAJOR.MINOR.PATCH-beta.N` version for the actual version PR.
+Choose an unused version and run these steps in the same shell. Never move an
+existing tag or replace staged artifacts.
 
 **1. Prepare a version PR**
 
 ```sh
+version=1.1.3
+
 git fetch origin main
-git switch -c release/v1.0.20 origin/main
-bun run release:prepare 1.0.20
+git switch -c "release/v$version" origin/main
+bun run release:prepare "$version"
 git add package.json bun.lock packages/*/package.json packages/desktop/Cargo.toml packages/desktop/Cargo.lock
-git commit -m "chore(release): prepare v1.0.20"
-git push -u origin release/v1.0.20
+git commit -m "chore(release): prepare v$version"
+git push -u origin "release/v$version"
 gh pr create --base main --fill
 ```
 
 **2. Merge after review and CI, then tag the resulting commit**
 
-Replace `PR_NUMBER` with the version PR number. This also works with rebase merges.
+The merged commit is read from the version PR, including rebase merges.
 
 ```sh
 git fetch origin main
-commit=$(gh pr view PR_NUMBER --json mergeCommit --jq '.mergeCommit.oid')
-git tag v1.0.20 "$commit"
-git push origin v1.0.20
+commit=$(gh pr view "release/v$version" --json mergeCommit --jq '.mergeCommit.oid')
+git tag "v$version" "$commit"
+git push origin "v$version"
 ```
 
 **3. Wait for staging to pass, review the candidate, then publish**
 
+Pushing the tag stages a draft release. Publishing uses those verified artifacts;
+it does not rebuild them.
+
 ```sh
-gh workflow run release.yml --ref v1.0.20 -f operation=publish -f tag=v1.0.20
+gh workflow run release.yml --ref "v$version" -f operation=publish -f tag="v$version"
 ```
 
 ---
 
 ## Acknowledgments
 
-Huge thanks to the great team over at [Anomalyco](hhttps://github.com/anomalyco) both for OpenTui and the structure of OpenCode from a few months ago.
+Huge thanks to the great team over at [Anomalyco](https://github.com/anomalyco) both for OpenTui and the structure of OpenCode from a few months ago.
 I shamelessly based the refactor on the structure of OpenCode at the time and it's been great for me.
+
+Thanks also to [Zeron](https://zeron.sh/), whose [open-source implementation](https://github.com/zeronsh/zeron) inspired the desktop app's look.
 
 ---
 
