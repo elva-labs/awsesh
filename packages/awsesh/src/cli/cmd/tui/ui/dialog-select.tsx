@@ -270,9 +270,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                         option.onSelect?.(dialog)
                         props.onSelect?.(option)
                       }}
-                      onMouseOver={() => {
-                        const index = filtered().findIndex((x) => isDeepEqual(x.value, option.value))
-                        if (index === -1) return
+                      onMouseMove={() => {
+                        const index = flat().findIndex((x) => isDeepEqual(x.value, option.value))
+                        if (index === -1 || index === store.selected) return
                         moveTo(index, config.data.mouseEdgeScroll)
                       }}
                       backgroundColor={active() ? (option.bg ?? theme.primary) : RGBA.fromInts(0, 0, 0, 0)}

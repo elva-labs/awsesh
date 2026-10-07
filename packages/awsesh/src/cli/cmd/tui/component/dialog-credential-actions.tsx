@@ -79,7 +79,7 @@ export function DialogCredentialActions(props: DialogCredentialActionsProps) {
                   if (renderer.getSelection()?.getSelectedText()) return
                   handleSelect(option)
                 }}
-                onMouseOver={() => {
+                onMouseMove={() => {
                   setStore("selected", index())
                 }}
                 backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}

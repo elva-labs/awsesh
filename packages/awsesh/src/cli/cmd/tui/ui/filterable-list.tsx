@@ -91,6 +91,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
   const selected = createMemo(() => flat()[store.selected])
 
+  let selectedId: string | undefined
   let initialNotified = false
   let initialIdApplied = false
   let defaultTimer: ReturnType<typeof setTimeout> | null = null
@@ -116,8 +117,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
         defaultTimer = setTimeout(() => {
           if (initialIdApplied || initialNotified) return
           initialNotified = true
-          const item = selected()
-          if (item) props.onMove?.(item)
+          select(store.selected)
         }, 50)
       }
     }
@@ -130,11 +130,23 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
   createEffect(on(
     () => store.filter,
     () => {
-      setStore("selected", 0)
+      select(0)
       if (scroll) scroll.scrollTo(0)
     },
     { defer: true }
   ))
+
+  // Items can reorder or disappear while the filter is unchanged (e.g. a subtitle
+  // change re-ranks fuzzy matches), so follow the selected item by id. Scrolling
+  // waits for the next frame so the new rows have been laid out.
+  createEffect(on(flat, (items) => {
+    if (selectedId === undefined || items.length === 0) return
+    const idx = items.findIndex((x) => x.id === selectedId)
+    if (idx === store.selected) return
+    if (idx === -1) select(Math.min(store.selected, items.length - 1))
+    else setStore("selected", idx)
+    renderer.once("frame", () => scrollToIndex(store.selected))
+  }))
 
   createEffect(() => {
     if (input) {
@@ -167,11 +179,21 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     moveTo(next)
   }
 
-  function moveTo(next: number, includeNeighbors?: boolean) {
+  function select(next: number) {
     setStore("selected", next)
     const item = flat()[next]
+    selectedId = item?.id
     if (item) props.onMove?.(item)
-    if (!scroll) return
+  }
+
+  function moveTo(next: number, includeNeighbors?: boolean) {
+    select(next)
+    scrollToIndex(next, includeNeighbors)
+  }
+
+  function scrollToIndex(next: number, includeNeighbors?: boolean) {
+    const item = flat()[next]
+    if (!scroll || scroll.isDestroyed || !item) return
 
     const children = scroll.getChildren()
     const target = children.find((child) => child.id === item.id)
@@ -380,9 +402,9 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                             if (renderer.getSelection()?.getSelectedText()) return
                             if (!item.disabled) props.onSelect?.(item)
                           }}
-                          onMouseOver={() => {
+                          onMouseMove={() => {
                             const idx = flat().findIndex((x) => x.id === item.id)
-                            if (idx !== -1) moveTo(idx, config.data.mouseEdgeScroll)
+                            if (idx !== -1 && idx !== store.selected) moveTo(idx, config.data.mouseEdgeScroll)
                           }}
                           backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
                           paddingLeft={1}
