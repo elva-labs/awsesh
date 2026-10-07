@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 256 256">
+  <title>Sesh application icon</title>
+  <defs>
+    <linearGradient id="navy" x1="0" y1="0" x2="0.3" y2="1">
+      <stop stop-color="#274559"/>
+      <stop offset="1" stop-color="#112333"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0.15" y2="1">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eaf1f7"/>
+    </linearGradient>
+    <filter id="card-shadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#071a2a" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <rect x="24" y="26" width="208" height="208" rx="47" fill="#0c1d2a" opacity="0.35"/>
+  <rect x="24" y="24" width="208" height="208" rx="47" fill="url(#navy)" stroke="#102536" stroke-width="1"/>
+  <rect x="26" y="26" width="204" height="203" rx="45" fill="none" stroke="#ffffff" stroke-opacity="0.13" stroke-width="2"/>
+  <rect x="62" y="57" width="132" height="106" rx="16" fill="#679abc" stroke="#a5cadf" stroke-width="1"/>
+  <rect x="52" y="78" width="152" height="110" rx="17" fill="#b5d0df" stroke="#dbe9f1" stroke-width="1"/>
+  <rect x="41" y="99" width="174" height="111" rx="18" fill="url(#paper)" filter="url(#card-shadow)"/>
+  <rect x="42" y="100" width="172" height="109" rx="17" fill="none" stroke="#ffffff" stroke-opacity="0.85"/>
+  <circle cx="67" cy="127" r="8" fill="#347dcc"/>
+  <rect x="89" y="122" width="99" height="10" rx="5" fill="#213d53"/>
+  <circle cx="67" cy="153" r="8" fill="#a0b4c3"/>
+  <rect x="89" y="148" width="78" height="10" rx="5" fill="#7b95a8"/>
+  <circle cx="67" cy="179" r="8" fill="#a0b4c3"/>
+  <rect x="89" y="174" width="99" height="10" rx="5" fill="#7b95a8"/>
+</svg>

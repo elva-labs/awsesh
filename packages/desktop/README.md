@@ -41,7 +41,7 @@ verified locally, and the application owner confirmed the installation works.
 
 - Exercise the GUI on the oldest supported macOS 13 system and perform real SSO
   only with explicit authorization and isolated configuration.
-- Application icon and in-app updating are not implemented. Homebrew users update
+- In-app updating is not implemented. Homebrew users update
   the desktop app with `brew upgrade --cask awsesh-desktop`.
 - Intel/universal and Windows/Linux desktop distribution are not provided.
 
@@ -69,6 +69,16 @@ Stable and beta release versions are preserved in Rust Settings and the
 CI uses its positive `GITHUB_RUN_NUMBER` as the bundle build version; local builds
 use the numeric base version. GPUI compiles its
 embedded Metal shaders at runtime, so no separate Metal compiler is required.
+
+### Application icon
+
+`assets/app-icon.svg` is the editable source for the compact account-list stack.
+`assets/AppIcon.icns` contains standard and Retina images from 16 to 1024 pixels.
+The build copies the ICNS into `Contents/Resources` and declares it in `Info.plist`
+before signing, so Finder and the Dock use the icon. Builds consume the committed
+ICNS directly; no image-conversion dependency is required locally or in CI.
+When changing the artwork, export the SVG at 1024 pixels, generate the standard
+macOS iconset sizes and regenerate the ICNS with Apple's `iconutil`.
 
 ## Production signing
 
