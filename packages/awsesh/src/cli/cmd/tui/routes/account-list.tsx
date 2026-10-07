@@ -35,13 +35,14 @@ export function AccountListScreen() {
   const dialog = useDialog()
   const exit = useExit()
 
-  const [selectedAccount, setSelectedAccount] = createSignal<Account | null>(null)
+  const [selectedAccountId, setSelectedAccountId] = createSignal<string | undefined>(undefined)
   const [preferredRoles, setPreferredRoles] = createSignal<Record<string, string>>({})
   const [preferredRegions, setPreferredRegions] = createSignal<Record<string, string>>({})
   const [profileNames, setProfileNames] = createSignal<Record<string, Record<string, string>>>({})
   const [lastAccountId, setLastAccountId] = createSignal<string | undefined>(undefined)
 
   const session = createMemo(() => aws.sessions.find((s) => s.name === routeData.sessionName))
+  const selectedAccount = createMemo(() => aws.accounts.find((a) => a.accountId === selectedAccountId()))
 
   onMount(async () => {
     const last = await awsesh.lastAccountPerSession.get(routeData.sessionName)
@@ -294,8 +295,9 @@ export function AccountListScreen() {
     const s = session()
     if (!s) return
 
+    let roles = account.roles
     if (!account.rolesLoaded) {
-      const roles = await aws.loadRoles(s, account.accountId)
+      roles = await aws.loadRoles(s, account.accountId)
       if (roles.length === 0) {
         toast.show({
           variant: "error",
@@ -308,7 +310,7 @@ export function AccountListScreen() {
     dialog.replaceRender(() => (
       <DialogSelect
         title="Select Role"
-        options={account.roles.map((role) => ({
+        options={roles.map((role) => ({
           title: role,
           value: role,
         }))}
@@ -329,8 +331,9 @@ export function AccountListScreen() {
     const s = session()
     if (!s) return
 
+    let roles = account.roles
     if (!account.rolesLoaded) {
-      const roles = await aws.loadRoles(s, account.accountId)
+      roles = await aws.loadRoles(s, account.accountId)
       if (roles.length === 0) {
         toast.show({
           variant: "error",
@@ -413,13 +416,13 @@ export function AccountListScreen() {
       }
     }
 
-    if (account.roles.length === 1) {
-      await selectRoleAndSetProfile(account.roles[0])
+    if (roles.length === 1) {
+      await selectRoleAndSetProfile(roles[0])
     } else {
       dialog.replaceRender(() => (
         <DialogSelect
           title="Select Role for CLI Profile"
-          options={account.roles.map((role) => ({
+          options={roles.map((role) => ({
             title: role,
             value: role,
           }))}
@@ -527,7 +530,7 @@ export function AccountListScreen() {
   }
 
   const handleItemMove = (item: FilterableListItem<Account>) => {
-    setSelectedAccount(item.value)
+    setSelectedAccountId(item.value.accountId)
   }
 
   return (

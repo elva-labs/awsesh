@@ -142,7 +142,7 @@ export function DialogCommand(props: DialogCommandProps) {
                         dialog.clear()
                         option.onSelect?.(dialog)
                       }}
-                      onMouseOver={() => {
+                      onMouseMove={() => {
                         const idx = flat().findIndex((x) => x.id === option.id)
                         if (idx !== -1) setStore("selected", idx)
                       }}
