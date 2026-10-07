@@ -21,6 +21,7 @@ const binaries = path.join(contents, "MacOS")
 await rm(app, { recursive: true, force: true })
 await mkdir(binaries, { recursive: true })
 await mkdir(path.join(contents, "Resources"), { recursive: true })
+await cp(path.join(directory, "assets/AppIcon.icns"), path.join(contents, "Resources/AppIcon.icns"))
 
 async function run(command: string[]) {
   const process = Bun.spawn(command, { cwd: directory, env: { ...Bun.env, MACOSX_DEPLOYMENT_TARGET: "13.0" }, stdout: "inherit", stderr: "inherit" })
@@ -48,6 +49,7 @@ await Bun.write(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding
   <key>CFBundleDisplayName</key><string>Sesh</string>
   <key>CFBundleIdentifier</key><string>se.elva.awsesh.desktop</string>
   <key>CFBundleExecutable</key><string>sesh</string>
+  <key>CFBundleIconFile</key><string>AppIcon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${number ?? version}</string>
