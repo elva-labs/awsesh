@@ -1758,6 +1758,13 @@ mod tests {
 
         let fixed = [KeyBinding::new(&platform::shortcut("q"), crate::Quit, None)];
         let selection = |id: &str, key: &str| BTreeMap::from([(id.to_owned(), key.to_owned())]);
+        let command = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        let alt_command_f = format!("{command}-alt-f");
+        let alt_command_f_normalized = Keystroke::parse(&alt_command_f)?.unparse();
         for (id, key) in [
             ("unknown", "alt-f"),
             ("search", "a"),
@@ -1780,11 +1787,11 @@ mod tests {
             platform::validate_shortcuts(&selection("search", &platform::shortcut("f")), &fixed)?
                 .is_empty()
         );
-        let overrides = platform::validate_shortcuts(&selection("search", "cmd-alt-f"), &fixed)?;
-        assert_eq!(overrides["search"], "alt-cmd-f");
+        let overrides = platform::validate_shortcuts(&selection("search", &alt_command_f), &fixed)?;
+        assert_eq!(overrides["search"], alt_command_f_normalized);
         assert_eq!(
             platform::shortcut_label("search", &overrides),
-            gpui_component::kbd::Kbd::format(&Keystroke::parse("alt-cmd-f")?)
+            gpui_component::kbd::Kbd::format(&Keystroke::parse(&alt_command_f_normalized)?)
         );
         let keymap = Keymap::new(platform::shortcut_bindings(&overrides)?);
         let actions: [(&dyn gpui::Action, &str); 2] =
@@ -1813,7 +1820,7 @@ mod tests {
         assert_eq!(keymap.bindings_for_action(&Search).count(), 1);
         assert_eq!(
             keymap
-                .all_bindings_for_input(&[Keystroke::parse("alt-cmd-f")?])
+                .all_bindings_for_input(&[Keystroke::parse(&alt_command_f_normalized)?])
                 .len(),
             1
         );
