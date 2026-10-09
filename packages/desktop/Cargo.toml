@@ -8,6 +8,12 @@ publish = false
 name = "sesh"
 path = "src/main.rs"
 
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
 [dependencies]
 anyhow = "1"
 gpui = { version = "=0.2.2", features = ["runtime_shaders"] }

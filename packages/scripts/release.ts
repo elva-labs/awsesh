@@ -9,10 +9,12 @@ export const repository = "elva-labs/awsesh"
 export const root = path.resolve(import.meta.dir, "../..")
 export const sdkArchive = `awsesh-core-${Script.version}.tgz`
 export const desktopArchive = "awsesh-desktop-darwin-arm64.zip"
+export const desktopWindowsArchive = "awsesh-desktop-win32-x64.zip"
 export const artifacts = [
   ...allTargets.map((target) => `${targetName(target)}.${target.os === "linux" ? "tar.gz" : "zip"}`),
   sdkArchive,
   desktopArchive,
+  desktopWindowsArchive,
   "release.json",
 ]
 
@@ -152,6 +154,43 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
   await $`python3 -c ${validation} ${file} ${version}`.quiet()
 }
 
+export async function validateWindowsDesktopArchive(file: string, version = Script.version) {
+  releaseMetadata(version)
+  const validation = String.raw`
+import struct, sys, zipfile
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+required = ["Sesh/awsesh-sdk.exe", "Sesh/LICENSE", "Sesh/sesh.exe"]
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    infos = archive.infolist()
+    names = [info.filename for info in infos]
+    require(len(names) == len(set(names)), "Duplicate Windows ZIP paths")
+    for info in infos:
+        name = info.filename
+        parts = name.rstrip("/").split("/")
+        require(name == info.orig_filename and "\\" not in name and all(part not in ("", ".", "..") for part in parts), "Unsafe Windows ZIP path")
+    require(sorted(names) == sorted(required), "Unexpected Windows package contents")
+    for name in required:
+        info = archive.getinfo(name)
+        require(info.file_size > 0 and not info.is_dir(), "Missing or empty Windows package member: " + name)
+    require(archive.testzip() is None, "Corrupt Windows ZIP contents")
+    exe = archive.read("Sesh/sesh.exe")
+    require(exe[:2] == b"MZ", "Windows desktop executable is not a PE image")
+    offset = struct.unpack_from("<I", exe, 0x3c)[0]
+    require(exe[offset:offset + 4] == b"PE\x00\x00", "Windows desktop executable has no PE signature")
+    require(struct.unpack_from("<H", exe, offset + 4)[0] == 0x8664, "Windows desktop executable is not x86_64")
+    optional = offset + 24
+    require(struct.unpack_from("<H", exe, optional)[0] == 0x20b, "Windows desktop executable is not PE32+")
+    require(struct.unpack_from("<H", exe, optional + 0x44)[0] == 2, "Windows desktop executable is not a GUI subsystem binary")
+    require(sys.argv[2].encode("utf-16-le") in exe, "Windows desktop executable is missing release version " + sys.argv[2])
+`
+  await $`python3 -c ${validation} ${file} ${version}`.quiet()
+}
+
 export async function validateArtifacts(directory: string, tag: string, commit: string) {
   const lines = (await Bun.file(path.join(directory, "SHA256SUMS")).text()).trim().split("\n")
   const checksums = new Map<string, string>()
@@ -180,6 +219,7 @@ export async function validateArtifacts(directory: string, tag: string, commit: 
     }
   }
   await validateDesktopArchive(path.join(directory, desktopArchive))
+  await validateWindowsDesktopArchive(path.join(directory, desktopWindowsArchive))
   const archive = path.join(directory, sdkArchive)
   const sdk: unknown = JSON.parse(await $`tar -xOf ${archive} package/package.json`.text())
   if (!sdk || typeof sdk !== "object" || !("name" in sdk) || sdk.name !== "@awsesh/core"
