@@ -1,6 +1,6 @@
 import { chmod, cp, mkdir, rm } from "node:fs/promises"
 import path from "node:path"
-import { compileHelper, desktopDirectory, desktopMetadata, run } from "./shared"
+import { compileHelper, desktopDirectory, desktopMetadata, run, type DesktopMetadata } from "./shared"
 
 export async function buildMacos() {
   if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("Sesh.app must be built on ARM64 macOS")
@@ -18,7 +18,14 @@ export async function buildMacos() {
   await cp(path.join(directory, "target", "aarch64-apple-darwin", "release", "sesh"), path.join(binaries, "sesh"))
   await chmod(path.join(binaries, "sesh"), 0o755)
   await chmod(path.join(binaries, "awsesh-sdk"), 0o755)
-  await Bun.write(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+  await Bun.write(path.join(contents, "Info.plist"), macosInfoPlist({ version, base, number }))
+  await run(["codesign", "--force", "--sign", "-", path.join(binaries, "awsesh-sdk")])
+  await run(["codesign", "--force", "--sign", "-", path.join(directory, "dist", "Sesh.app")])
+  console.log(`Built ${app}`)
+}
+
+export function macosInfoPlist({ version, base, number }: Pick<DesktopMetadata, "version" | "base" | "number">): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleName</key><string>Sesh</string>
@@ -28,13 +35,10 @@ export async function buildMacos() {
   <key>CFBundleIconFile</key><string>AppIcon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${base}</string>
-  <key>CFBundleVersion</key><string>${number ?? version}</string>
+  <key>CFBundleVersion</key><string>${number ?? base}</string>
   <key>AWSESHReleaseVersion</key><string>${version}</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
-`)
-  await run(["codesign", "--force", "--sign", "-", path.join(binaries, "awsesh-sdk")])
-  await run(["codesign", "--force", "--sign", "-", path.join(directory, "dist", "Sesh.app")])
-  console.log(`Built ${app}`)
+`
 }
