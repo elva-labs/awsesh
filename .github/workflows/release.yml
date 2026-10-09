@@ -28,8 +28,49 @@ env:
   GH_TOKEN: ${{ github.token }}
 
 jobs:
+  desktop-windows:
+    if: github.repository == 'elva-labs/awsesh' && (github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.operation == 'stage'))
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select approved tagged source
+        shell: bash
+        run: |
+          [[ "$AWSESH_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]
+          commit=$(git rev-parse --verify "refs/tags/$AWSESH_TAG^{commit}")
+          git merge-base --is-ancestor "$commit" origin/main
+          git checkout --detach "$commit"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt
+          rustup default 1.99.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Windows package
+        run: bun run build:desktop
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: awsesh-desktop-win32-x64
+          path: packages/desktop/dist/awsesh-desktop-win32-x64.zip
+          retention-days: 1
+
   stage:
     if: github.repository == 'elva-labs/awsesh' && (github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.operation == 'stage'))
+    needs: desktop-windows
     runs-on: macos-15
     permissions:
       contents: write
@@ -81,6 +122,12 @@ jobs:
           dry-run: true
           commitish: ${{ steps.source.outputs.commit }}
           tag: ${{ env.AWSESH_TAG }}
+
+      - name: Download Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: awsesh-desktop-win32-x64
+          path: packages/desktop/dist
 
       - name: Stage and verify candidate artifacts
         run: bun run packages/scripts/publish-start.ts --skip-install
