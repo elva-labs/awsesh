@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod platform;
 mod sdk;
 mod theme;
@@ -1732,7 +1734,7 @@ fn main() {
                 },
             );
             if let Err(error) = result {
-                eprintln!("Cannot open Sesh: {error}");
+                platform::fatal(&format!("Cannot open Sesh: {error}"));
                 cx.quit();
                 return;
             }

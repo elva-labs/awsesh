@@ -11,6 +11,27 @@ use std::{collections::BTreeMap, rc::Rc};
 
 actions!(platform, [Hide, HideOthers, ShowAll, CloseWindow]);
 
+/// Reports a fatal startup error where no application window exists yet.
+/// Release Windows builds have no console, so the message must be a native dialog.
+pub fn fatal(message: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+        let text: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+        let title: Vec<u16> = "Sesh".encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                text.as_ptr(),
+                title.as_ptr(),
+                MB_OK | MB_ICONERROR,
+            );
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    eprintln!("{message}");
+}
+
 pub fn titlebar_options() -> TitlebarOptions {
     TitlebarOptions {
         title: Some("Sesh".into()),
