@@ -23,9 +23,6 @@ scoop bucket add elva https://github.com/elva-labs/scoop-elva
 scoop install elva/awsesh-desktop
 ```
 
-Launch Sesh from the Start menu or run `awsesh-desktop`. Close the app before
-updating with `scoop update` followed by `scoop update awsesh-desktop`.
-
 Alternatively, download `awsesh-desktop-win32-x64.zip` from the
 [latest release](https://github.com/elva-labs/awsesh/releases/latest), extract
 it, and run `Sesh\sesh.exe`. See
