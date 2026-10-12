@@ -163,6 +163,23 @@ def require(condition, message):
     if not condition:
         raise ValueError(message)
 
+def read_release_version(data):
+    key = "AWSESHReleaseVersion".encode("utf-16-le")
+    at = data.find(key)
+    if at < 0:
+        return None
+    cursor = at + len(key)
+    while cursor < len(data) and data[cursor] == 0:
+        cursor += 1
+    value = []
+    while cursor + 1 < len(data):
+        code = data[cursor] | (data[cursor + 1] << 8)
+        if code == 0:
+            break
+        value.append(chr(code))
+        cursor += 2
+    return "".join(value)
+
 required = ["Sesh/awsesh-sdk.exe", "Sesh/LICENSE", "Sesh/sesh.exe"]
 
 with zipfile.ZipFile(sys.argv[1]) as archive:
@@ -186,7 +203,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     optional = offset + 24
     require(struct.unpack_from("<H", exe, optional)[0] == 0x20b, "Windows desktop executable is not PE32+")
     require(struct.unpack_from("<H", exe, optional + 0x44)[0] == 2, "Windows desktop executable is not a GUI subsystem binary")
-    require(sys.argv[2].encode("utf-16-le") in exe, "Windows desktop executable is missing release version " + sys.argv[2])
+    require(read_release_version(exe) == sys.argv[2], "Windows desktop executable AWSESHReleaseVersion mismatch")
 `
   await $`python3 -c ${validation} ${file} ${version}`.quiet()
 }

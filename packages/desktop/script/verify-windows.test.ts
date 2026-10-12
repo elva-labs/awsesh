@@ -7,6 +7,15 @@ import { validatePackageNames, verifyWindowsPackage } from "./verify-windows"
 
 const required = ["Sesh/LICENSE", "Sesh/awsesh-sdk.exe", "Sesh/sesh.exe"]
 
+function utf16le(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length * 2)
+  for (let index = 0; index < value.length; index++) {
+    bytes[index * 2] = value.charCodeAt(index) & 0xff
+    bytes[index * 2 + 1] = value.charCodeAt(index) >> 8
+  }
+  return bytes
+}
+
 function portableExecutable(version: string, peSubsystem = 2): Uint8Array {
   const buffer = new Uint8Array(0x400)
   const view = new DataView(buffer.buffer)
@@ -19,11 +28,11 @@ function portableExecutable(version: string, peSubsystem = 2): Uint8Array {
   const optional = pe + 24
   view.setUint16(optional, 0x20b, true)
   view.setUint16(optional + 0x44, peSubsystem, true)
-  const characters = new TextEncoder().encode(version)
-  for (let index = 0; index < characters.length; index++) {
-    buffer[0x200 + index * 2] = characters[index]
-    buffer[0x200 + index * 2 + 1] = 0
-  }
+  const key = utf16le("AWSESHReleaseVersion")
+  const value = utf16le(version)
+  buffer.set(key, 0x200)
+  const valueOffset = Math.ceil((0x200 + key.length + 2) / 4) * 4
+  buffer.set(value, valueOffset)
   return buffer
 }
 
@@ -116,6 +125,19 @@ describe("verifyWindowsPackage", () => {
     const { directory, archive } = await writeArchive({
       "Sesh/sesh.exe": portableExecutable("9.9.9"),
       "Sesh/awsesh-sdk.exe": portableExecutable("1.1.3", 3),
+      "Sesh/LICENSE": new TextEncoder().encode("MIT"),
+    })
+    try {
+      await expect(verifyWindowsPackage(directory, archive, "1.1.3")).rejects.toThrow()
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects a version that only shares a prefix", async () => {
+    const { directory, archive } = await writeArchive({
+      "Sesh/sesh.exe": portableExecutable("1.1.30"),
+      "Sesh/awsesh-sdk.exe": portableExecutable("1.1.30", 3),
       "Sesh/LICENSE": new TextEncoder().encode("MIT"),
     })
     try {

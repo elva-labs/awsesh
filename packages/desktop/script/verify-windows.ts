@@ -39,20 +39,44 @@ function subsystem(image: Uint8Array): number {
   return view.getUint16(optional + 0x44, true)
 }
 
-function containsUtf16Le(haystack: Uint8Array, value: string) {
-  const needle = new Uint8Array(value.length * 2)
+function utf16le(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length * 2)
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index)
-    needle[index * 2] = code & 0xff
-    needle[index * 2 + 1] = code >> 8
+    bytes[index * 2] = code & 0xff
+    bytes[index * 2 + 1] = code >> 8
   }
+  return bytes
+}
+
+function indexOfBytes(haystack: Uint8Array, needle: Uint8Array): number {
   outer: for (let start = 0; start + needle.length <= haystack.length; start++) {
     for (let index = 0; index < needle.length; index++) {
       if (haystack[start + index] !== needle[index]) continue outer
     }
-    return true
+    return start
   }
-  return false
+  return -1
+}
+
+function readUtf16le(bytes: Uint8Array, start: number): string | undefined {
+  let value = ""
+  for (let index = start; index + 1 < bytes.length; index += 2) {
+    const code = bytes[index] | (bytes[index + 1] << 8)
+    if (code === 0) return value
+    value += String.fromCharCode(code)
+  }
+  return undefined
+}
+
+/** Reads the exact `AWSESHReleaseVersion` VERSIONINFO value from the executable. */
+function releaseVersionField(image: Uint8Array): string | undefined {
+  const key = utf16le("AWSESHReleaseVersion")
+  const at = indexOfBytes(image, key)
+  if (at < 0) return undefined
+  let cursor = at + key.length
+  while (cursor < image.length && image[cursor] === 0) cursor++
+  return readUtf16le(image, cursor)
 }
 
 export function validatePackageNames(names: string[]) {
@@ -80,7 +104,8 @@ export async function verifyWindowsPackage(_staging: string, archive: string, ve
   const exe = entries["Sesh/sesh.exe"]
   if (!exe || exe.length === 0) throw new Error("Missing sesh.exe")
   if (subsystem(exe) !== 2) throw new Error("sesh.exe is not a GUI subsystem binary")
-  if (!containsUtf16Le(exe, version)) throw new Error(`sesh.exe is missing release version ${version}`)
+  const field = releaseVersionField(exe)
+  if (field !== version) throw new Error(`sesh.exe AWSESHReleaseVersion is ${field ?? "missing"}, expected ${version}`)
   const helper = entries["Sesh/awsesh-sdk.exe"]
   if (!helper || helper.length === 0) throw new Error("Missing awsesh-sdk.exe")
   subsystem(helper)
