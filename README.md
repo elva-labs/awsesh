@@ -39,10 +39,25 @@ brew install --cask elva-labs/elva/awsesh-desktop
 
 ### Windows Desktop Application
 
-Download `awsesh-desktop-win32-x64.zip` from the
+Install on Windows 11 x64 with [Scoop](https://scoop.sh):
+
+```powershell
+scoop bucket add elva https://github.com/elva-labs/scoop-elva
+scoop install elva/awsesh-desktop
+```
+
+Launch Sesh from the Start menu or run `awsesh-desktop`. Close Sesh before
+updating:
+
+```powershell
+scoop update
+scoop update awsesh-desktop
+```
+
+Alternatively, download `awsesh-desktop-win32-x64.zip` from the
 [latest release](https://github.com/elva-labs/awsesh/releases/latest), extract
-it, and run `Sesh\sesh.exe`. The build is unsigned, so Windows SmartScreen may
-warn on first launch. A Scoop package is planned.
+it, and run `Sesh\sesh.exe`. The Windows build is unsigned, so Windows SmartScreen
+may warn on first launch.
 
 ### Build from Source
 
@@ -60,7 +75,7 @@ bun run build
 ## Desktop Application
 
 A native app for macOS and Windows. macOS installs through Homebrew; Windows
-ships as an unsigned portable ZIP on the Releases page. See
+installs through Scoop or an unsigned portable ZIP on the Releases page. See
 [packages/desktop/README.md](packages/desktop/README.md) for the package layout
 and build prerequisites.
 

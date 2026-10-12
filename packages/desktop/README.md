@@ -8,7 +8,7 @@ sidebar, searchable account list, account inspector and credential management.
 | Platform | Target | Distribution |
 |---|---|---|
 | macOS | Apple Silicon ARM64, macOS 13+ | Homebrew cask `elva-labs/elva/awsesh-desktop` |
-| Windows | Windows 11 x64 | Unsigned portable ZIP from Releases; Scoop planned |
+| Windows | Windows 11 x64 | Scoop package `elva/awsesh-desktop` or unsigned portable ZIP from Releases |
 
 Install the macOS app into `/Applications`:
 
@@ -16,9 +16,19 @@ Install the macOS app into `/Applications`:
 brew install --cask elva-labs/elva/awsesh-desktop
 ```
 
-Download `awsesh-desktop-win32-x64.zip` from the
+Install the Windows app with [Scoop](https://scoop.sh):
+
+```powershell
+scoop bucket add elva https://github.com/elva-labs/scoop-elva
+scoop install elva/awsesh-desktop
+```
+
+Launch Sesh from the Start menu or run `awsesh-desktop`. Close the app before
+updating with `scoop update` followed by `scoop update awsesh-desktop`.
+
+Alternatively, download `awsesh-desktop-win32-x64.zip` from the
 [latest release](https://github.com/elva-labs/awsesh/releases/latest), extract
-it, and run `Sesh\sesh.exe`. A Scoop package is planned. See
+it, and run `Sesh\sesh.exe`. See
 [Windows package](#windows-package).
 
 ## Development
@@ -66,8 +76,9 @@ Produces `packages/desktop/dist/awsesh-desktop-win32-x64.zip`. See
 
 ## Windows package
 
-Releases attach this ZIP as a release asset, and a Scoop manifest (package
-`awsesh-desktop`) is planned for a maintainer-owned bucket. The ZIP extracts to:
+Releases attach this ZIP as a release asset. The Scoop manifest (package
+`awsesh-desktop`) is maintained in
+[elva-labs/scoop-elva](https://github.com/elva-labs/scoop-elva). The ZIP extracts to:
 
 ```text
 Sesh/
