@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "cargo run --manifest-path Cargo.toml",
     "build": "bun run script/build.ts",
+    "build:linux": "bun run script/build-linux.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
