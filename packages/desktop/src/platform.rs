@@ -35,7 +35,7 @@ pub fn fatal(message: &str) {
 pub fn titlebar_options() -> TitlebarOptions {
     TitlebarOptions {
         title: Some("Sesh".into()),
-        appears_transparent: cfg!(target_os = "macos"),
+        appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),
         traffic_light_position: cfg!(target_os = "macos").then(|| point(px(18.), px(14.))),
     }
 }
@@ -95,8 +95,105 @@ pub fn start_window_move(window: &Window) {
             native.performWindowDragWithEvent(&event);
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            HTCAPTION, PostMessageW, WM_NCLBUTTONDOWN,
+        };
+
+        if let Some(hwnd) = win32_hwnd(window) {
+            unsafe {
+                ReleaseCapture();
+                PostMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION as usize, 0);
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     window.start_window_move();
+}
+
+#[cfg(target_os = "windows")]
+thread_local! {
+    static LAST_DRAG_CLICK: std::cell::RefCell<Option<(std::time::Instant, (f32, f32))>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Starts a window move, or toggles maximize when the press is the second of a
+/// double-click on the title bar.
+pub fn window_drag_or_toggle(window: &Window, x: f32, y: f32) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::time::{Duration, Instant};
+
+        let now = Instant::now();
+        let double = LAST_DRAG_CLICK.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            let double = slot.is_some_and(|(time, (last_x, last_y))| {
+                now.duration_since(time) < Duration::from_millis(400)
+                    && (last_x - x).abs() < 6.0
+                    && (last_y - y).abs() < 6.0
+            });
+            *slot = if double { None } else { Some((now, (x, y))) };
+            double
+        });
+        if double {
+            toggle_maximize(window);
+        } else {
+            start_window_move(window);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (x, y);
+        start_window_move(window);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn win32_hwnd(window: &Window) -> Option<*mut core::ffi::c_void> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    HasWindowHandle::window_handle(window)
+        .ok()
+        .and_then(|handle| match handle.as_raw() {
+            RawWindowHandle::Win32(win32) => Some(win32.hwnd.get() as *mut core::ffi::c_void),
+            _ => None,
+        })
+}
+
+/// Maximizes the window.
+pub fn maximize(window: &Window) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SW_MAXIMIZE, ShowWindowAsync};
+
+        if let Some(hwnd) = win32_hwnd(window) {
+            unsafe { ShowWindowAsync(hwnd, SW_MAXIMIZE) };
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    window.zoom_window();
+}
+
+pub fn toggle_maximize(window: &Window) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            IsZoomed, SW_MAXIMIZE, SW_RESTORE, ShowWindowAsync,
+        };
+
+        if let Some(hwnd) = win32_hwnd(window) {
+            let command = if unsafe { IsZoomed(hwnd) } != 0 {
+                SW_RESTORE
+            } else {
+                SW_MAXIMIZE
+            };
+            unsafe { ShowWindowAsync(hwnd, command) };
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    window.zoom_window();
 }
 
 pub fn configure_window(_window: &Window) {

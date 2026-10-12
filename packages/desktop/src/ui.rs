@@ -150,7 +150,10 @@ impl Sesh {
             .tab_stop(!self.modal())
             .on_mouse_down(
                 gpui::MouseButton::Left,
-                cx.listener(|this, _, _, _| this.window_should_move = false),
+                cx.listener(|this, _, _, cx| {
+                    this.window_should_move = false;
+                    cx.stop_propagation();
+                }),
             )
             .on_mouse_up(
                 gpui::MouseButton::Left,
@@ -160,7 +163,13 @@ impl Sesh {
 
     fn window_toolbar(&self, sidebar: f32, window: &Window, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let inset = if window.is_fullscreen() { 0. } else { 82. };
+        let inset = if window.is_fullscreen() {
+            0.
+        } else if cfg!(target_os = "macos") {
+            82.
+        } else {
+            8.
+        };
         let clearance = 16. + (self.sidebar_width - (96. + inset)).max(0.) * sidebar;
         let capsule = div()
             .relative()
@@ -229,7 +238,6 @@ impl Sesh {
             .items_center()
             .pt(px(4.))
             .px(px(8.))
-            .window_control_area(gpui::WindowControlArea::Drag)
             .on_mouse_down_out(cx.listener(|this, _, _, _| this.window_should_move = false))
             .on_mouse_down(
                 gpui::MouseButton::Left,
@@ -249,10 +257,135 @@ impl Sesh {
                     }
                 }),
             )
-            .on_double_click(|_, window, _| window.titlebar_double_click())
-            .child(capsule)
-            .child(div().w(px(clearance)).flex_shrink_0())
-            .child(self.workspace_toolbar(cx))
+            .on_double_click(|_, _window, _| {
+                #[cfg(not(target_os = "windows"))]
+                _window.titlebar_double_click();
+            })
+            .child(
+                div()
+                    .id("window-drag-region")
+                    .flex()
+                    .items_center()
+                    .flex_1()
+                    .h_full()
+                    .min_w_0()
+                    .window_control_area(gpui::WindowControlArea::Drag)
+                    .when(cfg!(target_os = "windows"), |region| {
+                        region.on_mouse_down(
+                            gpui::MouseButton::Left,
+                            |event: &gpui::MouseDownEvent, window, cx| {
+                                cx.stop_propagation();
+                                platform::window_drag_or_toggle(
+                                    window,
+                                    event.position.x.into(),
+                                    event.position.y.into(),
+                                );
+                            },
+                        )
+                    })
+                    .child(capsule)
+                    .child(div().w(px(clearance)).flex_shrink_0())
+                    .child(self.workspace_toolbar(cx)),
+            )
+            .child(self.window_controls(window, cx))
+            .into_any_element()
+    }
+
+    /// Native caption buttons (Windows). macOS keeps its traffic lights, and the
+    /// OS handles clicks for these via the window control areas.
+    fn window_controls(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
+        if cfg!(target_os = "macos") || window.is_fullscreen() {
+            return div().into_any_element();
+        }
+        let theme = cx.theme();
+        let foreground = theme.foreground;
+        let secondary_hover = theme.secondary_hover;
+        let secondary_active = theme.secondary_active;
+        let secondary_foreground = theme.secondary_foreground;
+        let danger = theme.danger;
+        let danger_active = theme.danger_active;
+        let danger_foreground = theme.danger_foreground;
+
+        let control = move |id: &'static str,
+                            area: gpui::WindowControlArea,
+                            icon: IconName,
+                            label: &'static str,
+                            is_close: bool| {
+            div()
+                .id(id)
+                .flex()
+                .w(px(34.))
+                .h_full()
+                .flex_shrink_0()
+                .justify_center()
+                .items_center()
+                .text_color(foreground)
+                .hover(move |style| {
+                    if is_close {
+                        style.bg(danger).text_color(danger_foreground)
+                    } else {
+                        style.bg(secondary_hover).text_color(secondary_foreground)
+                    }
+                })
+                .active(move |style| {
+                    if is_close {
+                        style.bg(danger_active).text_color(danger_foreground)
+                    } else {
+                        style.bg(secondary_active).text_color(secondary_foreground)
+                    }
+                })
+                .window_control_area(area)
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(label).build(window, cx)
+                })
+                .on_click(move |_, window, _| match area {
+                    gpui::WindowControlArea::Min => window.minimize_window(),
+                    gpui::WindowControlArea::Max => platform::toggle_maximize(window),
+                    gpui::WindowControlArea::Close => window.remove_window(),
+                    gpui::WindowControlArea::Drag => {}
+                })
+                .child(Icon::new(icon).small())
+        };
+
+        let maximize = if window.is_maximized() {
+            control(
+                "window-restore",
+                gpui::WindowControlArea::Max,
+                IconName::WindowRestore,
+                "Restore",
+                false,
+            )
+        } else {
+            control(
+                "window-maximize",
+                gpui::WindowControlArea::Max,
+                IconName::WindowMaximize,
+                "Maximize",
+                false,
+            )
+        };
+
+        div()
+            .id("window-controls")
+            .flex()
+            .items_center()
+            .flex_shrink_0()
+            .h_full()
+            .child(control(
+                "window-minimize",
+                gpui::WindowControlArea::Min,
+                IconName::WindowMinimize,
+                "Minimize",
+                false,
+            ))
+            .child(maximize)
+            .child(control(
+                "window-close",
+                gpui::WindowControlArea::Close,
+                IconName::WindowClose,
+                "Close",
+                true,
+            ))
             .into_any_element()
     }
 
@@ -270,7 +403,6 @@ impl Sesh {
             .flex()
             .items_center()
             .gap(px(8.))
-            .occlude()
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -642,9 +774,10 @@ impl Sesh {
             .flex_col()
             .border_r_1()
             .border_color(colors.border)
-            .when(cfg!(target_os = "macos"), |sidebar| {
-                sidebar.pt(px(HEADER_HEIGHT))
-            })
+            .when(
+                cfg!(any(target_os = "macos", target_os = "windows")),
+                |sidebar| sidebar.pt(px(HEADER_HEIGHT)),
+            )
             .child(
                 div()
                     .px_5()
@@ -2129,20 +2262,7 @@ impl Render for Sesh {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .when(cfg!(target_os = "macos"), |main| {
-                                main.child(div().h(px(HEADER_HEIGHT)).flex_shrink_0())
-                            })
-                            .when(!cfg!(target_os = "macos"), |main| {
-                                main.child(
-                                    div()
-                                        .h(px(HEADER_HEIGHT))
-                                        .flex_shrink_0()
-                                        .px_4()
-                                        .flex()
-                                        .items_center()
-                                        .child(self.workspace_toolbar(cx)),
-                                )
-                            })
+                            .child(div().h(px(HEADER_HEIGHT)).flex_shrink_0())
                             .child(body),
                     ),
             )
@@ -2181,7 +2301,7 @@ impl Render for Sesh {
                             }),
                     ),
             );
-        if cfg!(target_os = "macos") {
+        if cfg!(any(target_os = "macos", target_os = "windows")) {
             root = root.child(self.window_toolbar(sidebar, window, cx));
         }
         if let Some((position, menu, _)) = &self.popup {
