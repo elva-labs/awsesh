@@ -36,3 +36,7 @@ coverage/
 tmp/
 temp/
 .worktrees/
+
+# Files Claude Code lays out when it loads a mod from this folder
+plugins/*/.claude-plugin/types/
+plugins/*/tsconfig.json
