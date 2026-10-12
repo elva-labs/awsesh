@@ -36,3 +36,6 @@ coverage/
 tmp/
 temp/
 .worktrees/
+
+# Local linker shims (Linux build without -dev packages)
+.lib/
