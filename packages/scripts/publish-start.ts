@@ -5,7 +5,7 @@ import { Script } from "@awsesh/script"
 import path from "node:path"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { artifacts, desktopArchive, digest, downloadArtifacts, getRelease, repository, requireRepository, root, sdkArchive,
+import { artifacts, desktopArchive, desktopLinuxArchive, digest, downloadArtifacts, getRelease, repository, requireRepository, root, sdkArchive,
   validateArtifacts, validateTag } from "./release"
 
 requireRepository()
@@ -41,7 +41,11 @@ process.chdir(root)
 await $`npm pack --ignore-scripts --pack-destination ${directory}`.cwd(path.join(root, "packages/core/dist"))
 if (!await Bun.file(path.join(directory, sdkArchive)).exists()) throw new Error("SDK package archive was not created")
 await Bun.write(path.join(directory, desktopArchive), Bun.file(path.join(root, "packages/desktop/dist", desktopArchive)))
-for (const name of artifacts.filter((name) => name !== sdkArchive && name !== desktopArchive && name !== "release.json")) {
+// Linux desktop archive is built by a separate CI job and downloaded as a GitHub Actions artifact
+const linuxDesktopSource = path.join(root, "packages/desktop/dist", desktopLinuxArchive)
+if (!await Bun.file(linuxDesktopSource).exists()) throw new Error("Linux desktop archive not found - the build-linux-desktop job must complete first")
+await Bun.write(path.join(directory, desktopLinuxArchive), Bun.file(linuxDesktopSource))
+for (const name of artifacts.filter((name) => name !== sdkArchive && name !== desktopArchive && name !== desktopLinuxArchive && name !== "release.json")) {
   await Bun.write(path.join(directory, name), Bun.file(path.join(root, "packages/awsesh/dist", name)))
 }
 await Bun.write(path.join(directory, "release.json"), JSON.stringify({ ...candidate, version: Script.version, channel: Script.channel }, null, 2) + "\n")
