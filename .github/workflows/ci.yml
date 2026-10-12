@@ -123,3 +123,52 @@ jobs:
             }
           }
           '
+
+  desktop-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup default 1.99.0
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Linux desktop
+        run: bun run --cwd packages/desktop build:linux
+
+      - name: Verify Linux desktop
+        run: |
+          dist=packages/desktop/dist/sesh-linux-x64
+          file "$dist/sesh" | grep -q 'ELF 64-bit.*x86-64'
+          file "$dist/awsesh-sdk" | grep -q 'ELF 64-bit.*x86-64'
+          test -x "$dist/sesh"
+          test -x "$dist/awsesh-sdk"
+          test -f "$dist/sesh.desktop"
+          archive=packages/desktop/dist/awsesh-desktop-linux-x64.tar.gz
+          test -f "$archive"
+          tar -tzf "$archive" | sort | tr '\n' ' ' | grep -q 'awsesh-sdk sesh sesh.desktop'
+          bun --eval '
+          import { mkdtemp, rm } from "node:fs/promises"
+          import path from "node:path"
+          import { tmpdir } from "node:os"
+          import { verifyHelper } from "./packages/desktop/script/release.ts"
+          import { validateLinuxDesktopArchive } from "./packages/scripts/release.ts"
+          const directory = await mkdtemp(path.join(tmpdir(), "awsesh-linux-desktop-verification-"))
+          try {
+            await verifyHelper(path.resolve("packages/desktop/dist/sesh-linux-x64/awsesh-sdk"), directory)
+            await validateLinuxDesktopArchive(path.resolve("packages/desktop/dist/awsesh-desktop-linux-x64.tar.gz"))
+          } finally {
+            await rm(directory, { recursive: true, force: true })
+          }
+          '

@@ -9,10 +9,12 @@ export const repository = "elva-labs/awsesh"
 export const root = path.resolve(import.meta.dir, "../..")
 export const sdkArchive = `awsesh-core-${Script.version}.tgz`
 export const desktopArchive = "awsesh-desktop-darwin-arm64.zip"
+export const desktopLinuxArchive = "awsesh-desktop-linux-x64.tar.gz"
 export const artifacts = [
   ...allTargets.map((target) => `${targetName(target)}.${target.os === "linux" ? "tar.gz" : "zip"}`),
   sdkArchive,
   desktopArchive,
+  desktopLinuxArchive,
   "release.json",
 ]
 
@@ -152,6 +154,38 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
   await $`python3 -c ${validation} ${file} ${version}`.quiet()
 }
 
+export async function validateLinuxDesktopArchive(file: string) {
+  const listing = (await $`tar -tzf ${file}`.text()).trim().split("\n").sort()
+  const expected = ["sesh", "awsesh-sdk", "sesh.desktop"].sort()
+  if (listing.length !== expected.length || listing.some((name, i) => name !== expected[i])) {
+    throw new Error(`Unexpected Linux desktop archive contents: ${listing.join(", ")}`)
+  }
+  // Verify the binaries are x86_64 ELF executables
+  const validation = String.raw`
+import struct, subprocess, sys, tarfile
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+with tarfile.open(sys.argv[1], "r:gz") as archive:
+    for name in ("sesh", "awsesh-sdk"):
+        member = archive.getmember(name)
+        require(member.isfile(), name + " is not a regular file")
+        require(member.mode & 0o111, name + " is not executable")
+        with archive.extractfile(member) as stream:
+            header = stream.read(20)
+        require(len(header) == 20, "Truncated ELF header: " + name)
+        require(header[:4] == b"\x7fELF", name + " is not an ELF binary")
+        require(header[4] == 2, name + " must be 64-bit ELF")
+        machine = struct.unpack_from("<H", header, 18)[0]
+        require(machine == 0x3e, name + " must be x86_64 ELF")
+    desktop = archive.getmember("sesh.desktop")
+    require(desktop.isfile(), "sesh.desktop is not a regular file")
+`
+  await $`python3 -c ${validation} ${file}`.quiet()
+}
+
 export async function validateArtifacts(directory: string, tag: string, commit: string) {
   const lines = (await Bun.file(path.join(directory, "SHA256SUMS")).text()).trim().split("\n")
   const checksums = new Map<string, string>()
@@ -180,6 +214,7 @@ export async function validateArtifacts(directory: string, tag: string, commit: 
     }
   }
   await validateDesktopArchive(path.join(directory, desktopArchive))
+  await validateLinuxDesktopArchive(path.join(directory, desktopLinuxArchive))
   const archive = path.join(directory, sdkArchive)
   const sdk: unknown = JSON.parse(await $`tar -xOf ${archive} package/package.json`.text())
   if (!sdk || typeof sdk !== "object" || !("name" in sdk) || sdk.name !== "@awsesh/core"

@@ -28,7 +28,57 @@ env:
   GH_TOKEN: ${{ github.token }}
 
 jobs:
+  build-linux-desktop:
+    if: github.repository == 'elva-labs/awsesh' && (github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.operation == 'stage'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.AWSESH_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup default 1.99.0
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and verify Linux desktop
+        run: |
+          bun run --cwd packages/desktop build:linux
+          bun --eval '
+          import { mkdtemp, rm } from "node:fs/promises"
+          import path from "node:path"
+          import { tmpdir } from "node:os"
+          import { verifyHelper } from "./packages/desktop/script/release.ts"
+          import { validateLinuxDesktopArchive } from "./packages/scripts/release.ts"
+          const directory = await mkdtemp(path.join(process.env.RUNNER_TEMP || tmpdir(), "awsesh-linux-desktop-verification-"))
+          try {
+            await verifyHelper(path.resolve("packages/desktop/dist/sesh-linux-x64/awsesh-sdk"), directory)
+            await validateLinuxDesktopArchive(path.resolve("packages/desktop/dist/awsesh-desktop-linux-x64.tar.gz"))
+          } finally {
+            await rm(directory, { recursive: true, force: true })
+          }
+          '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-archive
+          path: packages/desktop/dist/awsesh-desktop-linux-x64.tar.gz
+          retention-days: 5
+
   stage:
+    needs: build-linux-desktop
     if: github.repository == 'elva-labs/awsesh' && (github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.operation == 'stage'))
     runs-on: macos-15
     permissions:
@@ -81,6 +131,12 @@ jobs:
           dry-run: true
           commitish: ${{ steps.source.outputs.commit }}
           tag: ${{ env.AWSESH_TAG }}
+
+      - name: Download Linux desktop archive
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-linux-archive
+          path: packages/desktop/dist
 
       - name: Stage and verify candidate artifacts
         run: bun run packages/scripts/publish-start.ts --skip-install
