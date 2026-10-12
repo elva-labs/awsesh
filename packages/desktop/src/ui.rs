@@ -1627,7 +1627,9 @@ impl Sesh {
                                     .disabled(self.modal())
                                     .tab_stop(!self.modal())
                                     .tooltip("https://elva-group.com")
-                                    .on_click(|_, _, cx| cx.open_url("https://elva-group.com")),
+                                    .on_click(|_, _, cx| {
+                                        platform::open_url("https://elva-group.com", cx)
+                                    }),
                             ),
                     )
                     .child(

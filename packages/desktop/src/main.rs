@@ -941,7 +941,7 @@ impl Sesh {
             }
         } else if operation == "consoleUrl" {
             if let Some(url) = value.as_str() {
-                cx.open_url(url);
+                platform::open_url(url, cx);
             }
         } else if operation == "startLogin" {
             if let (Some(url), Some(code), Some(name)) = (
@@ -949,7 +949,7 @@ impl Sesh {
                 value["code"].as_str(),
                 self.login.as_ref().map(|login| login.name.clone()),
             ) {
-                cx.open_url(url);
+                platform::open_url(url, cx);
                 self.login = Some(Login {
                     name,
                     url: url.into(),
@@ -1371,7 +1371,7 @@ impl Sesh {
         }
         if matches!(command, Command::OpenLogin) {
             if let Some(login) = &self.login {
-                cx.open_url(&login.url);
+                platform::open_url(&login.url, cx);
             }
             return;
         }
@@ -1703,6 +1703,16 @@ impl Sesh {
 }
 
 fn main() {
+    // GPUI panics on WSL's Wayland proxy (unsupported version). Fall back to X11 when Wayland
+    // is unlikely to work. Upgrade path: remove once WSLg exposes a compatible Wayland version.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WAYLAND_DISPLAY").is_some()
+        && (std::env::var_os("WSL_DISTRO_NAME").is_some()
+            || std::fs::metadata("/proc/sys/fs/binfmt_misc/WSLInterop").is_ok())
+    {
+        unsafe { std::env::remove_var("WAYLAND_DISPLAY") };
+    }
+
     Application::new()
         .with_assets(ui::Assets)
         .run(|cx: &mut App| {
@@ -1781,7 +1791,12 @@ mod tests {
                 .is_empty()
         );
         let overrides = platform::validate_shortcuts(&selection("search", "cmd-alt-f"), &fixed)?;
-        assert_eq!(overrides["search"], "alt-cmd-f");
+        let expected_unparse = if cfg!(target_os = "macos") {
+            "alt-cmd-f"
+        } else {
+            "alt-super-f"
+        };
+        assert_eq!(overrides["search"], expected_unparse);
         assert_eq!(
             platform::shortcut_label("search", &overrides),
             gpui_component::kbd::Kbd::format(&Keystroke::parse("alt-cmd-f")?)

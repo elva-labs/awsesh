@@ -11,6 +11,29 @@ use std::{collections::BTreeMap, rc::Rc};
 
 actions!(platform, [Hide, HideOthers, ShowAll, CloseWindow]);
 
+/// Open a URL in the default browser, routing through the Windows host on WSL.
+pub fn open_url(url: &str, cx: &mut App) {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WSL_DISTRO_NAME").is_some()
+        || std::fs::metadata("/proc/sys/fs/binfmt_misc/WSLInterop").is_ok()
+    {
+        // cmd.exe may not be on PATH when appendWindowsPath=false
+        let cmd = if std::path::Path::new("/mnt/c/Windows/System32/cmd.exe").exists() {
+            "/mnt/c/Windows/System32/cmd.exe"
+        } else {
+            "cmd.exe"
+        };
+        let _ = std::process::Command::new(cmd)
+            .args(["/c", "start", "", &url.replace('&', "^&")])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        return;
+    }
+    cx.open_url(url);
+}
+
 pub fn titlebar_options() -> TitlebarOptions {
     TitlebarOptions {
         title: Some("Sesh".into()),
