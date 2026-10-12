@@ -184,5 +184,18 @@ describe("Credentials", () => {
       const profiles = await Credentials.listProfiles(tempDir);
       expect(profiles).toEqual(["default", "production", "staging"]);
     });
+
+    test("parses CRLF credentials files and preserves other profiles", async () => {
+      await Bun.write(
+        path.join(tempDir, "credentials"),
+        "[default]\r\naws_access_key_id = A\r\naws_secret_access_key = B\r\n\r\n[production]\r\naws_access_key_id = C\r\naws_secret_access_key = D\r\n"
+      );
+
+      expect(await Credentials.listProfiles(tempDir)).toEqual(["default", "production"]);
+
+      await Credentials.removeProfile({ awsDir: tempDir, profileName: "default" });
+
+      expect(await Credentials.listProfiles(tempDir)).toEqual(["production"]);
+    });
   });
 });

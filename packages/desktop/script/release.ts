@@ -1,9 +1,12 @@
 import { createPrivateKey, randomBytes } from "node:crypto"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { releaseMetadata } from "../../script/src/version"
 import { desktopArchive, validateDesktopArchive } from "../../scripts/release"
+import { verifyHelper } from "./helper"
+
+export { verifyHelper }
 
 async function run(command: string[]) {
   const child = Bun.spawn(command, { stdout: "pipe", stderr: "inherit" })
@@ -44,56 +47,6 @@ export function decodeNotaryKey(value: string) {
     throw new Error("NOTARY_KEY must decode to a valid EC private key in PEM .p8 format")
   }
   return key
-}
-
-export async function verifyHelper(binary: string, directory: string) {
-  const home = path.join(directory, "home")
-  await mkdir(home, { recursive: true, mode: 0o700 })
-  const child = Bun.spawn([binary], {
-    cwd: home,
-    env: {
-      HOME: home,
-      XDG_CONFIG_HOME: path.join(home, "config"),
-      XDG_DATA_HOME: path.join(home, "data"),
-      XDG_CACHE_HOME: path.join(home, "cache"),
-      AWS_CONFIG_FILE: path.join(home, ".aws/config"),
-      AWS_SHARED_CREDENTIALS_FILE: path.join(home, ".aws/credentials"),
-      AWS_EC2_METADATA_DISABLED: "true",
-      AWS_ENDPOINT_URL: "http://127.0.0.1:1",
-      PATH: "/usr/bin:/bin",
-    },
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 30000,
-    killSignal: "SIGKILL",
-  })
-  child.stdin.write('{"operation":"snapshot"}\n{"operation":"getAppearance"}\n')
-  child.stdin.end()
-  const [stdout, _stderr, status] = await Promise.all([
-    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
-  ])
-  if (status !== 0) throw new Error("Standalone SDK helper failed")
-  const lines = stdout.trim().split("\n")
-  if (lines.length !== 2) throw new Error("Unexpected SDK helper response count")
-  const results = lines.map((line) => {
-    const response: unknown = JSON.parse(line)
-    if (!response || typeof response !== "object" || !("result" in response) || "error" in response) {
-      throw new Error("SDK helper protocol check failed")
-    }
-    return response.result
-  })
-  const snapshot = results[0]
-  if (!snapshot || typeof snapshot !== "object" || !("sessions" in snapshot) || !Array.isArray(snapshot.sessions) || snapshot.sessions.length !== 0
-    || !("accounts" in snapshot) || !Array.isArray(snapshot.accounts) || snapshot.accounts.length !== 0
-    || !("credentials" in snapshot) || !Array.isArray(snapshot.credentials) || snapshot.credentials.length !== 0) {
-    throw new Error("SDK helper did not return an isolated empty snapshot")
-  }
-  const appearance = results[1]
-  if (!appearance || typeof appearance !== "object" || !("theme" in appearance) || appearance.theme !== "system"
-    || !("mode" in appearance) || appearance.mode !== "system" || !("themes" in appearance) || !Array.isArray(appearance.themes) || appearance.themes.length === 0) {
-    throw new Error("SDK helper did not return default appearance")
-  }
 }
 
 async function release() {
@@ -153,7 +106,7 @@ async function release() {
         || !("AWSESHReleaseVersion" in plist) || plist.AWSESHReleaseVersion !== version
         || !("CFBundleShortVersionString" in plist) || plist.CFBundleShortVersionString !== base
         || !("CFBundleVersion" in plist) || plist.CFBundleVersion !== (process.env.GITHUB_RUN_NUMBER ?? base)) throw new Error("Desktop bundle metadata mismatch")
-      await verifyHelper(helper, temporary)
+      await verifyHelper(helper)
       const submission = path.join(temporary, "submission.zip")
       await run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, submission])
       await validateDesktopArchive(submission, version)

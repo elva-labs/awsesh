@@ -1,11 +1,14 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod platform;
 mod sdk;
 mod theme;
 mod ui;
+mod window_state;
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding,
-    Subscription, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions,
+    Pixels, Subscription, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions,
     prelude::*, px, size,
 };
 use gpui_component::{
@@ -160,6 +163,7 @@ struct Sesh {
     translucency: Entity<SliderState>,
     translucency_focus: FocusHandle,
     translucency_save: Option<gpui::Task<()>>,
+    window_save: Option<gpui::Task<()>>,
     texture: Arc<gpui::Image>,
     shortcuts: BTreeMap<String, String>,
     fixed_bindings: Vec<KeyBinding>,
@@ -341,6 +345,9 @@ impl Sesh {
                     });
                 }
             }),
+            cx.observe_window_bounds(window, |this, window, cx| {
+                this.schedule_window_save(window, cx)
+            }),
         ];
         let mut view = Self {
             window: window.window_handle(),
@@ -389,6 +396,7 @@ impl Sesh {
             translucency,
             translucency_focus: cx.focus_handle(),
             translucency_save: None,
+            window_save: None,
             texture: Arc::new(gpui::Image::from_bytes(
                 gpui::ImageFormat::Svg,
                 include_bytes!("../assets/dither.svg").to_vec(),
@@ -661,6 +669,21 @@ impl Sesh {
             self.request(operation, args, cx);
         }
         cx.notify();
+    }
+
+    /// Records the window geometry and writes it out once the window settles, so
+    /// the size and position survive even if the app is quit without a clean close.
+    fn schedule_window_save(&mut self, window: &Window, cx: &mut Context<Self>) {
+        window_state::note(window);
+        self.window_save = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(500))
+                .await;
+            let _ = this.update(cx, |this, _| {
+                this.window_save = None;
+                window_state::persist();
+            });
+        }));
     }
 
     fn preferences_saving(&self, cx: &App) -> bool {
@@ -1702,6 +1725,29 @@ impl Sesh {
     }
 }
 
+fn restored_bounds(state: window_state::WindowState, cx: &App) -> Bounds<Pixels> {
+    let mut bounds = state.bounds();
+    let minimum = size(px(960.), px(620.));
+    if bounds.size.width < minimum.width {
+        bounds.size.width = minimum.width;
+    }
+    if bounds.size.height < minimum.height {
+        bounds.size.height = minimum.height;
+    }
+    let visible = cx.displays().iter().any(|display| {
+        let area = display.bounds();
+        bounds.origin.x < area.origin.x + area.size.width
+            && bounds.origin.x + bounds.size.width > area.origin.x
+            && bounds.origin.y < area.origin.y + area.size.height
+            && bounds.origin.y + bounds.size.height > area.origin.y
+    });
+    if visible {
+        bounds
+    } else {
+        Bounds::centered(None, bounds.size, cx)
+    }
+}
+
 fn main() {
     Application::new()
         .with_assets(ui::Assets)
@@ -1717,7 +1763,10 @@ fn main() {
                 KeyBinding::new("space", ToggleDithering, Some("Sesh && DitherTexture")),
                 KeyBinding::new("enter", ToggleDithering, Some("Sesh && DitherTexture")),
             ]);
-            let bounds = Bounds::centered(None, size(px(1200.), px(780.)), cx);
+            let saved = window_state::load();
+            let bounds = saved
+                .map(|state| restored_bounds(state, cx))
+                .unwrap_or_else(|| Bounds::centered(None, size(px(1200.), px(780.)), cx));
             let result = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1731,13 +1780,26 @@ fn main() {
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             );
-            if let Err(error) = result {
-                eprintln!("Cannot open Sesh: {error}");
-                cx.quit();
-                return;
-            }
+            let handle = match result {
+                Ok(handle) => handle,
+                Err(error) => {
+                    platform::fatal(&format!("Cannot open Sesh: {error}"));
+                    cx.quit();
+                    return;
+                }
+            };
+            handle
+                .update(cx, |_, window, _| {
+                    window_state::note(window);
+                    window_state::persist();
+                    if saved.is_some_and(|state| state.maximized) {
+                        platform::maximize(window);
+                    }
+                })
+                .ok();
             cx.on_window_closed(|cx| {
                 if cx.windows().is_empty() {
+                    window_state::persist();
                     cx.quit();
                 }
             })
@@ -1758,6 +1820,13 @@ mod tests {
 
         let fixed = [KeyBinding::new(&platform::shortcut("q"), crate::Quit, None)];
         let selection = |id: &str, key: &str| BTreeMap::from([(id.to_owned(), key.to_owned())]);
+        let command = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        let alt_command_f = format!("{command}-alt-f");
+        let alt_command_f_normalized = Keystroke::parse(&alt_command_f)?.unparse();
         for (id, key) in [
             ("unknown", "alt-f"),
             ("search", "a"),
@@ -1780,11 +1849,11 @@ mod tests {
             platform::validate_shortcuts(&selection("search", &platform::shortcut("f")), &fixed)?
                 .is_empty()
         );
-        let overrides = platform::validate_shortcuts(&selection("search", "cmd-alt-f"), &fixed)?;
-        assert_eq!(overrides["search"], "alt-cmd-f");
+        let overrides = platform::validate_shortcuts(&selection("search", &alt_command_f), &fixed)?;
+        assert_eq!(overrides["search"], alt_command_f_normalized);
         assert_eq!(
             platform::shortcut_label("search", &overrides),
-            gpui_component::kbd::Kbd::format(&Keystroke::parse("alt-cmd-f")?)
+            gpui_component::kbd::Kbd::format(&Keystroke::parse(&alt_command_f_normalized)?)
         );
         let keymap = Keymap::new(platform::shortcut_bindings(&overrides)?);
         let actions: [(&dyn gpui::Action, &str); 2] =
@@ -1813,7 +1882,7 @@ mod tests {
         assert_eq!(keymap.bindings_for_action(&Search).count(), 1);
         assert_eq!(
             keymap
-                .all_bindings_for_input(&[Keystroke::parse("alt-cmd-f")?])
+                .all_bindings_for_input(&[Keystroke::parse(&alt_command_f_normalized)?])
                 .len(),
             1
         );

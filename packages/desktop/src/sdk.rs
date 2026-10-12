@@ -3,9 +3,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
+
+#[cfg(debug_assertions)]
+use std::path::PathBuf;
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,19 +76,32 @@ impl Sdk {
         let mut command = if bundled.is_file() {
             Command::new(bundled)
         } else {
-            let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bridge/index.ts");
-            let mut command =
-                Command::new(std::env::var_os("AWSESH_BUN").unwrap_or_else(|| "bun".into()));
-            command.arg("run").arg(source);
-            command
+            #[cfg(debug_assertions)]
+            {
+                let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bridge/index.ts");
+                let mut command =
+                    Command::new(std::env::var_os("AWSESH_BUN").unwrap_or_else(|| "bun".into()));
+                command.arg("run").arg(source);
+                command
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                bail!("The bundled SDK helper is missing beside the application. Reinstall Sesh.");
+            }
         };
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
             .context(
-                "Cannot start the SDK helper. Install Bun for development, or build Sesh.app",
+                "Cannot start the SDK helper. Install Bun for development, or use a packaged build with the bundled helper.",
             )?;
         let input = child.stdin.take().context("Missing SDK input")?;
         let output = BufReader::new(child.stdout.take().context("Missing SDK output")?);

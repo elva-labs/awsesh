@@ -8,7 +8,7 @@ A modern AWS SSO session manager based on an SDK, with an interactive TUI, power
 
 - Interactive terminal UI for managing AWS SSO sessions
 - Interactive CLI if that's more your jam
-- MacOS app if you prefer to not use the terminal
+- Native desktop app (macOS and Windows) if you prefer to not use the terminal
 - Fast fuzzy search across accounts and roles
 - Multiple SSO profile support
 - Automatic credential management
@@ -37,9 +37,16 @@ Download the latest release from the [Releases page](https://github.com/elva-lab
 brew install --cask elva-labs/elva/awsesh-desktop
 ```
 
+### Windows Desktop Application
+
+Download `awsesh-desktop-win32-x64.zip` from the
+[latest release](https://github.com/elva-labs/awsesh/releases/latest), extract
+it, and run `Sesh\sesh.exe`. The build is unsigned, so Windows SmartScreen may
+warn on first launch. A Scoop package is planned.
+
 ### Build from Source
 
-Requires [Bun](https://bun.sh) 1.3.1+
+Requires [Bun](https://bun.sh) 1.4.2+
 
 ```sh
 git clone https://github.com/elva-labs/awsesh.git
@@ -52,7 +59,16 @@ bun run build
 
 ## Desktop Application
 
-Currently only available on MacOS but coming for Windows and Linux soon.
+A native app for macOS and Windows. macOS installs through Homebrew; Windows
+ships as an unsigned portable ZIP on the Releases page. See
+[packages/desktop/README.md](packages/desktop/README.md) for the package layout
+and build prerequisites.
+
+To build the desktop app for the current platform:
+
+```sh
+bun run build:desktop
+```
 
 ![sesh desktop app](assets/mac-app.png)
 
