@@ -49,22 +49,32 @@ export class WslHelper {
   private responses: AsyncIterator<string>
   private stderr = ""
   private closed = false
+  private stopped = false
   private exited: Promise<void>
 
   constructor(command: string[]) {
     this.child = spawn(command[0], command.slice(1), { stdio: "pipe", windowsHide: true })
-    this.exited = new Promise(resolve => this.child.once("close", () => resolve()))
+    this.exited = new Promise(resolve => this.child.once("close", () => {
+      this.stopped = true
+      resolve()
+    }))
     this.lines = createInterface({ input: this.child.stdout })
     this.responses = this.lines[Symbol.asyncIterator]()
     this.child.stderr.on("data", chunk => { this.stderr = (this.stderr + chunk.toString()).slice(-2000) })
     this.child.on("error", error => {
+      this.stopped = true
       this.stderr = error.message
       this.lines.close()
     })
     this.child.stdin.on("error", error => {
+      this.stopped = true
       this.stderr = error.message
       this.lines.close()
     })
+  }
+
+  get running(): boolean {
+    return !this.closed && !this.stopped
   }
 
   async request(operation: string, args: Record<string, unknown>, timeout = 0): Promise<unknown> {
@@ -79,6 +89,7 @@ export class WslHelper {
         }),
       ]) : await response
       if (line.done) {
+        this.stopped = true
         const detail = this.stderr.trim()
         throw new Error(`WSL SDK helper stopped unexpectedly.${detail ? ` ${detail}` : ""}`)
       }
@@ -136,6 +147,8 @@ export class WslWorkspace {
 
   async request(operation: string, args: Record<string, unknown>) {
     // Never fall back to Windows state if the selected WSL workspace is unavailable.
+    // Restart only on the next request; a failed mutation may already have completed.
+    if (this.helper && !this.helper.running) await this.close()
     this.helper ??= (await this.start()).helper
     return this.helper.request(operation, args)
   }

@@ -81,10 +81,12 @@ describe("helper transport", () => {
       expect(await helper.request("snapshot", { name: "one" })).toEqual({ name: "one" })
       const error = await helper.request("bad", {}).catch(error => error)
       expect(String(error)).toBe("Error: Rejected")
+      expect(helper.running).toBe(true)
       expect(await helper.request("snapshot", { name: "two" })).toEqual({ name: "two" })
     } finally {
       await helper.close()
     }
+    expect(helper.running).toBe(false)
   })
 
   test("reports helper exit", async () => {
@@ -92,6 +94,7 @@ describe("helper transport", () => {
     try {
       const error = await helper.request("snapshot", {}, 5000).catch(error => error)
       expect(error).toBeInstanceOf(Error)
+      expect(helper.running).toBe(false)
     } finally {
       await helper.close()
     }
@@ -109,7 +112,48 @@ describe("helper transport", () => {
 })
 
 const linuxHelper = path.resolve(import.meta.dir, "../dist/Sesh/awsesh-sdk-linux-x64")
-const hasWslHelper = await Bun.file(linuxHelper).exists() && await isWslAvailable()
+const hasWsl = await isWslAvailable()
+const hasWslHelper = await Bun.file(linuxHelper).exists() && hasWsl
+
+test.skipIf(!hasWsl)("restarts a stopped WSL helper without replaying mutations or changing workspace", async () => {
+  const root = await temporary()
+  const config = path.join(root, "config")
+  const wrapper = path.join(root, "isolated-sdk")
+  const attempts = path.join(root, "attempts")
+  await Bun.write(wrapper, `#!/bin/sh
+set -eu
+while IFS= read -r request; do
+  case "$request" in
+    *'"operation":"assumeRole"'*)
+      printf '%s\\n' applied >> "$(dirname "$0")/attempts"
+      exit 1
+      ;;
+    *'"operation":"bad"'*) printf '%s\\n' '{"error":"Rejected"}' ;;
+    *) printf '{"result":{"sessions":[],"pid":%s}}\\n' "$$" ;;
+  esac
+done
+`)
+  const workspace = new WslWorkspace(config, wrapper)
+  try {
+    const initial = await workspace.enable() as { pid: number }
+    const rejected = await workspace.request("bad", {}).catch(error => error)
+    expect(String(rejected)).toContain("Rejected")
+    expect(await workspace.request("snapshot", {})).toEqual({ sessions: [], pid: initial.pid })
+
+    const failed = await workspace.request("assumeRole", {}).catch(error => error)
+    expect(String(failed)).toContain("stopped unexpectedly")
+    expect(await Bun.file(attempts).text()).toBe("applied\n")
+    const recovered = await workspace.request("snapshot", {}) as { sessions: unknown[]; pid: number }
+    expect(recovered.sessions).toEqual([])
+    expect(recovered.pid).not.toBe(initial.pid)
+    expect(await Bun.file(attempts).text()).toBe("applied\n")
+    expect(await workspace.enabled()).toBe(true)
+    expect(await readWorkspace(config)).toBe(true)
+  } finally {
+    await workspace.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 60000)
 
 test.skipIf(!hasWslHelper)("switches a live WSL workspace without changing Windows state", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "Sesh's 日本語 workspace-"))
