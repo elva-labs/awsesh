@@ -180,7 +180,7 @@ def read_release_version(data):
         cursor += 2
     return "".join(value)
 
-required = ["Sesh/awsesh-sdk.exe", "Sesh/LICENSE", "Sesh/sesh.exe"]
+required = ["Sesh/awsesh-sdk.exe", "Sesh/awsesh-sdk-linux-x64", "Sesh/LICENSE", "Sesh/sesh.exe"]
 
 with zipfile.ZipFile(sys.argv[1]) as archive:
     infos = archive.infolist()
@@ -204,6 +204,9 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     require(struct.unpack_from("<H", exe, optional)[0] == 0x20b, "Windows desktop executable is not PE32+")
     require(struct.unpack_from("<H", exe, optional + 0x44)[0] == 2, "Windows desktop executable is not a GUI subsystem binary")
     require(read_release_version(exe) == sys.argv[2], "Windows desktop executable AWSESHReleaseVersion mismatch")
+    with archive.open("Sesh/awsesh-sdk-linux-x64") as stream:
+        linux = stream.read(64)
+    require(len(linux) == 64 and linux[:6] == b"\x7fELF\x02\x01" and struct.unpack_from("<H", linux, 18)[0] == 62, "Linux SDK helper must be x86_64 ELF")
 `
   await $`python3 -c ${validation} ${file} ${version}`.quiet()
 }

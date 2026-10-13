@@ -1718,7 +1718,7 @@ impl Sesh {
                             )
                     })),
             )
-            .when(self.wsl_available, |el| {
+            .when(self.wsl_available || self.wsl_enabled, |el| {
                 el.child(
                     div()
                         .max_w(px(650.))
@@ -1736,16 +1736,16 @@ impl Sesh {
                                 .child("Integration"),
                         )
                         .child(
-                            Checkbox::new("use-wsl-credentials")
-                                .label("Use WSL credentials")
+                            Checkbox::new("use-wsl-workspace")
+                                .label("Use WSL workspace")
                                 .checked(self.wsl_enabled)
-                                .disabled(self.modal())
+                                .disabled(self.modal() || self.busy || self.preference_save.is_some())
                                 .on_click(cx.listener(|this, checked: &bool, window, cx| {
-                                    this.dispatch(Command::UseWslCredentials(*checked), window, cx);
+                                    this.dispatch(Command::UseWslWorkspace(*checked), window, cx);
                                 })),
                         )
                         .child(div().text_color(colors.muted).text_size(px(13.)).child(
-                            "Write credentials to WSL instead of Windows when assuming a role.",
+                            "Share SSO sessions, tokens, caches, preferences and credentials with awsesh in your default WSL distribution. Desktop appearance stays on Windows.",
                         )),
                 )
             })

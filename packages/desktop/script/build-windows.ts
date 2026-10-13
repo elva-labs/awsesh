@@ -22,6 +22,7 @@ export async function buildWindows() {
       RUSTFLAGS: "-C target-feature=+crt-static",
     })
     await compileHelper(path.join(staging, "awsesh-sdk.exe"), "bun-windows-x64")
+    await compileHelper(path.join(staging, "awsesh-sdk-linux-x64"), "bun-linux-x64-baseline")
     await verifyHelper(path.join(staging, "awsesh-sdk.exe"))
     await cp(path.join(directory, "target", windowsTarget, "release", "sesh.exe"), path.join(staging, "sesh.exe"))
     await cp(path.resolve(directory, "..", "..", "LICENSE"), path.join(staging, "LICENSE"))

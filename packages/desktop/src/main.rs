@@ -81,7 +81,7 @@ enum Command {
     Dithering(bool),
     ToggleSidebar,
     SidebarWidth(f32),
-    UseWslCredentials(bool),
+    UseWslWorkspace(bool),
     RecordShortcut(&'static str),
     ClearShortcut(&'static str),
     ResetShortcuts,
@@ -438,6 +438,7 @@ impl Sesh {
             view.message = format!("Cannot configure shortcuts: {error}");
         }
         view.request("getAppearance", json!({}), cx);
+        view.request("wslStatus", json!({}), cx);
         view.request("snapshot", json!({}), cx);
         view
     }
@@ -1001,12 +1002,23 @@ impl Sesh {
             } else {
                 self.request("cancelLogin", json!({"name": self.data.session}), cx);
             }
-        } else if matches!(operation, "wslStatus" | "setUseWslCredentials") {
+        } else if matches!(operation, "wslStatus" | "setUseWslWorkspace") {
             if let Some(available) = value["available"].as_bool() {
                 self.wsl_available = available;
             }
             if let Some(enabled) = value["enabled"].as_bool() {
                 self.wsl_enabled = enabled;
+            }
+            if operation == "setUseWslWorkspace" {
+                self.data = Snapshot::default();
+                self.initialized = false;
+                self.account = None;
+                self.selected = None;
+                self.pending = None;
+                self.preferences.clear();
+                self.preference_save = None;
+                self.reset_search(window, cx);
+                self.receive("snapshot", value["snapshot"].clone(), window, cx);
             }
         }
     }
@@ -1385,6 +1397,13 @@ impl Sesh {
     }
 
     fn dispatch(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|(operation, _)| *operation == "setUseWslWorkspace")
+        {
+            return;
+        }
         self.popup = None;
         if matches!(command, Command::Cancel) {
             self.recording = None;
@@ -1662,9 +1681,15 @@ impl Sesh {
             Command::Dithering(dithering) => {
                 self.request("setAppearance", json!({"dithering": dithering}), cx)
             }
-            Command::UseWslCredentials(enabled) => {
-                self.wsl_enabled = enabled;
-                self.request("setUseWslCredentials", json!({"enabled": enabled}), cx);
+            Command::UseWslWorkspace(enabled) => {
+                if self.busy
+                    || self.modal()
+                    || !self.requests.is_empty()
+                    || self.preference_save.is_some()
+                {
+                    return;
+                }
+                self.request("setUseWslWorkspace", json!({"enabled": enabled}), cx);
             }
             Command::ToggleSidebar => {
                 let from = self.sidebar_progress();
