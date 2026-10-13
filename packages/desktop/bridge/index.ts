@@ -6,10 +6,58 @@ import { configureAppearance, prepareThemeDirectory } from "./appearance"
 
 const configDir = path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), ".config"), "awsesh")
 const dataDir = path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "awsesh")
+const configPath = path.join(configDir, "config.json")
+const defaultAwsDir = path.join(homedir(), ".aws")
+
+// WSL credential targeting (Windows only) - swaps awsDir between Windows and WSL
+let wslDirCache: string | undefined | null = null
+
+async function spawn(cmd: string[]): Promise<{ stdout: string; code: number }> {
+  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" })
+  const stdout = await new Response(proc.stdout).text()
+  const code = await proc.exited
+  return { stdout, code }
+}
+
+async function resolveWslAwsDir(): Promise<string | undefined> {
+  if (wslDirCache !== null) return wslDirCache
+  try {
+    const { stdout, code } = await spawn(["wsl", "sh", "-c", "wslpath -w ~/.aws"])
+    wslDirCache = code === 0 && stdout.trim() ? stdout.trim() : undefined
+  } catch { wslDirCache = undefined }
+  return wslDirCache
+}
+
+async function resolveAwsDir(): Promise<string> {
+  if (process.platform !== "win32") return defaultAwsDir
+  try {
+    const config = await Bun.file(configPath).json().catch(() => ({}))
+    if (!config.useWslCredentials) return defaultAwsDir
+  } catch { return defaultAwsDir }
+  return await resolveWslAwsDir() ?? defaultAwsDir
+}
+
+async function isWslAvailable(): Promise<boolean> {
+  if (process.platform !== "win32") return false
+  if (!Bun.which("wsl")) return false
+  try {
+    const { stdout } = await spawn(["wsl", "--list", "--quiet"])
+    return stdout.replace(/\0/g, "").trim().length > 0
+  } catch { return false }
+}
+
+async function setUseWslCredentials(enabled: boolean): Promise<void> {
+  let config: Record<string, unknown> = {}
+  try { config = await Bun.file(configPath).json() } catch {}
+  if (enabled) { config.useWslCredentials = true } else { delete config.useWslCredentials }
+  await Bun.write(configPath, JSON.stringify(config, null, 2))
+}
+
 const workflow = createWorkflow(createAwsesh({
   configDir,
   dataDir,
-  awsDir: path.join(homedir(), ".aws"),
+  awsDir: defaultAwsDir,
+  resolveAwsDir,
 }))
 
 function string(value: unknown): string {
@@ -51,6 +99,17 @@ async function dispatch(request: unknown) {
     case "clearCredential": return workflow.clearCredential(string(account), string(role), "profile" in args ? string(args.profile) : "", name)
     case "clearAllCredentials": return workflow.clearAllCredentials(name)
     case "signOut": return workflow.signOut(string(name))
+    case "wslStatus": {
+      const available = await isWslAvailable()
+      let enabled = false
+      try { enabled = !!(await Bun.file(configPath).json()).useWslCredentials } catch {}
+      return { available, enabled }
+    }
+    case "setUseWslCredentials": {
+      if (!("enabled" in args)) throw new Error("Missing enabled argument")
+      await setUseWslCredentials(!!args.enabled)
+      return { enabled: !!args.enabled }
+    }
     default: throw new Error("Unknown SDK operation")
   }
 }

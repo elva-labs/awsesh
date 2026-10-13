@@ -1718,6 +1718,37 @@ impl Sesh {
                             )
                     })),
             )
+            .when(self.wsl_available, |el| {
+                el.child(
+                    div()
+                        .max_w(px(650.))
+                        .flex_shrink_0()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .pt_5()
+                        .border_t_1()
+                        .border_color(colors.border)
+                        .child(
+                            div()
+                                .text_size(px(16.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Integration"),
+                        )
+                        .child(
+                            Checkbox::new("use-wsl-credentials")
+                                .label("Use WSL credentials")
+                                .checked(self.wsl_enabled)
+                                .disabled(self.modal())
+                                .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                                    this.dispatch(Command::UseWslCredentials(*checked), window, cx);
+                                })),
+                        )
+                        .child(div().text_color(colors.muted).text_size(px(13.)).child(
+                            "Write credentials to WSL instead of Windows when assuming a role.",
+                        )),
+                )
+            })
             .child(
                 div()
                     .max_w(px(650.))

@@ -81,6 +81,7 @@ enum Command {
     Dithering(bool),
     ToggleSidebar,
     SidebarWidth(f32),
+    UseWslCredentials(bool),
     RecordShortcut(&'static str),
     ClearShortcut(&'static str),
     ResetShortcuts,
@@ -167,6 +168,8 @@ struct Sesh {
     texture: Arc<gpui::Image>,
     shortcuts: BTreeMap<String, String>,
     fixed_bindings: Vec<KeyBinding>,
+    wsl_available: bool,
+    wsl_enabled: bool,
     recording: Option<&'static str>,
     shortcut_release: Option<String>,
     shortcut_error: Option<String>,
@@ -403,6 +406,8 @@ impl Sesh {
             )),
             shortcuts: BTreeMap::new(),
             fixed_bindings: cx.key_bindings().borrow().bindings().cloned().collect(),
+            wsl_available: false,
+            wsl_enabled: false,
             recording: None,
             shortcut_release: None,
             shortcut_error: None,
@@ -996,6 +1001,13 @@ impl Sesh {
             } else {
                 self.request("cancelLogin", json!({"name": self.data.session}), cx);
             }
+        } else if matches!(operation, "wslStatus" | "setUseWslCredentials") {
+            if let Some(available) = value["available"].as_bool() {
+                self.wsl_available = available;
+            }
+            if let Some(enabled) = value["enabled"].as_bool() {
+                self.wsl_enabled = enabled;
+            }
         }
     }
 
@@ -1527,6 +1539,7 @@ impl Sesh {
                 self.request("snapshot", json!({"name": name}), cx);
                 if self.screen == Screen::Settings {
                     self.request("getAppearance", json!({}), cx);
+                    self.request("wslStatus", json!({}), cx);
                 }
             }
             Command::Refresh => self.request(
@@ -1648,6 +1661,10 @@ impl Sesh {
             Command::OpenThemeDirectory => self.request("openThemeDirectory", json!({}), cx),
             Command::Dithering(dithering) => {
                 self.request("setAppearance", json!({"dithering": dithering}), cx)
+            }
+            Command::UseWslCredentials(enabled) => {
+                self.wsl_enabled = enabled;
+                self.request("setUseWslCredentials", json!({"enabled": enabled}), cx);
             }
             Command::ToggleSidebar => {
                 let from = self.sidebar_progress();
