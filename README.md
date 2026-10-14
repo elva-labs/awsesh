@@ -39,6 +39,8 @@ brew install --cask elva-labs/elva/awsesh-desktop
 
 ### Windows Desktop Application
 
+Now also supports WSL!
+
 ```powershell
 scoop bucket add elva https://github.com/elva-labs/scoop-elva
 scoop install elva/awsesh-desktop
