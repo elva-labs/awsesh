@@ -41,6 +41,11 @@ export function createAwsesh(options: AwseshOptions) {
   const storage = Storage.create({ dir: `${dataDir}/storage` })
   const sessions = Sessions.create({ dir: `${configDir}/sessions` })
 
+  // Resolved per-operation so a runtime toggle (e.g. WSL on/off) takes effect immediately
+  async function getAwsDir(): Promise<string> {
+    return options.resolveAwsDir ? await options.resolveAwsDir() : awsDir
+  }
+
   return {
     sessions: {
       list: () => sessions.list(),
@@ -260,7 +265,7 @@ export function createAwsesh(options: AwseshOptions) {
     credentials: {
       write: async (profileName: string, creds: RoleCredentials, region?: string) => {
         await Credentials.write({
-          awsDir,
+          awsDir: await getAwsDir(),
           profileName,
           credentials: creds,
           region,
@@ -268,12 +273,12 @@ export function createAwsesh(options: AwseshOptions) {
       },
       removeProfile: async (profileName: string) => {
         await Credentials.removeProfile({
-          awsDir,
+          awsDir: await getAwsDir(),
           profileName,
         })
       },
       listProfiles: async () => {
-        return Credentials.listProfiles(awsDir)
+        return Credentials.listProfiles(await getAwsDir())
       },
     },
 
@@ -358,7 +363,7 @@ export function createAwsesh(options: AwseshOptions) {
 
       // 1. Write to ~/.aws/credentials
       await Credentials.write({
-        awsDir,
+        awsDir: await getAwsDir(),
         profileName,
         credentials,
         region,
@@ -439,7 +444,7 @@ export function createAwsesh(options: AwseshOptions) {
 
       // 3. Optionally remove from ~/.aws/credentials
       if (removeProfile) {
-        await Credentials.removeProfile({ awsDir, profileName: removeProfile })
+        await Credentials.removeProfile({ awsDir: await getAwsDir(), profileName: removeProfile })
       }
     },
 
@@ -454,7 +459,7 @@ export function createAwsesh(options: AwseshOptions) {
       // 1. Remove profiles from ~/.aws/credentials if requested
       if (removeProfiles) {
         for (const cred of sessionCreds) {
-          await Credentials.removeProfile({ awsDir, profileName: cred.profileName })
+          await Credentials.removeProfile({ awsDir: await getAwsDir(), profileName: cred.profileName })
         }
       }
 
@@ -480,7 +485,7 @@ export function createAwsesh(options: AwseshOptions) {
       if (removeProfiles) {
         const active = await storage.read<ActiveCredential[]>("credentials/active")
         for (const cred of active || []) {
-          await Credentials.removeProfile({ awsDir, profileName: cred.profileName })
+          await Credentials.removeProfile({ awsDir: await getAwsDir(), profileName: cred.profileName })
         }
       }
 

@@ -48,6 +48,7 @@ export interface AppConfig {
   cacheAccountDuration: number
   defaultRegion: string
   mouseEdgeScroll: boolean
+  useWslCredentials: boolean
   keybinds: KeybindsConfig
 }
 
@@ -64,6 +65,7 @@ export interface UserConfig {
   cacheAccountDuration?: number
   defaultRegion?: string
   mouseEdgeScroll?: boolean
+  useWslCredentials?: boolean
   keybinds?: UserKeybindsConfig
 }
 
@@ -104,6 +106,7 @@ export const defaultConfig: AppConfig = {
   cacheAccountDuration: 15,
   defaultRegion: "us-east-1",
   mouseEdgeScroll: false,
+  useWslCredentials: false,
   keybinds: defaultKeybinds,
 }
 
@@ -135,6 +138,7 @@ function mergeConfig(defaults: AppConfig, overrides?: UserConfig): AppConfig {
     cacheAccountDuration: overrides.cacheAccountDuration ?? defaults.cacheAccountDuration,
     defaultRegion: overrides.defaultRegion ?? defaults.defaultRegion,
     mouseEdgeScroll: overrides.mouseEdgeScroll ?? defaults.mouseEdgeScroll,
+    useWslCredentials: overrides.useWslCredentials ?? defaults.useWslCredentials,
     keybinds: mergeKeybinds(defaults.keybinds, overrides.keybinds),
   }
 }
@@ -359,6 +363,29 @@ export namespace Config {
     await Bun.write(path.join(dir, ".keep"), "")
     await Bun.write(configPath, JSON.stringify(merged, null, 2))
     log.info("Mouse edge scroll saved", { enabled, isDefault })
+  }
+
+  export async function setUseWslCredentials(enabled: boolean): Promise<void> {
+    const isDefault = enabled === defaultConfig.useWslCredentials
+
+    const file = Bun.file(configPath)
+    let existing: UserConfig = {}
+
+    if (await file.exists()) {
+      try {
+        existing = await file.json() as UserConfig
+      } catch {
+        existing = {}
+      }
+    }
+
+    const { useWslCredentials: _, ...rest } = existing
+    const merged: UserConfig = isDefault ? rest : { ...rest, useWslCredentials: enabled }
+
+    const dir = path.dirname(configPath)
+    await Bun.write(path.join(dir, ".keep"), "")
+    await Bun.write(configPath, JSON.stringify(merged, null, 2))
+    log.info("WSL sync saved", { enabled, isDefault })
   }
 
   export function getDefaults(): AppConfig {

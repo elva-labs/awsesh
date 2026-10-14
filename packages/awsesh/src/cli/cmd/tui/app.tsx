@@ -12,6 +12,7 @@ import { ConfigProvider } from "./context/config";
 import { KeybindProvider } from "./context/keybind";
 import { CommandProvider } from "./context/command";
 import { MigrationProvider } from "./context/migration";
+import { UseWslCredentialsProvider } from "./context/use-wsl-credentials";
 import { CredentialsProvider } from "./context/credentials";
 import { DialogProvider } from "./ui/dialog";
 import { ToastProvider, useToast } from "./ui/toast";
@@ -137,9 +138,11 @@ export async function tui(): Promise<void> {
                           <ToastProvider>
                             <DialogProvider>
                               <MigrationProvider>
-                                <CommandProvider>
-                                  <App />
-                                </CommandProvider>
+                                <UseWslCredentialsProvider>
+                                  <CommandProvider>
+                                    <App />
+                                  </CommandProvider>
+                                </UseWslCredentialsProvider>
                               </MigrationProvider>
                             </DialogProvider>
                           </ToastProvider>

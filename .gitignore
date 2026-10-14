@@ -8,6 +8,7 @@ build/
 target/
 *.js.map
 *.bun-build
+.bun-cache/
 
 # Logs
 logs/

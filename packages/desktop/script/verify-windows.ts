@@ -1,6 +1,6 @@
 import { unzipSync } from "fflate"
 
-const requiredFiles = ["Sesh/LICENSE", "Sesh/awsesh-sdk.exe", "Sesh/sesh.exe"]
+const requiredFiles = ["Sesh/LICENSE", "Sesh/awsesh-sdk-linux-x64", "Sesh/awsesh-sdk.exe", "Sesh/sesh.exe"]
 
 function centralDirectoryNames(bytes: Uint8Array): string[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -109,4 +109,9 @@ export async function verifyWindowsPackage(_staging: string, archive: string, ve
   const helper = entries["Sesh/awsesh-sdk.exe"]
   if (!helper || helper.length === 0) throw new Error("Missing awsesh-sdk.exe")
   subsystem(helper)
+  const linux = entries["Sesh/awsesh-sdk-linux-x64"]
+  if (!linux || linux.length < 64 || linux[0] !== 0x7f || linux[1] !== 0x45 || linux[2] !== 0x4c || linux[3] !== 0x46
+    || linux[4] !== 2 || linux[5] !== 1 || new DataView(linux.buffer, linux.byteOffset).getUint16(18, true) !== 62) {
+    throw new Error("Missing or invalid x86_64 Linux SDK helper")
+  }
 }

@@ -2,6 +2,8 @@ export interface AwseshOptions {
   configDir: string
   dataDir: string
   awsDir: string
+  /** Override the AWS directory at call time (e.g. to target WSL's ~/.aws instead of Windows'). Falls back to awsDir. */
+  resolveAwsDir?: () => Promise<string>
 }
 
 export interface SSOSession {

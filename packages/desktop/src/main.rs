@@ -81,6 +81,7 @@ enum Command {
     Dithering(bool),
     ToggleSidebar,
     SidebarWidth(f32),
+    UseWslWorkspace(bool),
     RecordShortcut(&'static str),
     ClearShortcut(&'static str),
     ResetShortcuts,
@@ -167,6 +168,8 @@ struct Sesh {
     texture: Arc<gpui::Image>,
     shortcuts: BTreeMap<String, String>,
     fixed_bindings: Vec<KeyBinding>,
+    wsl_available: bool,
+    wsl_enabled: bool,
     recording: Option<&'static str>,
     shortcut_release: Option<String>,
     shortcut_error: Option<String>,
@@ -403,6 +406,8 @@ impl Sesh {
             )),
             shortcuts: BTreeMap::new(),
             fixed_bindings: cx.key_bindings().borrow().bindings().cloned().collect(),
+            wsl_available: false,
+            wsl_enabled: false,
             recording: None,
             shortcut_release: None,
             shortcut_error: None,
@@ -433,6 +438,7 @@ impl Sesh {
             view.message = format!("Cannot configure shortcuts: {error}");
         }
         view.request("getAppearance", json!({}), cx);
+        view.request("wslStatus", json!({}), cx);
         view.request("snapshot", json!({}), cx);
         view
     }
@@ -996,6 +1002,24 @@ impl Sesh {
             } else {
                 self.request("cancelLogin", json!({"name": self.data.session}), cx);
             }
+        } else if matches!(operation, "wslStatus" | "setUseWslWorkspace") {
+            if let Some(available) = value["available"].as_bool() {
+                self.wsl_available = available;
+            }
+            if let Some(enabled) = value["enabled"].as_bool() {
+                self.wsl_enabled = enabled;
+            }
+            if operation == "setUseWslWorkspace" {
+                self.data = Snapshot::default();
+                self.initialized = false;
+                self.account = None;
+                self.selected = None;
+                self.pending = None;
+                self.preferences.clear();
+                self.preference_save = None;
+                self.reset_search(window, cx);
+                self.receive("snapshot", value["snapshot"].clone(), window, cx);
+            }
         }
     }
 
@@ -1373,6 +1397,13 @@ impl Sesh {
     }
 
     fn dispatch(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|(operation, _)| *operation == "setUseWslWorkspace")
+        {
+            return;
+        }
         self.popup = None;
         if matches!(command, Command::Cancel) {
             self.recording = None;
@@ -1527,6 +1558,7 @@ impl Sesh {
                 self.request("snapshot", json!({"name": name}), cx);
                 if self.screen == Screen::Settings {
                     self.request("getAppearance", json!({}), cx);
+                    self.request("wslStatus", json!({}), cx);
                 }
             }
             Command::Refresh => self.request(
@@ -1648,6 +1680,16 @@ impl Sesh {
             Command::OpenThemeDirectory => self.request("openThemeDirectory", json!({}), cx),
             Command::Dithering(dithering) => {
                 self.request("setAppearance", json!({"dithering": dithering}), cx)
+            }
+            Command::UseWslWorkspace(enabled) => {
+                if self.busy
+                    || self.modal()
+                    || !self.requests.is_empty()
+                    || self.preference_save.is_some()
+                {
+                    return;
+                }
+                self.request("setUseWslWorkspace", json!({"enabled": enabled}), cx);
             }
             Command::ToggleSidebar => {
                 let from = self.sidebar_progress();

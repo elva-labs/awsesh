@@ -36,7 +36,7 @@ export async function run(command: string[], env: Record<string, string> = {}) {
   if (await child.exited !== 0) throw new Error(`Build command failed: ${command[0]}`)
 }
 
-export async function compileHelper(outfile: string, target: "bun-darwin-arm64" | "bun-windows-x64") {
+export async function compileHelper(outfile: string, target: "bun-darwin-arm64" | "bun-windows-x64" | "bun-linux-x64-baseline") {
   const helper = await Bun.build({
     entrypoints: [path.join(desktopDirectory, "bridge/index.ts")],
     compile: { target, outfile, autoloadDotenv: false, autoloadBunfig: false },

@@ -6,6 +6,7 @@ import { DialogKeybindList } from "./dialog-keybind-list"
 import { useTheme } from "../context/theme"
 import { useConfig } from "../context/config"
 import { Config, type ThemeMode } from "@/config/config"
+import { WSL } from "@/util/wsl"
 
 const MODE_CYCLE: ThemeMode[] = ["system", "dark", "light"]
 
@@ -68,6 +69,18 @@ export function DialogSettings() {
         Config.setMouseEdgeScroll(next)
       },
     },
+    // WSL credential target toggle (only visible on Windows)
+    ...(WSL.isWindows() ? [{
+      title: "Use WSL credentials",
+      description: `Current: ${config.data.useWslCredentials ? "WSL" : "Windows"}`,
+      value: "use_wsl_credentials",
+      category: "Integration",
+      onSelect: () => {
+        const next = !config.data.useWslCredentials
+        config.set("useWslCredentials", next)
+        Config.setUseWslCredentials(next)
+      },
+    }] : []),
     {
       title: "Keybinds",
       value: "keybinds",

@@ -81,6 +81,7 @@ Releases attach this ZIP as a release asset. The Scoop manifest (package
 Sesh/
   sesh.exe
   awsesh-sdk.exe
+  awsesh-sdk-linux-x64
   LICENSE
 ```
 
@@ -101,6 +102,49 @@ Build properties:
 
 The package is unsigned. Windows SmartScreen may warn on first launch. Signing
 is not part of this build.
+
+### WSL workspace
+
+On Windows, Settings > Integration > **Use WSL workspace** makes the native
+desktop app use the same AWS workspace as the CLI/TUI in the default WSL distro,
+under its default user. This is shared storage, not copying or synchronizing two
+sets of files:
+
+- SSO session definitions: Linux `~/.config/awsesh/sessions/`.
+- SSO tokens, account/role caches, preferences, last selections and credential
+  tracking: Linux `~/.local/share/awsesh/storage/`.
+- AWS credentials: Linux `~/.aws/credentials`.
+
+The packaged Windows helper launches the bundled Linux helper through `wsl.exe`;
+all AWS workflow operations run inside Linux. No Bun, Node or awsesh installation
+is required in WSL. An x64 glibc distribution such as Ubuntu is required. The
+helper runs through `sh -lc`, so the Linux login environment's `XDG_CONFIG_HOME`
+and `XDG_DATA_HOME` overrides apply. Exports only made in an interactive shell
+are not necessarily available to the helper.
+
+Desktop appearance, shortcuts, themes and window geometry stay on Windows. The
+workspace selector is stored separately in Windows
+`~/.config/awsesh/workspace.json` (or under `XDG_CONFIG_HOME`):
+
+```json
+{ "useWslWorkspace": true }
+```
+
+Switching waits until the app is idle, starts and checks the new helper, then
+reloads its workspace. Failed switches leave the previous workspace selected.
+If an already-selected WSL workspace cannot start, AWS operations fail rather
+than silently using Windows data; Settings remains available to switch back.
+Windows and WSL data are not automatically migrated or merged. The earlier
+credential-only `useWslCredentials` setting is not promoted to a full workspace
+selection; enable the new toggle explicitly.
+
+The desktop refreshes its snapshot every 30 seconds; Refresh can show CLI/TUI
+changes sooner. This does not add cross-process locking to the existing storage
+format, so simultaneous writes from multiple clients still have the existing
+read-modify-write race limitation.
+
+For development, build the bundled Linux helper with `bun run build:desktop`
+before enabling WSL mode in `dev:desktop`.
 
 ## Architecture
 

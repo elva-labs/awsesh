@@ -1718,6 +1718,37 @@ impl Sesh {
                             )
                     })),
             )
+            .when(self.wsl_available || self.wsl_enabled, |el| {
+                el.child(
+                    div()
+                        .max_w(px(650.))
+                        .flex_shrink_0()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .pt_5()
+                        .border_t_1()
+                        .border_color(colors.border)
+                        .child(
+                            div()
+                                .text_size(px(16.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Integration"),
+                        )
+                        .child(
+                            Checkbox::new("use-wsl-workspace")
+                                .label("Use WSL workspace")
+                                .checked(self.wsl_enabled)
+                                .disabled(self.modal() || self.busy || self.preference_save.is_some())
+                                .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                                    this.dispatch(Command::UseWslWorkspace(*checked), window, cx);
+                                })),
+                        )
+                        .child(div().text_color(colors.muted).text_size(px(13.)).child(
+                            "Share SSO sessions, tokens, caches, preferences and credentials with awsesh in your default WSL distribution. Desktop appearance stays on Windows.",
+                        )),
+                )
+            })
             .child(
                 div()
                     .max_w(px(650.))

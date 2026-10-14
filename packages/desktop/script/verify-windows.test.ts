@@ -5,7 +5,14 @@ import path from "node:path"
 import { zipSync } from "fflate"
 import { validatePackageNames, verifyWindowsPackage } from "./verify-windows"
 
-const required = ["Sesh/LICENSE", "Sesh/awsesh-sdk.exe", "Sesh/sesh.exe"]
+const required = ["Sesh/LICENSE", "Sesh/awsesh-sdk-linux-x64", "Sesh/awsesh-sdk.exe", "Sesh/sesh.exe"]
+
+function linuxExecutable(): Uint8Array {
+  const bytes = new Uint8Array(64)
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1])
+  new DataView(bytes.buffer).setUint16(18, 62, true)
+  return bytes
+}
 
 function utf16le(value: string): Uint8Array {
   const bytes = new Uint8Array(value.length * 2)
@@ -74,6 +81,7 @@ describe("verifyWindowsPackage", () => {
     const { directory, archive } = await writeArchive({
       "Sesh/sesh.exe": portableExecutable("1.1.3"),
       "Sesh/awsesh-sdk.exe": portableExecutable("1.1.3", 3),
+      "Sesh/awsesh-sdk-linux-x64": linuxExecutable(),
       "Sesh/LICENSE": new TextEncoder().encode("MIT"),
     })
     try {
@@ -99,6 +107,7 @@ describe("verifyWindowsPackage", () => {
     const { directory, archive } = await writeArchive({
       "Sesh/sesh.exe": new TextEncoder().encode("not a portable executable"),
       "Sesh/awsesh-sdk.exe": portableExecutable("1.1.3", 3),
+      "Sesh/awsesh-sdk-linux-x64": linuxExecutable(),
       "Sesh/LICENSE": new TextEncoder().encode("MIT"),
     })
     try {
@@ -112,6 +121,7 @@ describe("verifyWindowsPackage", () => {
     const { directory, archive } = await writeArchive({
       "Sesh/sesh.exe": portableExecutable("1.1.3", 3),
       "Sesh/awsesh-sdk.exe": portableExecutable("1.1.3", 3),
+      "Sesh/awsesh-sdk-linux-x64": linuxExecutable(),
       "Sesh/LICENSE": new TextEncoder().encode("MIT"),
     })
     try {
@@ -125,6 +135,7 @@ describe("verifyWindowsPackage", () => {
     const { directory, archive } = await writeArchive({
       "Sesh/sesh.exe": portableExecutable("9.9.9"),
       "Sesh/awsesh-sdk.exe": portableExecutable("1.1.3", 3),
+      "Sesh/awsesh-sdk-linux-x64": linuxExecutable(),
       "Sesh/LICENSE": new TextEncoder().encode("MIT"),
     })
     try {
@@ -138,10 +149,38 @@ describe("verifyWindowsPackage", () => {
     const { directory, archive } = await writeArchive({
       "Sesh/sesh.exe": portableExecutable("1.1.30"),
       "Sesh/awsesh-sdk.exe": portableExecutable("1.1.30", 3),
+      "Sesh/awsesh-sdk-linux-x64": linuxExecutable(),
       "Sesh/LICENSE": new TextEncoder().encode("MIT"),
     })
     try {
       await expect(verifyWindowsPackage(directory, archive, "1.1.3")).rejects.toThrow()
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects a missing Linux helper", async () => {
+    const { directory, archive } = await writeArchive({
+      "Sesh/sesh.exe": portableExecutable("1.1.3"),
+      "Sesh/awsesh-sdk.exe": portableExecutable("1.1.3", 3),
+      "Sesh/LICENSE": new TextEncoder().encode("MIT"),
+    })
+    try {
+      await expect(verifyWindowsPackage(directory, archive, "1.1.3")).rejects.toThrow()
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects an invalid Linux helper", async () => {
+    const { directory, archive } = await writeArchive({
+      "Sesh/sesh.exe": portableExecutable("1.1.3"),
+      "Sesh/awsesh-sdk.exe": portableExecutable("1.1.3", 3),
+      "Sesh/awsesh-sdk-linux-x64": portableExecutable("1.1.3", 3),
+      "Sesh/LICENSE": new TextEncoder().encode("MIT"),
+    })
+    try {
+      await expect(verifyWindowsPackage(directory, archive, "1.1.3")).rejects.toThrow("Linux SDK helper")
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
