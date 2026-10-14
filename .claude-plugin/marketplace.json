@@ -1,0 +1,6 @@
+{
+  "name": "awsesh",
+  "description": "Claude Code plugins for awsesh",
+  "owner": { "name": "elva-labs" },
+  "plugins": [{ "name": "awsesh", "source": "./plugins/claude-code" }]
+}
