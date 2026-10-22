@@ -30,7 +30,7 @@ it, and run `Sesh\sesh.exe`. See
 
 ## Development
 
-Requires Rust 1.99.0 and Bun 1.4.2. From the repository root:
+Requires Rust 1.99.0 and Bun 1.4.4. From the repository root:
 
 ```sh
 bun install

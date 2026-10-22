@@ -48,7 +48,7 @@ scoop install elva/awsesh-desktop
 
 ### Build from Source
 
-Requires [Bun](https://bun.sh) 1.4.2+
+Requires [Bun](https://bun.sh) 1.4.4+
 
 ```sh
 git clone https://github.com/elva-labs/awsesh.git
