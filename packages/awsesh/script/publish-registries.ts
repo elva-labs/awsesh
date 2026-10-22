@@ -4,7 +4,7 @@ import { Script, releaseMetadata } from "@awsesh/script"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { digest, getRelease, requireRepository } from "../../scripts/release"
+import { desktopArchive, digest, getRelease, requireRepository } from "../../scripts/release"
 
 const version = Script.version
 
@@ -89,35 +89,77 @@ async function updateHomebrewTap() {
     "",
   ].join("\n")
 
+  const entries = [{
+    name: formulaName,
+    file: `Formula/${formulaName}.rb`,
+    contents: homebrewFormula,
+    checksums: [arm64Sha, x64Sha, macX64Sha, macArm64Sha],
+  }]
+  if (!Script.preview) {
+    const desktopSha = await digest(path.join(directory, desktopArchive))
+    entries.push({
+      name: "awsesh-desktop",
+      file: "Casks/awsesh-desktop.rb",
+      checksums: [desktopSha],
+      contents: [
+        'cask "awsesh-desktop" do',
+        `  version "${version}"`,
+        `  sha256 "${desktopSha}"`,
+        "",
+        '  url "https://github.com/elva-labs/awsesh/releases/download/v#{version}/awsesh-desktop-darwin-arm64.zip"',
+        '  name "Sesh"',
+        '  desc "AWS SSO session manager"',
+        '  homepage "https://github.com/elva-labs/awsesh"',
+        "",
+        "  livecheck do",
+        "    url :url",
+        "    strategy :github_latest",
+        "  end",
+        "",
+        "  depends_on arch: :arm64",
+        "  depends_on macos: :ventura",
+        "",
+        '  app "Sesh.app"',
+        "end",
+        "",
+      ].join("\n"),
+    })
+  }
+
   const tap = await mkdtemp(path.join(tmpdir(), "awsesh-homebrew-"))
   try {
     const tapToken = getTapToken()
     const tapEnv = { ...process.env, GH_TOKEN: tapToken }
     const authentication = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"]
     await $`git ${authentication} clone https://github.com/elva-labs/homebrew-elva.git ${tap}`.env(tapEnv)
-    const formula = Bun.file(path.join(tap, "Formula", `${formulaName}.rb`))
-    const previous = await formula.exists() ? await formula.text() : ""
-    if (previous) {
-      const match = /^\s*version "([^"]+)"/m.exec(previous)
-      if (!match) throw new Error("Homebrew formula has no explicit version")
-      releaseMetadata(match[1], channel)
-      if (Bun.semver.order(match[1], version) > 0) {
-        console.log(`Not moving Homebrew ${formulaName} backwards from ${match[1]}`)
-        return
-      }
-      if (match[1] === version) {
-        if (![arm64Sha, x64Sha, macX64Sha, macArm64Sha].every((checksum) => previous.includes(`sha256 "${checksum}"`))) {
-          throw new Error("Existing Homebrew version has different artifact checksums")
+    const changes: string[] = []
+    for (const entry of entries) {
+      const file = Bun.file(path.join(tap, entry.file))
+      const previous = await file.exists() ? await file.text() : ""
+      if (previous) {
+        const match = /^\s*version "([^"]+)"/m.exec(previous)
+        if (!match) throw new Error(`Homebrew ${entry.name} has no explicit version`)
+        releaseMetadata(match[1], channel)
+        if (Bun.semver.order(match[1], version) > 0) {
+          console.log(`Not moving Homebrew ${entry.name} backwards from ${match[1]}`)
+          continue
         }
-        console.log(`Homebrew ${formulaName} is already at ${version}`)
-        return
+        if (match[1] === version) {
+          if (!entry.checksums.every((checksum) => previous.includes(`sha256 "${checksum}"`))) {
+            throw new Error(`Existing Homebrew ${entry.name} version has different artifact checksums`)
+          }
+          console.log(`Homebrew ${entry.name} is already at ${version}`)
+          continue
+        }
       }
+      await file.write(entry.contents)
+      changes.push(entry.file)
     }
-    await formula.write(homebrewFormula)
-    await $`git add Formula/${formulaName}.rb`.cwd(tap)
+    if (!changes.length) return
+    await $`git add ${changes}`.cwd(tap)
     await $`git -c user.name=elva-bot -c user.email=gh-bot@elva-group.com commit -m ${`chore(${formulaName}): release v${version}`}`.cwd(tap)
     await $`git ${authentication} push`.cwd(tap).env(tapEnv)
-    console.log(`Updated Homebrew formula: ${formulaName}`)
+    console.log(`Updated Homebrew entries: ${changes.join(", ")}`)
   } finally {
     await rm(tap, { recursive: true, force: true })
   }
