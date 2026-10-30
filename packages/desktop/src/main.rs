@@ -2,6 +2,7 @@
 
 mod platform;
 mod sdk;
+mod select;
 mod theme;
 mod ui;
 mod window_state;
@@ -14,7 +15,6 @@ use gpui::{
 use gpui_component::{
     Root, VirtualListScrollHandle,
     input::{InputEvent, InputState, RopeExt},
-    menu::PopupMenu,
     select::{SearchableVec, SelectEvent, SelectState},
     slider::{SliderEvent, SliderState, SliderValue},
 };
@@ -65,6 +65,8 @@ enum Command {
     Settings,
     Refresh,
     LoadRoles,
+    RoleMenu,
+    SelectRole(String),
     PreferRole,
     Console,
     Portal,
@@ -201,7 +203,9 @@ struct Sesh {
     selected: Option<usize>,
     account: Option<Account>,
     search: Entity<InputState>,
-    roles: Entity<SelectState<SearchableVec<String>>>,
+    role: Option<String>,
+    role_focus: FocusHandle,
+    role_bounds: Bounds<Pixels>,
     region: Entity<InputState>,
     profile: Entity<InputState>,
     preferences: BTreeMap<&'static str, Value>,
@@ -216,7 +220,11 @@ struct Sesh {
     form: Option<Form>,
     login: Option<Login>,
     palette: bool,
-    popup: Option<(gpui::Point<gpui::Pixels>, Entity<PopupMenu>, Subscription)>,
+    popup: Option<(
+        gpui::Point<gpui::Pixels>,
+        Entity<select::Dropdown>,
+        Subscription,
+    )>,
     command_search: Entity<InputState>,
     command_selected: usize,
     command_scroll: UniformListScrollHandle,
@@ -242,10 +250,6 @@ impl Sesh {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search accounts, IDs or roles"));
-        let roles = cx.new(|cx| {
-            SelectState::new(SearchableVec::new(Vec::<String>::new()), None, window, cx)
-                .searchable(true)
-        });
         let region = cx.new(|cx| InputState::new(window, cx).placeholder("eu-north-1"));
         let profile = cx.new(|cx| InputState::new(window, cx).placeholder("default"));
         let themes = cx.new(|cx| {
@@ -344,24 +348,6 @@ impl Sesh {
                 },
             ),
             cx.subscribe_in(
-                &roles,
-                window,
-                |this, _, event: &SelectEvent<SearchableVec<String>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(role)) = event {
-                        this.flush_preferences(cx);
-                        let value = this
-                            .account
-                            .as_ref()
-                            .and_then(|account| account.profiles.get(role))
-                            .cloned()
-                            .unwrap_or_default();
-                        this.profile
-                            .update(cx, |input, cx| input.set_value(value, window, cx));
-                        cx.notify();
-                    }
-                },
-            ),
-            cx.subscribe_in(
                 &region,
                 window,
                 |this, _, event: &InputEvent, window, cx| {
@@ -429,7 +415,9 @@ impl Sesh {
             selected: None,
             account: None,
             search,
-            roles,
+            role: None,
+            role_focus: cx.focus_handle(),
+            role_bounds: Bounds::default(),
             region,
             profile,
             preferences: BTreeMap::new(),
@@ -1261,8 +1249,8 @@ impl Sesh {
         })
     }
 
-    fn role(&self, cx: &App) -> Option<String> {
-        self.roles.read(cx).selected_value().cloned()
+    fn role(&self, _cx: &App) -> Option<String> {
+        self.role.clone()
     }
 
     fn commands(&self, cx: &App) -> Vec<(String, Command)> {
@@ -1431,14 +1419,7 @@ impl Sesh {
         if reset || self.role(cx) != role {
             self.flush_preferences(cx);
         }
-        self.roles.update(cx, |state, cx| {
-            state.set_items(account.roles.clone().into(), window, cx);
-            if let Some(role) = &role {
-                state.set_selected_value(role, window, cx);
-            } else {
-                state.set_selected_index(None, window, cx);
-            }
-        });
+        self.role = role.clone();
         if reset {
             self.region.update(cx, |state, cx| {
                 state.set_value(account.region.clone().unwrap_or_default(), window, cx)
@@ -1623,6 +1604,8 @@ impl Sesh {
                         | Command::CopyName
                         | Command::TogglePin
                         | Command::GroupMenu
+                        | Command::SetGroup(_)
+                        | Command::NewGroup
                 )
             {
                 let account = self
@@ -1701,7 +1684,7 @@ impl Sesh {
                     .as_ref()
                     .is_some_and(|account| account.roles_loaded)
                 {
-                    self.roles.update(cx, |state, cx| state.focus(window, cx));
+                    self.role_focus.focus(window);
                 }
             }
             Command::SetCredentials => {
@@ -1710,7 +1693,7 @@ impl Sesh {
                     self.error = true;
                     self.message = "Sign in before setting credentials.".into();
                 } else if self.account.is_some() && role.is_none() {
-                    self.roles.update(cx, |state, cx| state.focus(window, cx));
+                    self.role_focus.focus(window);
                     self.message = "Choose a role before setting credentials.".into();
                 }
                 if self.screen == Screen::Accounts
@@ -1755,6 +1738,27 @@ impl Sesh {
                     self.request("loadRoles", args, cx);
                 }
             }
+            Command::RoleMenu => self.show_roles(window, cx),
+            Command::SelectRole(role) => {
+                if !self
+                    .account
+                    .as_ref()
+                    .is_some_and(|account| account.roles.contains(&role))
+                {
+                    return;
+                }
+                self.flush_preferences(cx);
+                let value = self
+                    .account
+                    .as_ref()
+                    .and_then(|account| account.profiles.get(&role))
+                    .cloned()
+                    .unwrap_or_default();
+                self.role = Some(role);
+                self.profile
+                    .update(cx, |input, cx| input.set_value(value, window, cx));
+                self.role_focus.focus(window);
+            }
             Command::PreferRole => {
                 if self.account.is_some() && role.is_some() {
                     self.request("preferRole", args, cx);
@@ -1764,7 +1768,7 @@ impl Sesh {
                 if self.account.is_some() && role.is_some() {
                     self.request("consoleUrl", args, cx);
                 } else if self.account.is_some() {
-                    self.roles.update(cx, |state, cx| state.focus(window, cx));
+                    self.role_focus.focus(window);
                     self.message = "Choose a role before opening the AWS Console.".into();
                 }
             }
@@ -2230,6 +2234,24 @@ mod tests {
         assert_eq!(platform::shortcut_label("search", &disabled), "Unassigned");
         assert!(platform::validate_shortcuts(&selection("search", "f8"), &fixed).is_ok());
         Ok(())
+    }
+
+    #[test]
+    fn filters_dropdown_options_with_prefix_matches_and_actions() {
+        use crate::select::{SelectOption, filter_options};
+
+        let mut action = SelectOption::new("new".into(), "New group…".into());
+        action.action = true;
+        let options = vec![
+            SelectOption::new("read".into(), "ReadOnlyAdmin".into()),
+            SelectOption::new("write".into(), "Writer".into()),
+            SelectOption::new("admin".into(), "Administrator".into()),
+            action,
+        ];
+        assert_eq!(filter_options(&options, " ADMIN "), vec![2, 0, 3]);
+        assert_eq!(filter_options(&options, "missing"), vec![3]);
+        assert_eq!(filter_options(&options, ""), vec![0, 1, 2, 3]);
+        assert!(filter_options(&[], "admin").is_empty());
     }
 
     #[test]

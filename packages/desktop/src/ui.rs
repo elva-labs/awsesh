@@ -1,18 +1,17 @@
 use crate::{
     Accounts, Back, Command, Console, Credentials, EditSession, Entry, NewSession, Next, Palette,
     Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, ToggleDithering,
-    TogglePin, ToggleSidebar, platform, sso_start_url, theme,
+    TogglePin, ToggleSidebar, platform, select, sso_start_url, theme,
 };
 use gpui::{
     AnyElement, AssetSource, Context, ElementId, Focusable, FontWeight, Hsla, Render, SharedString,
-    Window, anchored, deferred, div, img, prelude::*, px, relative, size, uniform_list,
+    Window, anchored, canvas, deferred, div, img, prelude::*, px, relative, size, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, InteractiveElementExt, Selectable, Sizable,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     input::Input,
-    menu::{PopupMenu, PopupMenuItem},
     select::Select as RoleSelect,
     slider::Slider,
     v_virtual_list,
@@ -36,11 +35,11 @@ impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
         if path == "icons/refresh.svg" {
             return Ok(Some(Cow::Borrowed(include_bytes!("../assets/refresh.svg"))));
+        }
         if path == "icons/star-filled.svg" {
             return Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/star-filled.svg"
             ))));
-        }
         }
         gpui_component_assets::Assets.load(path)
     }
@@ -49,9 +48,9 @@ impl AssetSource for Assets {
         let mut assets = gpui_component_assets::Assets.list(path)?;
         if "icons/refresh.svg".starts_with(path) {
             assets.push("icons/refresh.svg".into());
+        }
         if "icons/star-filled.svg".starts_with(path) {
             assets.push("icons/star-filled.svg".into());
-        }
         }
         Ok(assets)
     }
@@ -95,8 +94,30 @@ fn expiration(value: &str) -> String {
         .unwrap_or_else(|_| "Unknown".into())
 }
 
-fn menu_item(label: SharedString) -> PopupMenuItem {
-    PopupMenuItem::element(move |_, _| div().h(px(36.)).flex().items_center().child(label.clone()))
+fn menu_option(
+    label: SharedString,
+    command: Command,
+    disabled: bool,
+    commands: &mut Vec<Command>,
+) -> select::SelectOption {
+    let mut option = select::SelectOption::new(commands.len().to_string(), label);
+    let action = match &command {
+        Command::ItemAction(_, action) | Command::SessionAction(_, action) => action.as_ref(),
+        action => action,
+    };
+    option.icon = match action {
+        Command::TogglePin => Some(IconName::Star),
+        Command::GroupMenu | Command::SetGroup(_) => Some(IconName::Folder),
+        Command::NewGroup | Command::NewSession => Some(IconName::Plus),
+        Command::CopyAccount | Command::CopyName | Command::CopyProfile => Some(IconName::Copy),
+        Command::Console | Command::Portal => Some(IconName::ExternalLink),
+        Command::SetCredentials => Some(IconName::SquareTerminal),
+        _ => None,
+    };
+    option.action = matches!(action, Command::NewGroup);
+    option.disabled = disabled;
+    commands.push(command);
+    option
 }
 
 impl Sesh {
@@ -106,33 +127,116 @@ impl Sesh {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let view = cx.entity().downgrade();
-        let focus = self.focus.clone();
-        let menu = PopupMenu::build(window, cx, move |mut menu, _, _| {
-            for (label, command, disabled) in items {
-                let view = view.clone();
-                menu = menu.item(menu_item(label).disabled(disabled).on_click(
-                    move |_, window, cx| {
-                        let _ =
-                            view.update(cx, |this, cx| this.dispatch(command.clone(), window, cx));
-                    },
+        self.show_dropdown(
+            items,
+            false,
+            window.mouse_position(),
+            px(240.),
+            self.focus.clone(),
+            window,
+            cx,
+        );
+    }
+
+    fn show_dropdown(
+        &mut self,
+        items: Vec<(SharedString, Command, bool)>,
+        searchable: bool,
+        position: gpui::Point<gpui::Pixels>,
+        width: gpui::Pixels,
+        focus: gpui::FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut commands = vec![];
+        let mut options = vec![];
+        for (label, command, disabled) in items {
+            let mut option = menu_option(label, command.clone(), disabled, &mut commands);
+            if let Command::SelectRole(role) = &command {
+                option.checked = self.role.as_ref() == Some(role);
+            }
+            if let Command::ItemAction(position, action) = &command
+                && matches!(**action, Command::GroupMenu)
+            {
+                let account = self
+                    .visible(cx)
+                    .get(*position)
+                    .and_then(|index| self.data.accounts.get(*index));
+                let current = account.and_then(|account| account.group.as_ref());
+                for group in self.groups() {
+                    let selected = current == Some(&group);
+                    let mut child = menu_option(
+                        group.clone().into(),
+                        Command::ItemAction(*position, Box::new(Command::SetGroup(Some(group)))),
+                        selected,
+                        &mut commands,
+                    );
+                    child.checked = selected;
+                    option.children.push(child);
+                }
+                if current.is_some() {
+                    option.children.push(menu_option(
+                        "Remove from group".into(),
+                        Command::ItemAction(*position, Box::new(Command::SetGroup(None))),
+                        false,
+                        &mut commands,
+                    ));
+                }
+                option.children.push(menu_option(
+                    "New group…".into(),
+                    Command::ItemAction(*position, Box::new(Command::NewGroup)),
+                    false,
+                    &mut commands,
                 ));
             }
-            menu.action_context(focus)
-        });
+            options.push(option);
+        }
+        let menu = cx.new(|cx| select::Dropdown::new(options, searchable, width, window, cx));
         let subscription = cx.subscribe_in(
             &menu,
             window,
-            |this, _, _: &gpui::DismissEvent, window, cx| {
-                if this.popup.take().is_some() {
-                    this.focus.focus(window);
+            move |this, _, event: &select::SelectEvent, window, cx| {
+                this.popup = None;
+                focus.focus(window);
+                if let select::SelectEvent::Confirm(value) = event
+                    && let Some(command) = value
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|index| commands.get(index))
+                        .cloned()
+                {
+                    this.dispatch(command, window, cx);
                 }
                 cx.notify();
             },
         );
         menu.read(cx).focus_handle(cx).focus(window);
-        self.popup = Some((window.mouse_position(), menu, subscription));
+        self.popup = Some((position, menu, subscription));
         cx.notify();
+    }
+
+    pub(super) fn show_roles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(account) = &self.account else { return };
+        let items = account
+            .roles
+            .iter()
+            .map(|role| {
+                (
+                    role.clone().into(),
+                    Command::SelectRole(role.clone()),
+                    false,
+                )
+            })
+            .collect();
+        self.show_dropdown(
+            items,
+            true,
+            self.role_bounds.bottom_left(),
+            self.role_bounds.size.width.max(px(240.)),
+            self.role_focus.clone(),
+            window,
+            cx,
+        );
     }
     fn toolbar_button(
         &self,
@@ -929,6 +1033,7 @@ impl Sesh {
                         Hsla::transparent_black()
                     })
                     .id(("row-surface", position))
+                    .group("account-row")
                     .cursor_pointer()
                     .hover(move |style| {
                         style.bg(if selected {
@@ -991,6 +1096,44 @@ impl Sesh {
                                     }),
                             ),
                     )
+                    .when(account_row, |row| {
+                        row.child(
+                            div()
+                                .flex_shrink_0()
+                                .when(!pinned, |star| {
+                                    star.invisible()
+                                        .group_hover("account-row", |style| style.visible())
+                                })
+                                .child(
+                                    self.button(
+                                        ("account-favorite", position),
+                                        "",
+                                        Command::ItemAction(position, Box::new(Command::TogglePin)),
+                                        cx,
+                                    )
+                                    .ghost()
+                                    .size(px(28.))
+                                    .p_0()
+                                    .rounded(px(6.))
+                                    .cursor_pointer()
+                                    .child(
+                                        Icon::new(IconName::Star)
+                                            .size(px(16.))
+                                            .when(pinned, |icon| icon.path("icons/star-filled.svg"))
+                                            .text_color(if pinned {
+                                                cx.theme().yellow
+                                            } else {
+                                                colors.muted
+                                            }),
+                                    )
+                                    .tooltip(if pinned {
+                                        "Remove from favorites"
+                                    } else {
+                                        "Add to favorites"
+                                    }),
+                                ),
+                        )
+                    })
                     .when(!account_row && !status.is_empty(), |row| {
                         row.child(self.status(status, status_color, true))
                     }),
@@ -1033,11 +1176,10 @@ impl Sesh {
                                 Command::TogglePin,
                                 false,
                             ),
-                            ("Move to group…", Command::GroupMenu, false),
+                            ("Move to group", Command::GroupMenu, false),
                             ("Copy account ID", Command::CopyAccount, false),
                             ("Copy account name", Command::CopyName, false),
                         ]
-                    .group("account-row")
                     } else {
                         vec![
                             ("Copy CLI profile", Command::CopyProfile, false),
@@ -1100,44 +1242,6 @@ impl Sesh {
                     .items_center()
                     .gap_2()
                     .text_size(px(11.))
-                    .when(account_row, |row| {
-                        row.child(
-                            div()
-                                .flex_shrink_0()
-                                .when(!pinned, |star| {
-                                    star.invisible()
-                                        .group_hover("account-row", |style| style.visible())
-                                })
-                                .child(
-                                    self.button(
-                                        ("account-favorite", position),
-                                        "",
-                                        Command::ItemAction(position, Box::new(Command::TogglePin)),
-                                        cx,
-                                    )
-                                    .ghost()
-                                    .size(px(28.))
-                                    .p_0()
-                                    .rounded(px(6.))
-                                    .cursor_pointer()
-                                    .child(
-                                        Icon::new(IconName::Star)
-                                            .size(px(16.))
-                                            .when(pinned, |icon| icon.path("icons/star-filled.svg"))
-                                            .text_color(if pinned {
-                                                cx.theme().yellow
-                                            } else {
-                                                colors.muted
-                                            }),
-                                    )
-                                    .tooltip(if pinned {
-                                        "Remove from favorites"
-                                    } else {
-                                        "Add to favorites"
-                                    }),
-                                ),
-                        )
-                    })
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(colors.muted)
                     .child(Icon::new(icon).size(px(14.)).flex_shrink_0())
@@ -1624,18 +1728,72 @@ impl Sesh {
                     .flex_col()
                     .gap_2()
                     .child(div().font_weight(FontWeight::MEDIUM).child("Role"))
-                    .child(theme::opaque_select(
-                        RoleSelect::new(&self.roles)
-                            .placeholder(if self.busy && !account.roles_loaded {
-                                "Loading roles…"
-                            } else {
-                                "Select a role"
-                            })
-                            .large()
+                    .child({
+                        let view = cx.entity().clone();
+                        div()
+                            .id("role-select")
+                            .relative()
                             .h(px(44.))
                             .w_full()
-                            .disabled(self.modal()),
-                    ))
+                            .px_3()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .rounded(px(7.))
+                            .border_1()
+                            .border_color(colors.border)
+                            .bg(cx.theme().background)
+                            .track_focus(&self.role_focus.clone().tab_stop(!self.modal()))
+                            .focus(|style| style.border_color(colors.accent))
+                            .cursor_pointer()
+                            .child(div().flex_1().truncate().child(role.clone().unwrap_or_else(
+                                || {
+                                    if self.busy && !account.roles_loaded {
+                                        "Loading roles…".into()
+                                    } else {
+                                        "Select a role".into()
+                                    }
+                                },
+                            )))
+                            .child(
+                                Icon::new(IconName::ChevronsUpDown)
+                                    .size(px(14.))
+                                    .text_color(colors.muted),
+                            )
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.modal() {
+                                    return;
+                                }
+                                this.dispatch(Command::RoleMenu, window, cx);
+                                cx.stop_propagation();
+                            }))
+                            .on_key_down(cx.listener(
+                                |this, event: &gpui::KeyDownEvent, window, cx| {
+                                    if this.modal()
+                                        || !matches!(
+                                            event.keystroke.key.as_str(),
+                                            "enter" | "space" | "down" | "up"
+                                        )
+                                    {
+                                        return;
+                                    }
+                                    this.dispatch(Command::RoleMenu, window, cx);
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                },
+                            ))
+                            .child(
+                                canvas(
+                                    move |bounds, _, cx| {
+                                        view.update(cx, |this, _| this.role_bounds = bounds)
+                                    },
+                                    |_, _, _, _| {},
+                                )
+                                .absolute()
+                                .inset_0()
+                                .size_full(),
+                            )
+                    })
                     .when(
                         role.is_some() && role != account.preferred_role,
                         |section| {
@@ -2590,14 +2748,7 @@ impl Render for Sesh {
                     anchored()
                         .position(*position)
                         .snap_to_window_with_margin(px(8.))
-                        .child(
-                            div().rounded(cx.theme().radius).shadow_sm().child(
-                                div()
-                                    .rounded(cx.theme().radius)
-                                    .overflow_hidden()
-                                    .child(menu.clone()),
-                            ),
-                        ),
+                        .child(menu.clone()),
                 )
                 .with_priority(1),
             );
