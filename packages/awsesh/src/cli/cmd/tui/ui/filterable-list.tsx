@@ -336,7 +336,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
         setTimeout(() => {
           input?.focus()
           if (input && store.filter) {
-            input.cursorOffset = store.filter.length
+            input.gotoBufferEnd()
           }
         }, 1)
       }
@@ -364,7 +364,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
               setTimeout(() => {
                 input?.focus()
                 if (input && store.filter) {
-                  input.cursorOffset = store.filter.length
+                  input.gotoBufferEnd()
                 }
               }, 1)
             }}
