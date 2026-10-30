@@ -1,5 +1,4 @@
 import { Show, createMemo, createSignal, createEffect, onMount } from "solid-js"
-import { useTerminalDimensions } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
@@ -36,7 +35,6 @@ export function AccountListScreen() {
   const dialog = useDialog()
   const exit = useExit()
   const workflow = createWorkflow(awsesh)
-  const dimensions = useTerminalDimensions()
 
   const [selectedAccountId, setSelectedAccountId] = createSignal<string | undefined>(undefined)
   const [selectedCategory, setSelectedCategory] = createSignal<string | undefined>(undefined)
@@ -716,10 +714,7 @@ export function AccountListScreen() {
           <KeybindHint keybind={keybind.print("role_list")} label="Roles" onClick={() => command.trigger("account.roles")} />
           <KeybindHint keybind={keybind.print("account_favorite")} label="Favorite" onClick={() => command.trigger("account.favorite")} />
           <KeybindHint keybind={keybind.print("account_group")} label="Group" onClick={() => command.trigger("account.group")} />
-          <Show when={dimensions().width >= 100}>
-            <KeybindHint keybind={`${keybind.print("nav_left")}/${keybind.print("nav_right")}`} label="Fold" />
-          </Show>
-          <KeybindHint keybind={keybind.print("back")} label="Back" onClick={() => command.trigger("nav.back")} />
+          <KeybindHint keybind={keybind.print("browser_open")} label="Open in Browser" onClick={() => command.trigger("account.browser")} />
         </Footer>
       }
     >
