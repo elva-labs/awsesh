@@ -2,4 +2,6 @@
 optional = true
 
 [test]
+# The Claude Code plugin under plugins/ has its own runner: claude plugin test
+root = "packages"
 preload = ["./packages/awsesh/test/preload.ts"]
