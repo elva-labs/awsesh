@@ -40,7 +40,9 @@ mock.module("../context/config", () => ({
   useConfig: () => ({ data: { mouseEdgeScroll: false } }),
 }))
 
+const { Dialog } = await import("./dialog")
 mock.module("./dialog", () => ({
+  Dialog,
   useDialog: () => ({ stack: [] }),
 }))
 
@@ -122,6 +124,14 @@ test("keeps the selection when items reorder", async () => {
   await setup!.flush()
 
   expect(await list.selectedId()).toBe("beta")
+})
+
+test("reopening a Unicode filter appends text at the end", async () => {
+  const list = await renderList([item("Lantmännen"), item("東京 [Production]")])
+  await list.filter("東京")
+  expect(await list.selectedId()).toBe("東京 [Production]")
+  await list.filter(" [Production]")
+  expect(await list.selectedId()).toBe("東京 [Production]")
 })
 
 test("keeps the selection when a filtered list reorders", async () => {

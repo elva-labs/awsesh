@@ -56,24 +56,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     filter: "",
   })
 
-  createEffect(
-    on(
-      () => props.current,
-      (current) => {
-        if (current) {
-          const currentIndex = flat().findIndex((opt) => isDeepEqual(opt.value, current))
-          if (currentIndex >= 0) {
-            setStore("selected", currentIndex)
-          }
-        }
-      }
-    )
-  )
-
   let input: InputRenderable
 
   const filtered = createMemo(() => {
-    const needle = store.filter.toLowerCase()
+    const needle = store.filter.trim().toLowerCase()
     const result = pipe(
       props.options,
       filter((x) => x.disabled !== true),
@@ -106,16 +92,13 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const selected = createMemo(() => flat()[store.selected])
 
   createEffect(
-    on([() => store.filter, () => props.current], ([filter, current]) => {
-      if (filter.length > 0) {
-        setStore("selected", 0)
-      } else if (current) {
-        const currentIndex = flat().findIndex((opt) => isDeepEqual(opt.value, current))
-        if (currentIndex >= 0) {
-          setStore("selected", currentIndex)
-        }
-      }
-      scroll.scrollTo(0)
+    on([flat, () => store.filter, () => props.current], ([options, filter, current], previous) => {
+      const unchanged = previous && filter === previous[1] && isDeepEqual(current, previous[2])
+      const value = unchanged ? previous[0][store.selected]?.value : filter.trim() ? undefined : current
+      const index = options.findIndex(option => isDeepEqual(option.value, value))
+      const fallback = unchanged ? Math.min(store.selected, options.length - 1) : 0
+      setStore("selected", index >= 0 ? index : Math.max(0, fallback))
+      if (!unchanged) scroll.scrollTo(0)
     })
   )
 
@@ -213,11 +196,12 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   props.ref?.(ref)
 
   onMount(() => {
-    if (props.current) {
+    if (props.current !== undefined) {
       const currentIndex = flat().findIndex((opt) => isDeepEqual(opt.value, props.current))
       if (currentIndex >= 0) {
         setStore("selected", currentIndex)
         setTimeout(() => {
+          if (scroll.isDestroyed) return
           const target = scroll.getChildren().find((child) => {
             return child.id === JSON.stringify(props.current)
           })

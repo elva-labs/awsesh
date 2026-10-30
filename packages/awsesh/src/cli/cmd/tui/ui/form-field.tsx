@@ -23,7 +23,7 @@ export function FormField(props: FormFieldProps) {
     if (renderer.getSelection()?.getSelectedText()) return
     if (inputRef) {
       inputRef.focus()
-      inputRef.cursorOffset = inputRef.value.length
+      inputRef.gotoBufferEnd()
     }
   }
 

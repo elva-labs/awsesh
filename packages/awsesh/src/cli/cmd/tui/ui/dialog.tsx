@@ -45,11 +45,18 @@ export function Dialog(
           e.stopPropagation()
         }}
         width={props.size === "large" ? 80 : 60}
-        maxWidth={dimensions().width - 2}
+        maxWidth={Math.max(1, dimensions().width - 2)}
+        maxHeight={Math.max(1, dimensions().height - Math.floor(dimensions().height / 4))}
         backgroundColor={theme.background}
         padding={1}
       >
-        {props.children}
+        <scrollbox
+          id="dialog-content"
+          maxHeight={Math.max(1, dimensions().height - Math.floor(dimensions().height / 4) - 2)}
+          scrollbarOptions={{ visible: false }}
+        >
+          {props.children}
+        </scrollbox>
       </box>
     </box>
   )

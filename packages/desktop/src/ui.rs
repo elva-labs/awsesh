@@ -2262,14 +2262,7 @@ impl Sesh {
                         .child(self.button("cancel-shortcut", "Cancel", Command::Cancel, cx)),
                 );
         } else if let Some(form) = &self.form {
-            let submitting = self
-                .active
-                .as_ref()
-                .is_some_and(|(operation, _)| *operation == form.operation)
-                || self
-                    .requests
-                    .iter()
-                    .any(|(operation, _)| *operation == form.operation);
+            let submitting = form.submission.is_some();
             panel = panel
                 .child(
                     div()
@@ -2541,6 +2534,11 @@ impl Render for Sesh {
                 }
             }))
             .track_focus(&self.focus)
+            .on_action(
+                cx.listener(|_, _: &gpui_component::input::Enter, window, _| {
+                    window.prevent_default();
+                }),
+            )
             .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if !this.palette || !matches!(event.keystroke.key.as_str(), "up" | "down") {
                     return;

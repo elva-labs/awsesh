@@ -33,7 +33,8 @@ describe("Sessions", () => {
     test("writes session to JSON file", async () => {
       await sessions.save(sampleSession);
 
-      const filePath = path.join(tempDir, "my-sso.json");
+      const [file] = await fs.readdir(path.join(tempDir, "by-name"));
+      const filePath = path.join(tempDir, "by-name", file);
       const content = await fs.readFile(filePath, "utf-8");
       expect(content).toContain('"name": "my-sso"');
       expect(content).toContain('"startUrl": "https://my-sso.awsapps.com/start"');
@@ -45,9 +46,7 @@ describe("Sessions", () => {
 
       await nestedSessions.save(sampleSession);
 
-      const filePath = path.join(nestedDir, "my-sso.json");
-      const exists = await fs.access(filePath).then(() => true).catch(() => false);
-      expect(exists).toBe(true);
+      expect(await nestedSessions.load("my-sso")).toEqual(sampleSession);
     });
 
     test("overwrites existing session", async () => {
@@ -60,6 +59,28 @@ describe("Sessions", () => {
   });
 
   describe("load", () => {
+    test("loads legacy Unicode filenames and migrates them on save", async () => {
+      const value = { ...sampleSession, name: "Lantmännen" };
+      const filename = path.join(tempDir, `${value.name}.json`);
+      await fs.writeFile(filename, JSON.stringify(value));
+      expect(await sessions.load(value.name)).toEqual(value);
+      await sessions.save(value);
+      expect(await sessions.load(value.name)).toEqual(value);
+      expect(await sessions.list()).toEqual([value]);
+      expect(await fs.access(filename).then(() => true).catch(() => false)).toBe(false);
+    });
+
+    test("keeps case and Unicode normalization variants distinct", async () => {
+      const names = ["Lantmännen", "lantmännen", "Lantma\u0308nnen", "CON", "con", "../escape", "a/b", "a\\b", "x".repeat(1000)];
+      for (const name of names) await sessions.save({ ...sampleSession, name });
+      for (const name of names) expect((await sessions.load(name))?.name).toBe(name);
+      expect(await sessions.count()).toBe(names.length);
+      expect(await sessions.list()).toHaveLength(names.length);
+      expect(await fs.access(path.join(path.dirname(tempDir), "escape.json")).then(() => true).catch(() => false)).toBe(false);
+      for (const name of names) await sessions.remove(name);
+      expect(await sessions.list()).toEqual([]);
+    });
+
     test("returns undefined for non-existent session", async () => {
       const result = await sessions.load("nonexistent");
       expect(result).toBeUndefined();
