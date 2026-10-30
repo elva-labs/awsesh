@@ -133,6 +133,60 @@ describe("Full Workflow", () => {
     expect(removed.sessions).toEqual([]);
   });
 
+  test("interactive workflow arranges accounts per session", async () => {
+    const workflow = createWorkflow(awsesh);
+    await workflow.saveSession(sampleSession, true);
+    await workflow.saveSession({ ...sampleSession, name: "secondary" }, true);
+    await awsesh.accounts.save(sampleSession.name, {
+      accounts: [
+        { accountId: "111", name: "Payments prod", roles: [], rolesLoaded: false },
+        { accountId: "222", name: "Payments dev", roles: [], rolesLoaded: false },
+        { accountId: "333", name: "Sandbox", roles: [], rolesLoaded: false },
+      ],
+      lastUpdated: Date.now(),
+    });
+    const empty = await workflow.snapshot("production");
+    expect(empty.accounts.map((value) => [value.pinned, value.group])).toEqual([[false, undefined], [false, undefined], [false, undefined]]);
+    expect(empty.collapsedGroups).toEqual([]);
+
+    await workflow.pinAccount("production", "333", true);
+    await workflow.pinAccount("production", "333", true);
+    await workflow.setAccountGroup("production", "111", "Production");
+    await workflow.setAccountGroup("production", "222", "Development");
+    await workflow.collapseAccountGroup("production", "Development", true);
+    await workflow.collapseAccountGroup("production", "", true);
+    let state = await workflow.snapshot("production");
+    expect(state.accounts.map((value) => [value.accountId, value.pinned, value.group])).toEqual([
+      ["111", false, "Production"],
+      ["222", false, "Development"],
+      ["333", true, undefined],
+    ]);
+    expect(state.collapsedGroups).toEqual(["Development", ""]);
+    expect((await awsesh.accountLayout.get("production")).pinned).toEqual(["333"]);
+    expect((await workflow.snapshot("secondary")).collapsedGroups).toEqual([]);
+    await awsesh.accountLayout.update("production", (layout) => ({ ...layout, favoritesCollapsed: true }));
+
+    state = await workflow.renameAccountGroup("production", "Development", "Production");
+    expect(state.accounts.filter((value) => value.group === "Production").map((value) => value.accountId)).toEqual(["111", "222"]);
+    expect(state.collapsedGroups).toEqual(["Production", ""]);
+    state = await workflow.setAccountGroup("production", "222", "");
+    expect(state.accounts[1].group).toBeUndefined();
+    state = await workflow.removeAccountGroup("production", "Production");
+    expect(state.accounts.every((value) => value.group === undefined)).toBe(true);
+    expect(state.collapsedGroups).toEqual([""]);
+    state = await workflow.pinAccount("production", "333", false);
+    expect(state.accounts[2].pinned).toBe(false);
+    expect((await awsesh.accountLayout.get("production")).favoritesCollapsed).toBe(true);
+    expect((await awsesh.accountLayout.get("secondary")).favoritesCollapsed).toBeUndefined();
+
+    await expect(workflow.pinAccount("production", "999", true)).rejects.toThrow("Account not found");
+    await expect(workflow.setAccountGroup("production", "111", " Padded ")).rejects.toThrow("Group names");
+    await expect(workflow.setAccountGroup("production", "111", "Line\nbreak")).rejects.toThrow("Group names");
+    await expect(workflow.setAccountGroup("production", "111", "x".repeat(65))).rejects.toThrow("Group names");
+    await expect(workflow.renameAccountGroup("production", "Production", "")).rejects.toThrow("Group names");
+    await expect(workflow.collapseAccountGroup("../escape", "", true)).rejects.toThrow("Session names");
+  });
+
   test("interactive workflow keeps device authorization inside the SDK", async () => {
     const workflow = createWorkflow(awsesh);
     await workflow.saveSession(sampleSession);

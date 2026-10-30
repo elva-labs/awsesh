@@ -1,6 +1,6 @@
 use crate::{
     Accounts, Console, Credentials, EditSession, NewSession, Palette, Preferences, Quit, Refresh,
-    Search, SetCredentials, ToggleSidebar,
+    Search, SetCredentials, TogglePin, ToggleSidebar,
 };
 use gpui::{
     Action, App, KeyBinding, Keystroke, Menu, MenuItem, SystemMenuType, TitlebarOptions, Window,
@@ -340,6 +340,12 @@ pub fn shortcuts() -> Vec<Shortcut> {
             SetCredentials,
         ),
         entry("console", "Open AWS Console", shortcut("o"), Console),
+        entry(
+            "pin_account",
+            "Add or remove the selected account from favorites",
+            shortcut("d"),
+            TogglePin,
+        ),
         entry("accounts", "Accounts", shortcut("1"), Accounts),
         entry("credentials", "Credentials", shortcut("2"), Credentials),
         entry(

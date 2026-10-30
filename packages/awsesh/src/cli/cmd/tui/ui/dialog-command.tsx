@@ -78,27 +78,27 @@ export function DialogCommand(props: DialogCommandProps) {
   }
 
   useKeyboard((evt) => {
-    if (evt.name === "up" || (evt.ctrl && evt.name === "p") || evt.name === "k") {
+    if (keybind.match("nav_up", evt)) {
       evt.preventDefault()
       move(-1)
       return
     }
-    if (evt.name === "down" || (evt.ctrl && evt.name === "n") || evt.name === "j") {
+    if (keybind.match("nav_down", evt)) {
       evt.preventDefault()
       move(1)
       return
     }
-    if (evt.name === "pageup" || (evt.ctrl && evt.name === "u")) {
+    if (keybind.match("nav_page_up", evt)) {
       evt.preventDefault()
       move(-10)
       return
     }
-    if (evt.name === "pagedown" || (evt.ctrl && evt.name === "d")) {
+    if (keybind.match("nav_page_down", evt)) {
       evt.preventDefault()
       move(10)
       return
     }
-    if (evt.name === "return") {
+    if (keybind.match("select", evt)) {
       evt.preventDefault()
       const option = selected()
       if (option) {
@@ -116,7 +116,7 @@ export function DialogCommand(props: DialogCommandProps) {
           <text fg={theme.text} attributes={TextAttributes.BOLD}>
             Commands
           </text>
-          <text fg={theme.textMuted}>esc</text>
+          <text fg={theme.textMuted}>{keybind.print("back")}</text>
         </box>
       </box>
       <scrollbox paddingLeft={2} paddingRight={2} scrollbarOptions={{ visible: false }} maxHeight={height()} ref={(r) => { scroll = r as ScrollBoxRenderable }}>

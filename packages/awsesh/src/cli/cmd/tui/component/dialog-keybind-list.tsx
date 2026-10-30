@@ -20,11 +20,11 @@ const keybindDefinitions: KeybindInfo[] = [
 
   { key: "nav_up", label: "Navigate Up", category: "Navigation" },
   { key: "nav_down", label: "Navigate Down", category: "Navigation" },
-  { key: "nav_left", label: "Navigate Left", category: "Navigation" },
-  { key: "nav_right", label: "Navigate Right", category: "Navigation" },
+  { key: "nav_left", label: "Navigate Left / Collapse", category: "Navigation" },
+  { key: "nav_right", label: "Navigate Right / Expand", category: "Navigation" },
   { key: "nav_page_up", label: "Page Up", category: "Navigation" },
   { key: "nav_page_down", label: "Page Down", category: "Navigation" },
-  { key: "select", label: "Select", category: "Navigation" },
+  { key: "select", label: "Select / Toggle Section", category: "Navigation" },
 
   { key: "filter", label: "Filter", category: "Actions" },
   { key: "refresh", label: "Refresh", category: "Actions" },
@@ -39,6 +39,8 @@ const keybindDefinitions: KeybindInfo[] = [
 
   { key: "region_set", label: "Set Region", category: "AWS" },
   { key: "role_list", label: "List Roles", category: "AWS" },
+  { key: "account_favorite", label: "Toggle Favorite Account", category: "AWS" },
+  { key: "account_group", label: "Move Account to Group", category: "AWS" },
 ]
 
 export function DialogKeybindList() {

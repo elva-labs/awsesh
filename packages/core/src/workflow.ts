@@ -16,6 +16,12 @@ export function createWorkflow(awsesh: Awsesh) {
     if (!/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(region)) throw new Error("Invalid AWS region")
   }
 
+  function validateGroup(group: string) {
+    if (group !== group.trim() || !/^[^\p{C}]{1,64}$/u.test(group)) {
+      throw new Error("Group names must be 1–64 characters without leading or trailing spaces")
+    }
+  }
+
   async function session(name: string) {
     validateName(name)
     const value = await awsesh.sessions.get(name)
@@ -44,6 +50,7 @@ export function createWorkflow(awsesh: Awsesh) {
     const roles = selected ? await awsesh.preferredRoles.getAll(selected.name) : {}
     const regions = selected ? await awsesh.preferredRegions.getAll(selected.name) : {}
     const profiles = selected ? await awsesh.lastProfiles.getAll(selected.name) : {}
+    const layout = selected ? await awsesh.accountLayout.get(selected.name) : undefined
     const previous = await awsesh.lastSetCredential.get()
     return {
       sessions: await Promise.all(sessions.map(async (value) => ({
@@ -59,7 +66,10 @@ export function createWorkflow(awsesh: Awsesh) {
         lastProfile: profiles[value.accountId]
           ?? (previous?.sessionName === selected?.name && previous?.accountId === value.accountId ? previous.profileName : undefined)
           ?? credentials.findLast((credential) => credential.sessionName === selected?.name && credential.accountId === value.accountId)?.profileName,
+        pinned: layout?.pinned.includes(value.accountId) ?? false,
+        group: layout?.groups[value.accountId],
       }))),
+      collapsedGroups: layout?.collapsed ?? [],
       credentials,
       lastSelected: await awsesh.lastSelected.get(),
       lastAccount: selected ? await awsesh.lastAccountPerSession.get(selected.name) : undefined,
@@ -153,6 +163,55 @@ export function createWorkflow(awsesh: Awsesh) {
       if (profile && !/^[a-zA-Z0-9_-]{1,128}$/.test(profile)) throw new Error("Invalid CLI profile name")
       if (profile) await awsesh.profileNames.save(name, value.name, role, profile)
       if (!profile) await awsesh.profileNames.remove(name, value.name, role)
+      return snapshot(name)
+    },
+    async pinAccount(name: string, accountId: string, pinned: boolean) {
+      await session(name)
+      await account(name, accountId)
+      await awsesh.accountLayout.update(name, (layout) => ({
+        ...layout,
+        pinned: [...layout.pinned.filter((id) => id !== accountId), ...(pinned ? [accountId] : [])],
+      }))
+      return snapshot(name)
+    },
+    async setAccountGroup(name: string, accountId: string, group: string) {
+      await session(name)
+      await account(name, accountId)
+      if (group) validateGroup(group)
+      await awsesh.accountLayout.update(name, (layout) => {
+        const groups = { ...layout.groups }
+        if (group) groups[accountId] = group
+        else delete groups[accountId]
+        return { ...layout, groups }
+      })
+      return snapshot(name)
+    },
+    async renameAccountGroup(name: string, group: string, renamed: string) {
+      await session(name)
+      validateGroup(renamed)
+      await awsesh.accountLayout.update(name, (layout) => ({
+        ...layout,
+        groups: Object.fromEntries(Object.entries(layout.groups).map(([id, value]) => [id, value === group ? renamed : value])),
+        collapsed: [...new Set(layout.collapsed.map((value) => value === group ? renamed : value))],
+      }))
+      return snapshot(name)
+    },
+    async removeAccountGroup(name: string, group: string) {
+      await session(name)
+      await awsesh.accountLayout.update(name, (layout) => ({
+        ...layout,
+        groups: Object.fromEntries(Object.entries(layout.groups).filter(([, value]) => value !== group)),
+        collapsed: layout.collapsed.filter((value) => value !== group),
+      }))
+      return snapshot(name)
+    },
+    async collapseAccountGroup(name: string, group: string, collapsed: boolean) {
+      await session(name)
+      if (group) validateGroup(group)
+      await awsesh.accountLayout.update(name, (layout) => ({
+        ...layout,
+        collapsed: [...layout.collapsed.filter((value) => value !== group), ...(collapsed ? [group] : [])],
+      }))
       return snapshot(name)
     },
     async assumeRole(name: string, accountId: string, role: string) {

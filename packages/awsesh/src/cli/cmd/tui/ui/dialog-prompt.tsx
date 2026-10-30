@@ -1,4 +1,5 @@
 import { useTheme } from "../context/theme"
+import { useKeybind } from "../context/keybind"
 import { useDialog, type DialogContext } from "./dialog"
 import { createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { DialogBase, DialogButton, DialogFooter } from "./dialog-base"
@@ -17,6 +18,7 @@ export type DialogPromptProps = {
 export function DialogPrompt(props: DialogPromptProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  const keybind = useKeybind()
   const [value, setValue] = createSignal(props.value ?? "")
   let input: InputRenderable
   let focusTimer: ReturnType<typeof setTimeout>
@@ -49,7 +51,7 @@ export function DialogPrompt(props: DialogPromptProps) {
           focused
           onInput={(e) => setValue(e)}
           onKeyDown={(evt) => {
-            if (evt.name === "return" && !evt.shift) {
+            if (keybind.match("select", evt)) {
               evt.preventDefault()
               handleSubmit()
             }

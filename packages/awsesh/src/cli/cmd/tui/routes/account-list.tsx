@@ -19,7 +19,7 @@ import { useExit } from "../context/exit"
 import { DialogSettings } from "../component/dialog-settings"
 import { RegionSelectorDialog } from "../component/region-selector-dialog"
 import { DateUtil } from "@/util/date"
-import type { Account } from "@awsesh/core"
+import { createWorkflow, type Account, type AccountLayout } from "@awsesh/core"
 
 export function AccountListScreen() {
   const { theme } = useTheme()
@@ -34,15 +34,102 @@ export function AccountListScreen() {
   const toast = useToast()
   const dialog = useDialog()
   const exit = useExit()
+  const workflow = createWorkflow(awsesh)
 
   const [selectedAccountId, setSelectedAccountId] = createSignal<string | undefined>(undefined)
+  const [selectedCategory, setSelectedCategory] = createSignal<string | undefined>(undefined)
   const [preferredRoles, setPreferredRoles] = createSignal<Record<string, string>>({})
   const [preferredRegions, setPreferredRegions] = createSignal<Record<string, string>>({})
   const [profileNames, setProfileNames] = createSignal<Record<string, Record<string, string>>>({})
   const [lastAccountId, setLastAccountId] = createSignal<string | undefined>(undefined)
+  const [layout, setLayout] = createSignal<AccountLayout>({ pinned: [], groups: {}, collapsed: [] })
+  const [layoutBusy, setLayoutBusy] = createSignal(false)
 
   const session = createMemo(() => aws.sessions.find((s) => s.name === routeData.sessionName))
   const selectedAccount = createMemo(() => aws.accounts.find((a) => a.accountId === selectedAccountId()))
+  const groups = createMemo(() => [...new Set(aws.accounts.flatMap((account) => {
+    const group = layout().groups[account.accountId]
+    return group ? [group] : []
+  }))].sort((a, b) => a.localeCompare(b)))
+
+  createEffect(() => {
+    const name = session()?.name
+    if (!name) return
+    awsesh.accountLayout.get(name).then((value) => {
+      if (session()?.name === name) setLayout(value)
+    }).catch((error) => toast.error(error))
+  })
+
+  const updateLayout = async (update: (name: string) => Promise<unknown>) => {
+    const name = session()?.name
+    if (!name || layoutBusy()) return
+    setLayoutBusy(true)
+    try {
+      await update(name)
+      const value = await awsesh.accountLayout.get(name)
+      if (session()?.name === name) setLayout(value)
+    } catch (error) {
+      toast.error(error)
+    } finally {
+      setLayoutBusy(false)
+    }
+  }
+
+  const handleFavorite = (account: Account) => updateLayout((name) => workflow.pinAccount(name, account.accountId, !layout().pinned.includes(account.accountId)))
+
+  const handleGroup = (account: Account) => {
+    const current = layout().groups[account.accountId]
+    dialog.replaceRender(() => (
+      <DialogSelect
+        title={`Move ${account.name} to group`}
+        placeholder="Search groups…"
+        current={current ? `group:${current}` : "ungrouped"}
+        options={[
+          ...groups().map((group) => ({ title: group, value: `group:${group}`, category: "Groups" })),
+          { title: "Remove from group", value: "ungrouped", category: "Actions", disabled: !current },
+          { title: "New group…", value: "new", category: "Actions" },
+        ]}
+        onSelect={async (option) => {
+          dialog.clear()
+          if (option.value === "new") {
+            await Promise.resolve()
+            const group = await DialogPrompt.show(dialog, "New group", { placeholder: "Group name (1–64 characters)" })
+            if (group === null || !group) return
+            await updateLayout((name) => workflow.setAccountGroup(name, account.accountId, group))
+            return
+          }
+          const group = option.value === "ungrouped" ? "" : option.value.slice("group:".length)
+          await updateLayout((name) => workflow.setAccountGroup(name, account.accountId, group))
+        }}
+      />
+    ))
+  }
+
+  const handleRenameGroup = async (group: string) => {
+    const renamed = await DialogPrompt.show(dialog, "Rename group", {
+      value: group,
+      placeholder: "Group name (1–64 characters)",
+      description: () => <text fg={theme.textMuted}>Using an existing group name merges the groups.</text>,
+    })
+    if (renamed === null || renamed === group) return
+    await updateLayout((name) => workflow.renameAccountGroup(name, group, renamed))
+  }
+
+  const handleRemoveGroup = async (group: string) => {
+    const confirmed = await DialogConfirm.show(dialog, {
+      title: `Remove ${group}?`,
+      message: "Accounts move to Other accounts. Favorites remain favorites. No credentials are removed.",
+      variant: "danger",
+      confirmLabel: "Remove group",
+    })
+    if (confirmed) await updateLayout((name) => workflow.removeAccountGroup(name, group))
+  }
+
+  const handleCategoryToggle = (category: string, collapsed: boolean) => {
+    if (category === "favorites") return updateLayout((name) => awsesh.accountLayout.update(name, (value) => ({ ...value, favoritesCollapsed: collapsed })))
+    const group = category === "other" ? "" : category.slice("group:".length)
+    return updateLayout((name) => workflow.collapseAccountGroup(name, group, collapsed))
+  }
 
   onMount(async () => {
     const last = await awsesh.lastAccountPerSession.get(routeData.sessionName)
@@ -74,6 +161,51 @@ export function AccountListScreen() {
   })
 
   command.register(() => [
+    {
+      id: "account.favorite",
+      title: selectedAccountId() && layout().pinned.includes(selectedAccountId() ?? "") ? "Remove from Favorites" : "Add to Favorites",
+      category: "Account",
+      keybind: "account_favorite",
+      disabled: !selectedAccount() || layoutBusy(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleFavorite(account)
+      },
+    },
+    {
+      id: "account.group",
+      title: "Move to Group",
+      category: "Account",
+      keybind: "account_group",
+      disabled: !selectedAccount() || layoutBusy(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account && !layoutBusy()) handleGroup(account)
+      },
+    },
+    ...groups().flatMap((group) => [
+      {
+        id: `group.rename:${group}`,
+        title: `Rename group: ${group}`,
+        category: "Groups",
+        disabled: layoutBusy(),
+        onSelect: () => { handleRenameGroup(group) },
+      },
+      {
+        id: `group.remove:${group}`,
+        title: `Remove group: ${group}`,
+        category: "Groups",
+        disabled: layoutBusy(),
+        onSelect: () => { handleRemoveGroup(group) },
+      },
+      {
+        id: `group.toggle:${group}`,
+        title: `${layout().collapsed.includes(group) ? "Expand" : "Collapse"} group: ${group}`,
+        category: "Groups",
+        disabled: layoutBusy(),
+        onSelect: () => { handleCategoryToggle(`group:${group}`, !layout().collapsed.includes(group)) },
+      },
+    ]),
     {
       id: "account.refresh",
       title: "Refresh Accounts",
@@ -230,7 +362,20 @@ export function AccountListScreen() {
   }
 
   const items = (): FilterableListItem<Account>[] => {
-    return aws.accounts.map((account) => {
+    const arranged = [...aws.accounts].sort((a, b) => {
+      const pinned = Number(layout().pinned.includes(b.accountId)) - Number(layout().pinned.includes(a.accountId))
+      if (pinned) return pinned
+      if (layout().pinned.includes(a.accountId)) return a.name.localeCompare(b.name)
+      const first = layout().groups[a.accountId]
+      const second = layout().groups[b.accountId]
+      if (first && !second) return -1
+      if (!first && second) return 1
+      return (first ?? "").localeCompare(second ?? "") || a.name.localeCompare(b.name)
+    })
+    const grouped = aws.accounts.some((account) => layout().pinned.includes(account.accountId) || layout().groups[account.accountId])
+    return arranged.map((account) => {
+      const favorite = layout().pinned.includes(account.accountId)
+      const group = layout().groups[account.accountId]
       const roleName = getPreferredRole(account)
       const region = preferredRegions()[account.accountId] ?? session()?.defaultRegion ?? "us-east-1"
       const customProfile = getProfileNameForAccount(account)
@@ -241,6 +386,10 @@ export function AccountListScreen() {
         title: account.name,
         subtitle: subtitleParts.join(" · "),
         value: account,
+        favorite,
+        category: grouped ? favorite ? "★ Favorites" : group ?? "Other accounts" : undefined,
+        categoryId: grouped ? favorite ? "favorites" : group ? `group:${group}` : "other" : undefined,
+        description: favorite ? group : undefined,
         indicator: aws.getCredentialStatus(account.accountId),
         footer: getCredentialExpiration(account.accountId),
       }
@@ -253,6 +402,7 @@ export function AccountListScreen() {
 
     try {
       await aws.refreshAccounts()
+      setLayout(await awsesh.accountLayout.get(s.name))
       toast.show({
         variant: "success",
         message: "Accounts refreshed",
@@ -530,6 +680,7 @@ export function AccountListScreen() {
   }
 
   const handleItemMove = (item: FilterableListItem<Account>) => {
+    setSelectedCategory(undefined)
     setSelectedAccountId(item.value.accountId)
   }
 
@@ -550,13 +701,20 @@ export function AccountListScreen() {
         <Footer
           right={<KeybindHint keybind={keybind.print("command_list")} label="More" onClick={() => command.show()} />}
         >
-          <KeybindHint keybind={keybind.print("select")} label="Select" onClick={() => {
+          <KeybindHint keybind={keybind.print("select")} label={selectedCategory() ? "Toggle" : "Select"} onClick={() => {
+            const category = selectedCategory()
+            if (category) {
+              const collapsed = category === "favorites" ? layout().favoritesCollapsed === true : layout().collapsed.includes(category === "other" ? "" : category.slice("group:".length))
+              handleCategoryToggle(category, !collapsed)
+              return
+            }
             const account = selectedAccount()
             if (account) handleSelect({ id: account.accountId, title: account.name, value: account })
           }} />
           <KeybindHint keybind={keybind.print("role_list")} label="Roles" onClick={() => command.trigger("account.roles")} />
-          <KeybindHint keybind={keybind.print("profile_set")} label="Profile" onClick={() => command.trigger("account.profile")} />
-          <KeybindHint keybind={keybind.print("back")} label="Back" onClick={() => command.trigger("nav.back")} />
+          <KeybindHint keybind={keybind.print("account_favorite")} label="Favorite" onClick={() => command.trigger("account.favorite")} />
+          <KeybindHint keybind={keybind.print("account_group")} label="Group" onClick={() => command.trigger("account.group")} />
+          <KeybindHint keybind={keybind.print("browser_open")} label="Open in Browser" onClick={() => command.trigger("account.browser")} />
         </Footer>
       }
     >
@@ -564,8 +722,16 @@ export function AccountListScreen() {
         items={items()}
         onSelect={handleSelect}
         onMove={handleItemMove}
+        onEmpty={() => { setSelectedAccountId(undefined); setSelectedCategory(undefined) }}
+        onCategoryMove={setSelectedCategory}
         emptyMessage="No accounts found"
         initialId={lastAccountId()}
+        filterPlaceholder="Search accounts, roles or groups…"
+        collapsedCategories={[
+          ...layout().collapsed.map((group) => group ? `group:${group}` : "other"),
+          ...(layout().favoritesCollapsed ? ["favorites"] : []),
+        ]}
+        onCategoryToggle={handleCategoryToggle}
       />
 
       <Show when={aws.error}>

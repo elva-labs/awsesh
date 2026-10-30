@@ -1,6 +1,7 @@
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
 import { useKeyboard } from "@opentui/solid"
+import { useKeybind } from "../context/keybind"
 import { DialogBase, DialogButton, DialogFooter } from "./dialog-base"
 
 export type DialogConfirmVariant = "default" | "danger"
@@ -17,6 +18,7 @@ export type DialogConfirmProps = {
 }
 
 export function DialogConfirm(props: DialogConfirmProps) {
+  const keybind = useKeybind()
   const dialog = useDialog()
   const { theme } = useTheme()
 
@@ -31,7 +33,7 @@ export function DialogConfirm(props: DialogConfirmProps) {
   }
 
   useKeyboard((evt) => {
-    if (evt.name === "return") {
+    if (keybind.match("select", evt)) {
       evt.preventDefault()
       handleConfirm()
     }

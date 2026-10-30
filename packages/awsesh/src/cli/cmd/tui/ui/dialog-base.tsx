@@ -2,6 +2,7 @@ import { TextAttributes, type RGBA } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
 import { createSignal, For, Show, type JSX, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
+import { useKeybind } from "../context/keybind"
 import { useDialog } from "./dialog"
 
 export interface DialogBaseProps {
@@ -11,6 +12,7 @@ export interface DialogBaseProps {
 }
 
 export function DialogBase(props: ParentProps<DialogBaseProps>) {
+  const keybind = useKeybind()
   const { theme } = useTheme()
   const dialog = useDialog()
   const renderer = useRenderer()
@@ -36,7 +38,7 @@ export function DialogBase(props: ParentProps<DialogBaseProps>) {
           }}
           backgroundColor={escHover() ? theme.accent : undefined}
         >
-          <text fg={escHover() ? theme.background : theme.textMuted}>esc</text>
+          <text fg={escHover() ? theme.background : theme.textMuted}>{keybind.print("back")}</text>
         </box>
       </box>
       {props.children}

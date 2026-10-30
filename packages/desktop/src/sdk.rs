@@ -30,6 +30,8 @@ pub struct Account {
     pub region: Option<String>,
     pub profiles: std::collections::HashMap<String, String>,
     pub last_profile: Option<String>,
+    pub pinned: bool,
+    pub group: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -51,6 +53,7 @@ pub struct Snapshot {
     pub sessions: Vec<Session>,
     pub session: Option<String>,
     pub accounts: Vec<Account>,
+    pub collapsed_groups: Vec<String>,
     pub credentials: Vec<Credential>,
     pub last_account: Option<String>,
     pub last_session: Option<String>,

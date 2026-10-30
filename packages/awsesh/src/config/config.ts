@@ -17,6 +17,8 @@ export interface KeybindsConfig {
   profile_clear: string[]
   region_set: string[]
   role_list: string[]
+  account_favorite: string[]
+  account_group: string[]
   session_add: string[]
   session_edit: string[]
   session_delete: string[]
@@ -81,6 +83,8 @@ const defaultKeybinds: KeybindsConfig = {
   profile_clear: ["<leader>+C"],
   region_set: ["<leader>+r"],
   role_list: ["r"],
+  account_favorite: ["f"],
+  account_group: ["g"],
   session_add: ["a"],
   session_edit: ["e"],
   session_delete: ["d"],
