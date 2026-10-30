@@ -112,6 +112,7 @@ fn menu_option(
         Command::CopyAccount | Command::CopyName | Command::CopyProfile => Some(IconName::Copy),
         Command::Console | Command::Portal => Some(IconName::ExternalLink),
         Command::SetCredentials => Some(IconName::SquareTerminal),
+        Command::SelectRole(_) => Some(IconName::CircleUser),
         _ => None,
     };
     option.action = matches!(action, Command::NewGroup);
@@ -231,7 +232,7 @@ impl Sesh {
         self.show_dropdown(
             items,
             true,
-            self.role_bounds.bottom_left(),
+            self.role_bounds.bottom_left() + gpui::point(px(0.), px(4.)),
             self.role_bounds.size.width.max(px(240.)),
             self.role_focus.clone(),
             window,

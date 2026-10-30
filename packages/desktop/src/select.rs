@@ -284,10 +284,19 @@ impl Dropdown {
             .text_size(px(13.))
             .cursor_pointer()
             .when(disabled, |row| row.opacity(0.45).cursor_default())
-            .when(selected && !disabled, |row| row.bg(hover))
+            .when(
+                (selected && !disabled) || (option.checked && self.search.is_some()),
+                |row| row.bg(hover),
+            )
             .when(!disabled, |row| row.hover(move |style| style.bg(hover)))
             .when_some(option.icon.clone(), |row, icon| {
-                row.child(Icon::new(icon).size(px(14.)))
+                row.child(
+                    Icon::new(icon)
+                        .size(px(14.))
+                        .when(self.search.is_some(), |icon| {
+                            icon.text_color(cx.theme().muted_foreground)
+                        }),
+                )
             })
             .child(
                 div()
@@ -297,7 +306,13 @@ impl Dropdown {
                     .child(option.label.clone()),
             )
             .when(option.checked, |row| {
-                row.child(Icon::new(IconName::Check).size(px(14.)))
+                row.child(
+                    Icon::new(IconName::Check)
+                        .size(px(14.))
+                        .when(self.search.is_some(), |icon| {
+                            icon.text_color(cx.theme().link)
+                        }),
+                )
             })
             .when(branch, |row| {
                 row.child(Icon::new(IconName::ChevronRight).size(px(14.)))
@@ -379,7 +394,32 @@ impl Dropdown {
             .flex_col()
             .when(!child, |panel| {
                 panel.when_some(self.search.clone(), |panel, search| {
-                    panel.child(div().pb_1().child(Input::new(&search).small().w_full()))
+                    panel.child(
+                        div()
+                            .h(px(36.))
+                            .flex()
+                            .items_center()
+                            .mx(-px(4.))
+                            .px_3()
+                            .mb_1()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
+                            .child(
+                                Input::new(&search)
+                                    .small()
+                                    .w_full()
+                                    .px_0()
+                                    .text_size(px(13.))
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .focus_bordered(false)
+                                    .prefix(
+                                        Icon::new(IconName::Search)
+                                            .size(px(14.))
+                                            .text_color(cx.theme().muted_foreground),
+                                    ),
+                            ),
+                    )
                 })
             })
             .when(count == 0, |panel| {
