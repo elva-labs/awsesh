@@ -9,6 +9,7 @@ import {
   type ParentProps,
 } from "solid-js"
 import { useTheme } from "../context/theme"
+import { useKeybind } from "../context/keybind"
 import { RGBA, type Renderable, type InputRenderable } from "@opentui/core"
 import { createStore } from "solid-js/store"
 import { createDialogRender } from "./dialog-render"
@@ -55,6 +56,7 @@ export function Dialog(
 }
 
 function init() {
+  const keybind = useKeybind()
   const [store, setStore] = createStore({
     stack: [] as {
       render: () => JSX.Element
@@ -64,7 +66,7 @@ function init() {
   })
 
   useKeyboard((evt) => {
-    if (evt.name === "escape" && store.stack.length > 0) {
+    if (keybind.match("back", evt) && store.stack.length > 0) {
       const current = store.stack.at(-1)!
       current.onClose?.()
       setStore("stack", store.stack.slice(0, -1))

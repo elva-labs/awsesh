@@ -164,6 +164,7 @@ describe("Full Workflow", () => {
     expect(state.collapsedGroups).toEqual(["Development", ""]);
     expect((await awsesh.accountLayout.get("production")).pinned).toEqual(["333"]);
     expect((await workflow.snapshot("secondary")).collapsedGroups).toEqual([]);
+    await awsesh.accountLayout.update("production", (layout) => ({ ...layout, favoritesCollapsed: true }));
 
     state = await workflow.renameAccountGroup("production", "Development", "Production");
     expect(state.accounts.filter((value) => value.group === "Production").map((value) => value.accountId)).toEqual(["111", "222"]);
@@ -175,6 +176,8 @@ describe("Full Workflow", () => {
     expect(state.collapsedGroups).toEqual([""]);
     state = await workflow.pinAccount("production", "333", false);
     expect(state.accounts[2].pinned).toBe(false);
+    expect((await awsesh.accountLayout.get("production")).favoritesCollapsed).toBe(true);
+    expect((await awsesh.accountLayout.get("secondary")).favoritesCollapsed).toBeUndefined();
 
     await expect(workflow.pinAccount("production", "999", true)).rejects.toThrow("Account not found");
     await expect(workflow.setAccountGroup("production", "111", " Padded ")).rejects.toThrow("Group names");

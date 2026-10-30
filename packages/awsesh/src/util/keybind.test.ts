@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Keybind } from "../cli/cmd/tui/util/keybind";
 import type { ParsedKey } from "@opentui/core";
+import { parseKeypress } from "@opentui/core";
+import { defaultConfig } from "../config/config";
 
 describe("Keybind", () => {
   describe("parse", () => {
@@ -165,6 +167,15 @@ describe("Keybind", () => {
   });
 
   describe("fromParsedKey", () => {
+    test("matches the configured Enter binding for legacy and Kitty terminal events", () => {
+      for (const sequence of ["\r", "\u001b[13u"]) {
+        const parsed = parseKeypress(sequence, { useKittyKeyboard: true });
+        if (!parsed) throw new Error("Enter event was not parsed");
+        const input = Keybind.fromParsedKey(parsed);
+        expect(defaultConfig.keybinds.select.some((binding) => Keybind.match(Keybind.parse(binding), input))).toBe(true);
+      }
+      expect(Keybind.parse("return")).toEqual(Keybind.parse("enter"));
+    });
     test("converts ParsedKey to Info", () => {
       const parsed = { name: "c", ctrl: true, shift: false, meta: false } as ParsedKey;
       const result = Keybind.fromParsedKey(parsed);

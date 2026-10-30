@@ -1,6 +1,7 @@
 import { InputRenderable, RGBA, ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useConfig } from "../context/config"
+import { useKeybind } from "../context/keybind"
 import { entries, filter, flatMap, groupBy, pipe } from "remeda"
 import { batch, createEffect, createMemo, For, onMount, Show, type JSX, on } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -48,6 +49,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const dialog = useDialog()
   const { theme } = useTheme()
   const config = useConfig()
+  const keybind = useKeybind()
   const renderer = useRenderer()
   const [store, setStore] = createStore({
     selected: 0,
@@ -168,11 +170,29 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   useKeyboard((evt) => {
-    if (evt.name === "up" || (evt.ctrl && evt.name === "p")) move(-1)
-    if (evt.name === "down" || (evt.ctrl && evt.name === "n")) move(1)
-    if (evt.name === "pageup") move(-10)
-    if (evt.name === "pagedown") move(10)
-    if (evt.name === "return") {
+    const editing = input?.focused && evt.name.length === 1 && !evt.ctrl && !evt.meta
+    if (!editing && keybind.match("nav_up", evt)) {
+      evt.preventDefault()
+      move(-1)
+      return
+    }
+    if (!editing && keybind.match("nav_down", evt)) {
+      evt.preventDefault()
+      move(1)
+      return
+    }
+    if (!editing && keybind.match("nav_page_up", evt)) {
+      evt.preventDefault()
+      move(-10)
+      return
+    }
+    if (!editing && keybind.match("nav_page_down", evt)) {
+      evt.preventDefault()
+      move(10)
+      return
+    }
+    if (keybind.match("select", evt)) {
+      evt.preventDefault()
       const option = selected()
       if (option) {
         if (option.onSelect) option.onSelect(dialog)
@@ -219,7 +239,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           <text fg={theme.text} attributes={TextAttributes.BOLD}>
             {props.title}
           </text>
-          <text fg={theme.textMuted}>esc</text>
+          <text fg={theme.textMuted}>{keybind.print("back")}</text>
         </box>
         <box paddingTop={1} paddingBottom={1}>
            <input
@@ -234,7 +254,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
             focusedTextColor={theme.textMuted}
             ref={(r) => {
               input = r
-              setTimeout(() => input.focus(), 1)
+              setTimeout(() => {
+                if (!input.isDestroyed) input.focus()
+              }, 1)
             }}
             placeholder={props.placeholder ?? "Search"}
           />

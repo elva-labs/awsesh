@@ -54,6 +54,7 @@ export interface AccountLayout {
   pinned: string[]
   groups: Record<string, string>
   collapsed: string[]
+  favoritesCollapsed?: boolean
 }
 
 export interface RoleCredentials {

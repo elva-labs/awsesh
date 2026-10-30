@@ -1,5 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test"
-import { RGBA } from "@opentui/core"
+import { RGBA, type ParsedKey } from "@opentui/core"
+import { Keybind } from "../util/keybind"
+import { defaultConfig } from "@/config/config"
 import { testRender } from "@opentui/solid"
 import type { TestRendererSetup } from "@opentui/core/testing"
 import { createSignal } from "solid-js"
@@ -20,9 +22,13 @@ mock.module("../context/theme", () => ({
   useTheme: () => ({ theme }),
 }))
 
+const defaultBindings: Record<string, string[]> = { ...defaultConfig.keybinds }
+let bindings = { ...defaultBindings }
+
 mock.module("../context/keybind", () => ({
   useKeybind: () => ({
-    match: (key: string, evt: { name: string }) => key === "filter" && evt.name === "/",
+    match: (key: string, evt: ParsedKey) => bindings[key]?.some((binding) => Keybind.match(Keybind.parse(binding), Keybind.fromParsedKey(evt))) ?? false,
+    print: (key: string) => bindings[key]?.[0] ?? "",
   }),
 }))
 
@@ -47,13 +53,15 @@ let setup: TestRendererSetup | undefined
 afterEach(() => {
   setup?.renderer.destroy()
   setup = undefined
+  bindings = { ...defaultBindings }
 })
 
 const item = (title: string, subtitle?: string): Item => ({ id: title, title, subtitle, value: title })
 
-const renderList = async (initial: Item[], options?: { initialId?: string; height?: number }) => {
+const renderList = async (initial: Item[], options?: { initialId?: string; height?: number; collapsed?: string[] }) => {
   const [items, setItems] = createSignal(initial)
   const [initialId, setInitialId] = createSignal(options?.initialId)
+  const [collapsed, setCollapsed] = createSignal(options?.collapsed ?? [])
   let selected: string | undefined
   let moved: string | undefined
 
@@ -68,34 +76,40 @@ const renderList = async (initial: Item[], options?: { initialId?: string; heigh
         onMove={(item) => {
           moved = item.id
         }}
+        onEmpty={() => { moved = undefined }}
+        collapsedCategories={collapsed()}
+        onCategoryToggle={options?.collapsed === undefined ? undefined : (category, collapse) => {
+          setCollapsed((current) => [...current.filter((value) => value !== category), ...(collapse ? [category] : [])])
+        }}
       />
     ),
-    { width: 80, height: options?.height ?? 30 },
+    { width: 80, height: options?.height ?? 30, kittyKeyboard: true },
   )
-  await setup.waitForFrame((frame) => frame.includes(initial[0].title))
+  await setup.waitForFrame((frame) => frame.includes(initial[0].category ?? initial[0].title))
 
-  const selectedId = async (): Promise<string | undefined> => {
+  const view = setup
+  const selectedId = async (key = "RETURN"): Promise<string | undefined> => {
     selected = undefined
-    setup!.mockInput.pressEnter()
-    await setup!.flush()
+    view.mockInput.pressKey(key)
+    await view.flush()
     return selected
   }
 
   const press = async (key: string, times = 1) => {
     for (let i = 0; i < times; i++) {
-      setup!.mockInput.pressKey(key)
-      await setup!.renderOnce()
+      view.mockInput.pressKey(key)
+      await view.renderOnce()
     }
   }
 
   const filter = async (text: string) => {
-    await setup!.mockInput.typeText("/")
-    await setup!.mockInput.typeText(text)
-    setup!.mockInput.pressEnter()
-    await setup!.flush()
+    await view.mockInput.typeText(bindings.filter[0])
+    await view.mockInput.typeText(text)
+    view.mockInput.pressKey(["return", "enter"].includes(bindings.select[0]) ? "RETURN" : bindings.select[0])
+    await view.flush()
   }
 
-  return { setItems, setInitialId, selectedId, movedId: () => moved, press, filter }
+  return { setItems, setInitialId, selectedId, movedId: () => moved, press, filter, frame: () => setup?.captureCharFrame() ?? "", flush: () => setup?.flush() }
 }
 
 test("keeps the selection when items reorder", async () => {
@@ -199,4 +213,156 @@ test("keeps the keyboard selection when rows re-render under a resting mouse poi
   await setup!.renderOnce()
 
   expect(await list.selectedId()).toBe("alpha")
+})
+
+test("navigates grouped rows in their rendered order", async () => {
+  const list = await renderList([
+    { ...item("alpha"), category: "Production" },
+    { ...item("beta"), category: "Development" },
+    { ...item("gamma"), category: "Production" },
+  ])
+  await list.press("j")
+  expect(await list.selectedId()).toBe("gamma")
+  await list.press("j")
+  expect(await list.selectedId()).toBe("beta")
+})
+
+test("collapsed categories retain headings and reveal matching accounts during search", async () => {
+  const list = await renderList([
+    { ...item("alpha"), category: "Production", categoryId: "group:Production" },
+    { ...item("beta"), category: "Development", categoryId: "group:Development" },
+  ], { collapsed: [] })
+  await list.press("h")
+  expect(list.frame()).toContain("▸ Production")
+  expect(list.frame()).not.toContain("alpha")
+  expect(list.movedId()).toBeUndefined()
+  await list.filter("alpha")
+  expect(list.frame()).toContain("alpha")
+  expect(list.frame()).toContain("▾ Production")
+  expect(await list.selectedId()).toBe("alpha")
+  await list.press("ESCAPE")
+  expect(list.frame()).not.toContain("alpha")
+  expect(list.movedId()).toBeUndefined()
+  await list.press("l")
+  expect(list.frame()).toContain("alpha")
+  await list.press("j")
+  expect(await list.selectedId()).toBe("alpha")
+})
+
+test("fully collapsed lists remain expandable and clear the account selection", async () => {
+  const list = await renderList([
+    { ...item("alpha"), category: "Production", categoryId: "group:Production" },
+  ], { collapsed: [] })
+  await list.press("h")
+  expect(list.frame()).toContain("▸ Production")
+  expect(list.frame()).not.toContain("No items found")
+  expect(list.movedId()).toBeUndefined()
+  expect(await list.selectedId()).toBeUndefined()
+  await list.press("l")
+  expect(list.frame()).toContain("alpha")
+  await list.press("j")
+  expect(await list.selectedId()).toBe("alpha")
+})
+
+test("favorite headings collapse independently from groups with the same label", async () => {
+  const list = await renderList([
+    { ...item("alpha"), category: "★ Favorites", categoryId: "favorites", favorite: true },
+    { ...item("beta"), category: "Favorites", categoryId: "group:Favorites" },
+  ], { collapsed: [] })
+  await list.press("h")
+  expect(list.frame()).not.toContain("alpha")
+  expect(list.frame()).toContain("★")
+  await list.press("j")
+  expect(list.frame()).toContain("beta")
+  await list.selectedId()
+  expect(list.frame()).not.toContain("beta")
+  expect(list.movedId()).toBeUndefined()
+})
+
+test("navigates every collapsed heading and Enter toggles only the focused category", async () => {
+  const list = await renderList([
+    { ...item("alpha"), category: "★ Favorites", categoryId: "favorites", favorite: true },
+    { ...item("beta"), category: "Production", categoryId: "group:Production" },
+    { ...item("gamma"), category: "Development", categoryId: "group:Development" },
+  ], { collapsed: ["favorites", "group:Production", "group:Development"] })
+
+  await list.press("j")
+  await list.selectedId()
+  expect(list.frame()).toContain("beta")
+  expect(list.frame()).not.toContain("alpha")
+  expect(list.frame()).not.toContain("gamma")
+  expect(list.movedId()).toBeUndefined()
+  await list.press("j")
+  expect(await list.selectedId()).toBe("beta")
+  await list.press("j")
+  await list.selectedId()
+  expect(list.frame()).toContain("gamma")
+  expect(list.frame()).not.toContain("alpha")
+  await list.press("h")
+  expect(list.frame()).not.toContain("gamma")
+  await list.press("k", 3)
+  await list.press("l")
+  expect(list.frame()).toContain("alpha")
+})
+
+test("account rows do not display favorite stars", async () => {
+  const list = await renderList([
+    { ...item("alpha"), category: "★ Favorites", categoryId: "favorites", favorite: true },
+  ], { collapsed: [], initialId: "alpha" })
+  const row = list.frame().split("\n").find((line) => line.includes("alpha"))
+  expect(row).toBeDefined()
+  expect(row).not.toContain("★")
+  expect(row).not.toContain("☆")
+})
+
+test("expanding from a favorite account never opens an unrelated section", async () => {
+  const list = await renderList([
+    { ...item("alpha"), category: "★ Favorites", categoryId: "favorites", favorite: true },
+    { ...item("beta"), category: "Production", categoryId: "group:Production" },
+  ], { collapsed: ["group:Production"], initialId: "alpha" })
+  await list.press("l")
+  expect(list.frame()).not.toContain("beta")
+  expect(list.movedId()).toBe("alpha")
+  await list.press("j")
+  expect(list.movedId()).toBeUndefined()
+  await list.press("l")
+  expect(list.frame()).toContain("beta")
+})
+
+test("page navigation uses its remapped bindings", async () => {
+  bindings = { ...bindings, nav_page_down: ["f6"], nav_page_up: ["f5"] }
+  const list = await renderList(Array.from({ length: 15 }, (_, index) => item(`account-${index}`)))
+  await list.press("\u001b[6~")
+  expect(await list.selectedId()).toBe("account-0")
+  await list.press("F6")
+  expect(await list.selectedId()).toBe("account-10")
+  await list.press("F5")
+  expect(await list.selectedId()).toBe("account-0")
+})
+
+test("remapped navigation, activation, folding, filtering and back replace the default keys", async () => {
+  bindings = { ...bindings, nav_down: ["n"], nav_up: ["u"], nav_left: ["x"], nav_right: ["y"], select: ["v"], filter: ["s"], back: ["b"] }
+  const list = await renderList([
+    { ...item("alpha"), category: "Production", categoryId: "group:Production" },
+    { ...item("beta"), category: "Development", categoryId: "group:Development" },
+  ], { collapsed: ["group:Production", "group:Development"] })
+  await list.press("j")
+  await list.press("l")
+  await list.press("RETURN")
+  expect(list.frame()).not.toContain("alpha")
+  expect(list.frame()).not.toContain("beta")
+  await list.press("n")
+  await list.selectedId("v")
+  expect(list.frame()).toContain("beta")
+  expect(list.frame()).not.toContain("alpha")
+  await list.press("x")
+  expect(list.frame()).not.toContain("beta")
+  await list.press("u")
+  await list.press("y")
+  expect(list.frame()).toContain("alpha")
+  await list.press("x")
+  await list.filter("alpha")
+  expect(list.frame()).toContain("alpha")
+  await list.press("b")
+  expect(list.frame()).not.toContain("alpha")
 })
