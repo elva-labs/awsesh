@@ -8,11 +8,11 @@ mod window_state;
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding,
-    Pixels, Subscription, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions,
-    prelude::*, px, size,
+    Pixels, SharedString, Subscription, UniformListScrollHandle, Window, WindowBounds,
+    WindowOptions, actions, prelude::*, px, size,
 };
 use gpui_component::{
-    Root,
+    Root, VirtualListScrollHandle,
     input::{InputEvent, InputState, RopeExt},
     menu::PopupMenu,
     select::{SearchableVec, SelectEvent, SelectState},
@@ -43,7 +43,8 @@ actions!(
         Preferences,
         SetCredentials,
         ToggleDithering,
-        ToggleSidebar
+        ToggleSidebar,
+        TogglePin
     ]
 );
 
@@ -92,8 +93,69 @@ enum Command {
     CopyAccount,
     CopyProfile,
     CopyName,
+    TogglePin,
+    GroupMenu,
+    NewGroup,
+    SetGroup(Option<String>),
+    ToggleGroup(String),
+    RenameGroup(String),
+    RemoveGroup(String),
     SessionAction(String, Box<Command>),
     ItemAction(usize, Box<Command>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Entry {
+    Heading {
+        group: Option<String>,
+        count: usize,
+        collapsed: bool,
+    },
+    Account(usize),
+}
+
+fn sections(
+    accounts: &[Account],
+    matches: Vec<usize>,
+    collapsed: &[String],
+    searching: bool,
+) -> Vec<Entry> {
+    if !accounts
+        .iter()
+        .any(|account| account.pinned || account.group.is_some())
+    {
+        return matches.into_iter().map(Entry::Account).collect();
+    }
+    let mut groups: Vec<(Option<String>, Vec<usize>)> = vec![];
+    for index in matches {
+        let account = &accounts[index];
+        let key = (!account.pinned).then(|| account.group.clone().unwrap_or_default());
+        match groups.iter_mut().find(|(group, _)| *group == key) {
+            Some((_, members)) => members.push(index),
+            None => groups.push((key, vec![index])),
+        }
+    }
+    groups.sort_by_key(|(group, _)| match group.as_deref() {
+        None => (0, String::new(), String::new()),
+        Some("") => (2, String::new(), String::new()),
+        Some(group) => (1, group.to_lowercase(), group.to_owned()),
+    });
+    groups
+        .into_iter()
+        .flat_map(|(group, members)| {
+            let collapsed = !searching
+                && group
+                    .as_ref()
+                    .is_some_and(|group| collapsed.contains(group));
+            let heading = Entry::Heading {
+                count: members.len(),
+                group,
+                collapsed,
+            };
+            let members = if collapsed { vec![] } else { members };
+            std::iter::once(heading).chain(members.into_iter().map(Entry::Account))
+        })
+        .collect()
 }
 
 struct Form {
@@ -145,7 +207,7 @@ struct Sesh {
     preferences: BTreeMap<&'static str, Value>,
     preference_save: Option<gpui::Task<()>>,
     focus: FocusHandle,
-    scroll: UniformListScrollHandle,
+    scroll: VirtualListScrollHandle,
     busy: bool,
     active: Option<(&'static str, Value)>,
     requests: VecDeque<(&'static str, Value)>,
@@ -373,7 +435,7 @@ impl Sesh {
             preferences: BTreeMap::new(),
             preference_save: None,
             focus: cx.focus_handle(),
-            scroll: UniformListScrollHandle::new(),
+            scroll: VirtualListScrollHandle::new(),
             busy: false,
             active: None,
             requests: VecDeque::new(),
@@ -566,7 +628,10 @@ impl Sesh {
     }
 
     fn request(&mut self, operation: &'static str, args: Value, cx: &mut Context<Self>) {
-        if matches!(operation, "setRegion" | "setProfile") {
+        if matches!(
+            operation,
+            "setRegion" | "setProfile" | "collapseAccountGroup"
+        ) {
             if self
                 .requests
                 .iter()
@@ -846,7 +911,18 @@ impl Sesh {
             let current = data.session == self.data.session;
             if !self.initialized || current || matches!(operation, "saveSession" | "removeSession")
             {
+                let collapsed = self
+                    .requests
+                    .iter()
+                    .any(|(operation, args)| {
+                        *operation == "collapseAccountGroup"
+                            && args["name"].as_str() == data.session.as_deref()
+                    })
+                    .then(|| self.data.collapsed_groups.clone());
                 self.data = data;
+                if let Some(collapsed) = collapsed {
+                    self.data.collapsed_groups = collapsed;
+                }
             } else {
                 self.data.sessions = data.sessions;
                 self.data.credentials = data.credentials;
@@ -947,7 +1023,23 @@ impl Sesh {
                 self.focus.focus(window);
                 self.message = "Local credentials removed".into();
             }
-            if let Some(selected) = self.selected {
+            if matches!(
+                operation,
+                "setAccountGroup" | "renameAccountGroup" | "removeAccountGroup"
+            ) && self
+                .form
+                .as_ref()
+                .is_some_and(|form| form.operation == operation)
+            {
+                self.form = None;
+                self.focus.focus(window);
+            }
+            if self.screen == Screen::Accounts && self.account.is_some() {
+                self.reselect(cx);
+                if matches!(operation, "pinAccount" | "setAccountGroup") {
+                    self.scroll_to_selection(gpui::ScrollStrategy::Center, cx);
+                }
+            } else if let Some(selected) = self.selected {
                 self.selected = Some(selected.min(self.visible(cx).len().saturating_sub(1)));
             }
             if current
@@ -1061,29 +1153,44 @@ impl Sesh {
     }
 
     fn visible(&self, cx: &App) -> Vec<usize> {
+        self.entries(cx)
+            .into_iter()
+            .filter_map(|entry| match entry {
+                Entry::Account(index) => Some(index),
+                Entry::Heading { .. } => None,
+            })
+            .collect()
+    }
+
+    fn entries(&self, cx: &App) -> Vec<Entry> {
         let query = self.search.read(cx).value().to_lowercase();
         let matches = |text: String| {
             let text = text.to_lowercase();
             query.split_whitespace().all(|part| text.contains(part))
         };
         match self.screen {
-            Screen::Accounts => self
-                .data
-                .accounts
-                .iter()
-                .enumerate()
-                .filter(|(_, value)| {
-                    matches(format!(
-                        "{} {} {} {} {}",
-                        value.name,
-                        value.account_id,
-                        value.roles.join(" "),
-                        value.region.as_deref().unwrap_or(""),
-                        value.last_profile.as_deref().unwrap_or("")
-                    ))
-                })
-                .map(|(index, _)| index)
-                .collect(),
+            Screen::Accounts => sections(
+                &self.data.accounts,
+                self.data
+                    .accounts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, value)| {
+                        matches(format!(
+                            "{} {} {} {} {} {}",
+                            value.name,
+                            value.account_id,
+                            value.roles.join(" "),
+                            value.region.as_deref().unwrap_or(""),
+                            value.last_profile.as_deref().unwrap_or(""),
+                            value.group.as_deref().unwrap_or("")
+                        ))
+                    })
+                    .map(|(index, _)| index)
+                    .collect(),
+                &self.data.collapsed_groups,
+                !query.trim().is_empty(),
+            ),
             Screen::Credentials => self
                 .data
                 .credentials
@@ -1095,9 +1202,50 @@ impl Sesh {
                         value.account_name, value.account_id, value.role_name, value.profile_name
                     ))
                 })
-                .map(|(index, _)| index)
+                .map(|(index, _)| Entry::Account(index))
                 .collect(),
             Screen::Settings => vec![],
+        }
+    }
+
+    fn groups(&self) -> Vec<String> {
+        let mut groups: Vec<String> = self
+            .data
+            .accounts
+            .iter()
+            .filter_map(|account| account.group.clone())
+            .collect();
+        groups.sort_by(|a, b| {
+            a.to_lowercase()
+                .cmp(&b.to_lowercase())
+                .then_with(|| a.cmp(b))
+        });
+        groups.dedup();
+        groups
+    }
+
+    fn reselect(&mut self, cx: &App) {
+        if let Some(account) = &self.account {
+            self.selected = self
+                .visible(cx)
+                .iter()
+                .position(|index| self.data.accounts[*index].account_id == account.account_id);
+        }
+    }
+
+    fn scroll_to_selection(&self, strategy: gpui::ScrollStrategy, cx: &App) {
+        let Some(selected) = self.selected else {
+            return;
+        };
+        let entry = self
+            .entries(cx)
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| matches!(entry, Entry::Account(_)))
+            .nth(selected)
+            .map(|(position, _)| position);
+        if let Some(entry) = entry {
+            self.scroll.scroll_to_item(entry, strategy);
         }
     }
 
@@ -1178,11 +1326,35 @@ impl Sesh {
                 ),
             ]);
         }
-        if self.account.is_some() {
+        if let Some(account) = &self.account {
             commands.extend([
                 ("Copy account ID".into(), Command::CopyAccount),
                 ("Copy account name".into(), Command::CopyName),
+                (
+                    if account.pinned {
+                        "Unpin account"
+                    } else {
+                        "Pin account to top"
+                    }
+                    .into(),
+                    Command::TogglePin,
+                ),
             ]);
+            commands.extend(
+                self.groups()
+                    .into_iter()
+                    .filter(|group| account.group.as_ref() != Some(group))
+                    .map(|group| {
+                        (
+                            format!("Move account to {group}"),
+                            Command::SetGroup(Some(group)),
+                        )
+                    }),
+            );
+            commands.push(("Move account to a new group…".into(), Command::NewGroup));
+            if account.group.is_some() {
+                commands.push(("Remove account from group".into(), Command::SetGroup(None)));
+            }
             if self.role(cx).is_some() {
                 commands.push(("Open AWS Console".into(), Command::Console));
                 if self.authenticated() && !self.preferences_dirty(cx) {
@@ -1302,10 +1474,7 @@ impl Sesh {
             Some(selected) if direction > 0 => (selected + 1).min(count - 1),
             Some(selected) => selected.saturating_sub(1),
         });
-        if let Some(selected) = self.selected {
-            self.scroll
-                .scroll_to_item(selected, gpui::ScrollStrategy::Center);
-        }
+        self.scroll_to_selection(gpui::ScrollStrategy::Center, cx);
         self.focus.focus(window);
         self.inspect(window, cx);
         cx.notify();
@@ -1341,6 +1510,7 @@ impl Sesh {
                             .default_value(value)
                             .placeholder(match label {
                                 "startUrl" => "Organization short name or full URL",
+                                "group" | "renamed" => "e.g. Production",
                                 _ => "",
                             })
                     }),
@@ -1388,7 +1558,11 @@ impl Sesh {
             args,
             destructive: matches!(
                 operation,
-                "removeSession" | "signOut" | "clearCredential" | "clearAllCredentials"
+                "removeSession"
+                    | "signOut"
+                    | "clearCredential"
+                    | "clearAllCredentials"
+                    | "removeAccountGroup"
             ),
             _subscriptions: subscriptions,
         });
@@ -1443,7 +1617,13 @@ impl Sesh {
             self.selected = Some(position);
             self.focus.focus(window);
             if self.screen == Screen::Accounts
-                && matches!(*command, Command::CopyAccount | Command::CopyName)
+                && matches!(
+                    *command,
+                    Command::CopyAccount
+                        | Command::CopyName
+                        | Command::TogglePin
+                        | Command::GroupMenu
+                )
             {
                 let account = self
                     .visible(cx)
@@ -1758,6 +1938,118 @@ impl Sesh {
                     self.message = "Account name copied".into();
                 }
             }
+            Command::TogglePin => {
+                if let Some(account) = &self.account {
+                    self.request(
+                        "pinAccount",
+                        json!({"name": name, "accountId": account.account_id, "pinned": !account.pinned}),
+                        cx,
+                    );
+                }
+            }
+            Command::GroupMenu => {
+                let Some(current) = self.account.as_ref().map(|account| account.group.clone())
+                else {
+                    return;
+                };
+                let groups = self.groups();
+                if groups.is_empty() {
+                    self.dispatch(Command::NewGroup, window, cx);
+                    return;
+                }
+                let mut items: Vec<(SharedString, Command, bool)> = groups
+                    .into_iter()
+                    .map(|group| {
+                        let disabled = current.as_ref() == Some(&group);
+                        (
+                            group.clone().into(),
+                            Command::SetGroup(Some(group)),
+                            disabled,
+                        )
+                    })
+                    .collect();
+                items.push(("New group…".into(), Command::NewGroup, false));
+                if current.is_some() {
+                    items.push(("Remove from group".into(), Command::SetGroup(None), false));
+                }
+                cx.defer_in(window, move |this, window, cx| {
+                    this.show_menu(items, window, cx)
+                });
+            }
+            Command::NewGroup => {
+                if let Some(account) = &self.account {
+                    let description = format!(
+                        "Move ‘{}’ into a new group. Groups are kept per organization.",
+                        account.name
+                    );
+                    let args = json!({"name": name, "accountId": account.account_id});
+                    self.show_form(
+                        "New group",
+                        &description,
+                        vec![("group", String::new())],
+                        "setAccountGroup",
+                        args,
+                        window,
+                        cx,
+                    );
+                }
+            }
+            Command::SetGroup(group) => {
+                if let Some(account) = &self.account {
+                    self.request(
+                        "setAccountGroup",
+                        json!({"name": name, "accountId": account.account_id, "group": group.unwrap_or_default()}),
+                        cx,
+                    );
+                }
+            }
+            Command::ToggleGroup(group) => {
+                if name.is_some() {
+                    let collapsed = !self.data.collapsed_groups.contains(&group);
+                    self.data.collapsed_groups.retain(|value| *value != group);
+                    if collapsed {
+                        self.data.collapsed_groups.push(group.clone());
+                    }
+                    self.reselect(cx);
+                    self.request(
+                        "collapseAccountGroup",
+                        json!({"name": name, "group": group, "collapsed": collapsed}),
+                        cx,
+                    );
+                }
+            }
+            Command::RenameGroup(group) => {
+                if name.is_some() {
+                    self.show_form(
+                        "Rename group",
+                        &format!("Rename ‘{group}’ for all of its accounts. Using another group’s name merges the two."),
+                        vec![("renamed", group.clone())],
+                        "renameAccountGroup",
+                        json!({"name": name, "group": group}),
+                        window,
+                        cx,
+                    );
+                }
+            }
+            Command::RemoveGroup(group) => {
+                if name.is_some() {
+                    let count = self
+                        .data
+                        .accounts
+                        .iter()
+                        .filter(|account| account.group.as_ref() == Some(&group))
+                        .count();
+                    self.show_form(
+                        "Remove group?",
+                        &format!("Its {count} accounts move to Other accounts. Pinned accounts stay pinned."),
+                        vec![],
+                        "removeAccountGroup",
+                        json!({"name": name, "group": group}),
+                        window,
+                        cx,
+                    );
+                }
+            }
             Command::Cancel
             | Command::OpenLogin
             | Command::ItemAction(..)
@@ -1938,6 +2230,74 @@ mod tests {
         assert_eq!(platform::shortcut_label("search", &disabled), "Unassigned");
         assert!(platform::validate_shortcuts(&selection("search", "f8"), &fixed).is_ok());
         Ok(())
+    }
+
+    #[test]
+    fn arranges_pinned_grouped_and_remaining_accounts() {
+        use crate::{Entry, sdk::Account, sections};
+
+        let account = |name: &str, pinned: bool, group: Option<&str>| Account {
+            name: name.into(),
+            pinned,
+            group: group.map(Into::into),
+            ..Default::default()
+        };
+        let heading = |group: Option<&str>, count, collapsed| Entry::Heading {
+            group: group.map(Into::into),
+            count,
+            collapsed,
+        };
+        let flat = [account("a", false, None), account("b", false, None)];
+        assert_eq!(
+            sections(&flat, vec![1], &[], false),
+            vec![Entry::Account(1)]
+        );
+
+        let accounts = [
+            account("api prod", true, Some("prod")),
+            account("billing", false, None),
+            account("data dev", false, Some("dev")),
+            account("data prod", false, Some("prod")),
+            account("sandbox", false, None),
+            account("web prod", false, Some("Prod")),
+        ];
+        let all: Vec<_> = (0..accounts.len()).collect();
+        assert_eq!(
+            sections(&accounts, all.clone(), &[], false),
+            vec![
+                heading(None, 1, false),
+                Entry::Account(0),
+                heading(Some("dev"), 1, false),
+                Entry::Account(2),
+                heading(Some("Prod"), 1, false),
+                Entry::Account(5),
+                heading(Some("prod"), 1, false),
+                Entry::Account(3),
+                heading(Some(""), 2, false),
+                Entry::Account(1),
+                Entry::Account(4),
+            ]
+        );
+
+        let collapsed = ["dev".to_owned(), String::new()];
+        assert_eq!(
+            sections(&accounts, vec![0, 1, 2], &collapsed, false),
+            vec![
+                heading(None, 1, false),
+                Entry::Account(0),
+                heading(Some("dev"), 1, true),
+                heading(Some(""), 1, true),
+            ]
+        );
+        assert_eq!(
+            sections(&accounts, vec![2, 4], &collapsed, true),
+            vec![
+                heading(Some("dev"), 1, false),
+                Entry::Account(2),
+                heading(Some(""), 1, false),
+                Entry::Account(4),
+            ]
+        );
     }
 
     #[test]

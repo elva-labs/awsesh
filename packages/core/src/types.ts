@@ -50,6 +50,12 @@ export interface AccountCache {
   lastUpdated: number
 }
 
+export interface AccountLayout {
+  pinned: string[]
+  groups: Record<string, string>
+  collapsed: string[]
+}
+
 export interface RoleCredentials {
   accessKeyId: string
   secretAccessKey: string

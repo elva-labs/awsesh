@@ -1,11 +1,11 @@
 use crate::{
-    Accounts, Back, Command, Console, Credentials, EditSession, NewSession, Next, Palette,
+    Accounts, Back, Command, Console, Credentials, EditSession, Entry, NewSession, Next, Palette,
     Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, ToggleDithering,
-    ToggleSidebar, platform, sso_start_url, theme,
+    TogglePin, ToggleSidebar, platform, sso_start_url, theme,
 };
 use gpui::{
     AnyElement, AssetSource, Context, ElementId, Focusable, FontWeight, Hsla, Render, SharedString,
-    Window, anchored, deferred, div, img, prelude::*, px, relative, uniform_list,
+    Window, anchored, deferred, div, img, prelude::*, px, relative, size, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, InteractiveElementExt, Selectable, Sizable,
@@ -15,8 +15,9 @@ use gpui_component::{
     menu::{PopupMenu, PopupMenuItem},
     select::Select as RoleSelect,
     slider::Slider,
+    v_virtual_list,
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
 const HEADER_HEIGHT: f32 = 38.;
 
@@ -86,14 +87,14 @@ fn expiration(value: &str) -> String {
         .unwrap_or_else(|_| "Unknown".into())
 }
 
-fn menu_item(label: &'static str) -> PopupMenuItem {
-    PopupMenuItem::element(move |_, _| div().h(px(36.)).flex().items_center().child(label))
+fn menu_item(label: SharedString) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, _| div().h(px(36.)).flex().items_center().child(label.clone()))
 }
 
 impl Sesh {
-    fn show_menu(
+    pub(super) fn show_menu(
         &mut self,
-        items: Vec<(&'static str, Command, bool)>,
+        items: Vec<(SharedString, Command, bool)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -491,7 +492,7 @@ impl Sesh {
                         ("Delete session…", Command::DeleteSession),
                     ]
                     .into_iter()
-                    .map(|(label, command)| (label, command, false))
+                    .map(|(label, command)| (label.into(), command, false))
                     .collect();
                     this.show_menu(items, window, cx);
                 })),
@@ -755,7 +756,7 @@ impl Sesh {
                                 .into_iter()
                                 .map(|(label, command)| {
                                     (
-                                        label,
+                                        label.into(),
                                         Command::SessionAction(name.clone(), Box::new(command)),
                                         false,
                                     )
@@ -898,6 +899,7 @@ impl Sesh {
         let cached = self.screen == Screen::Accounts && !self.authenticated();
         let disabled = self.modal();
         let account_row = self.screen == Screen::Accounts;
+        let pinned = account_row && self.data.accounts[index].pinned;
         div()
             .id(("row", position))
             .w_full()
@@ -1014,6 +1016,12 @@ impl Sesh {
                         vec![
                             ("Set credentials", Command::SetCredentials, cached),
                             ("Open AWS Console", Command::Console, false),
+                            (
+                                if pinned { "Unpin" } else { "Pin to top" },
+                                Command::TogglePin,
+                                false,
+                            ),
+                            ("Move to group…", Command::GroupMenu, false),
                             ("Copy account ID", Command::CopyAccount, false),
                             ("Copy account name", Command::CopyName, false),
                         ]
@@ -1029,7 +1037,7 @@ impl Sesh {
                         .into_iter()
                         .map(|(label, command, unavailable)| {
                             (
-                                label,
+                                label.into(),
                                 Command::ItemAction(position, Box::new(command)),
                                 unavailable,
                             )
@@ -1042,10 +1050,102 @@ impl Sesh {
             .into_any_element()
     }
 
+    fn heading(
+        &self,
+        ix: usize,
+        group: Option<String>,
+        count: usize,
+        collapsed: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let colors = self.colors(cx);
+        let label = match group.as_deref() {
+            None => "Pinned".to_owned(),
+            Some("") => "Other accounts".to_owned(),
+            Some(group) => group.to_owned(),
+        };
+        let icon = match group {
+            None => IconName::Star,
+            Some(_) if collapsed => IconName::ChevronRight,
+            Some(_) => IconName::ChevronDown,
+        };
+        let toggle =
+            group.filter(|_| !self.modal() && self.search.read(cx).value().trim().is_empty());
+        div()
+            .id(("section", ix))
+            .w_full()
+            .h(px(36.))
+            .px_3()
+            .pt_2()
+            .child(
+                div()
+                    .id(("section-surface", ix))
+                    .h_full()
+                    .px_3()
+                    .rounded_md()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(colors.muted)
+                    .child(Icon::new(icon).size(px(14.)).flex_shrink_0())
+                    .child(div().flex_1().min_w_0().truncate().child(label))
+                    .child(div().flex_shrink_0().child(count.to_string()))
+                    .when_some(toggle, |surface, group| {
+                        let toggled = group.clone();
+                        surface
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(colors.sidebar))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.dispatch(Command::ToggleGroup(toggled.clone()), window, cx)
+                            }))
+                            .on_mouse_down(
+                                gpui::MouseButton::Right,
+                                cx.listener(move |this, _, window, cx| {
+                                    let mut items: Vec<(SharedString, Command, bool)> = vec![(
+                                        if collapsed { "Expand" } else { "Collapse" }.into(),
+                                        Command::ToggleGroup(group.clone()),
+                                        false,
+                                    )];
+                                    if !group.is_empty() {
+                                        items.extend([
+                                            (
+                                                "Rename group…".into(),
+                                                Command::RenameGroup(group.clone()),
+                                                false,
+                                            ),
+                                            (
+                                                "Remove group…".into(),
+                                                Command::RemoveGroup(group.clone()),
+                                                false,
+                                            ),
+                                        ]);
+                                    }
+                                    this.show_menu(items, window, cx);
+                                    cx.stop_propagation();
+                                }),
+                            )
+                    }),
+            )
+            .into_any_element()
+    }
+
     fn list(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
-        let visible = self.visible(cx);
-        let count = visible.len();
+        let entries = self.entries(cx);
+        let count: usize = entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Account(_) => 1,
+                Entry::Heading {
+                    count,
+                    collapsed: true,
+                    ..
+                } => *count,
+                Entry::Heading { .. } => 0,
+            })
+            .sum();
         let title = if self.screen == Screen::Credentials {
             "Active profiles"
         } else {
@@ -1082,20 +1182,47 @@ impl Sesh {
                         .disabled(self.modal()),
                 ),
             );
-        if count > 0 {
+        if !entries.is_empty() {
+            let sizes = Rc::new(
+                entries
+                    .iter()
+                    .map(|entry| {
+                        size(
+                            px(0.),
+                            px(match entry {
+                                Entry::Heading { .. } => 36.,
+                                Entry::Account(_) => 74.,
+                            }),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            let positions: Vec<usize> = entries
+                .iter()
+                .scan(0, |next, entry| {
+                    let position = *next;
+                    if matches!(entry, Entry::Account(_)) {
+                        *next += 1;
+                    }
+                    Some(position)
+                })
+                .collect();
             list = list.child(
-                uniform_list(
-                    "items",
-                    count,
-                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                        range
-                            .map(|position| this.row(position, visible[position], cx))
-                            .collect::<Vec<_>>()
-                    }),
-                )
+                v_virtual_list(cx.entity(), "items", sizes, move |this, range, _, cx| {
+                    range
+                        .map(|ix| match &entries[ix] {
+                            Entry::Heading {
+                                group,
+                                count,
+                                collapsed,
+                            } => this.heading(ix, group.clone(), *count, *collapsed, cx),
+                            Entry::Account(index) => this.row(positions[ix], *index, cx),
+                        })
+                        .collect::<Vec<_>>()
+                })
                 .w_full()
                 .flex_1()
-                .track_scroll(self.scroll.clone()),
+                .track_scroll(&self.scroll),
             );
         } else {
             let (heading, description) = if self.busy || !self.initialized {
@@ -1362,17 +1489,79 @@ impl Sesh {
                             .font_weight(FontWeight::SEMIBOLD),
                     )
                     .child(
-                        div().flex().items_center().justify_between().gap_2().child(
-                            self.copy_value(
-                                "account-id",
-                                &account.account_id,
-                                Command::CopyAccount,
-                                cx,
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(
+                                self.copy_value(
+                                    "account-id",
+                                    &account.account_id,
+                                    Command::CopyAccount,
+                                    cx,
+                                )
+                                .font_family(platform::mono_font())
+                                .text_size(px(11.))
+                                .text_color(colors.muted),
                             )
-                            .font_family(platform::mono_font())
-                            .text_size(px(11.))
-                            .text_color(colors.muted),
-                        ),
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .flex_shrink_0()
+                                    .gap_1()
+                                    .child(
+                                        self.button("account-group", "", Command::GroupMenu, cx)
+                                            .ghost()
+                                            .icon(Icon::new(IconName::Folder).size(px(14.)))
+                                            .child(
+                                                div().max_w(px(120.)).truncate().child(
+                                                    SharedString::from(
+                                                        account.group.clone().unwrap_or_else(
+                                                            || "Add to group".into(),
+                                                        ),
+                                                    ),
+                                                ),
+                                            )
+                                            .h(px(24.))
+                                            .px(px(6.))
+                                            .rounded(px(6.))
+                                            .text_size(px(12.))
+                                            .text_color(colors.muted)
+                                            .cursor_pointer()
+                                            .tooltip("Move to group"),
+                                    )
+                                    .child(
+                                        self.button("toggle-pin", "", Command::TogglePin, cx)
+                                            .ghost()
+                                            .size(px(24.))
+                                            .p_0()
+                                            .rounded(px(6.))
+                                            .cursor_pointer()
+                                            .child(
+                                                Icon::new(IconName::Star).size(px(16.)).text_color(
+                                                    if account.pinned {
+                                                        cx.theme().yellow
+                                                    } else {
+                                                        colors.muted
+                                                    },
+                                                ),
+                                            )
+                                            .tooltip(format!(
+                                                "{} · {}",
+                                                if account.pinned {
+                                                    "Unpin"
+                                                } else {
+                                                    "Pin to top"
+                                                },
+                                                platform::shortcut_label(
+                                                    "pin_account",
+                                                    &self.shortcuts
+                                                )
+                                            )),
+                                    ),
+                            ),
                     ),
             )
             .child(
@@ -1886,6 +2075,7 @@ impl Sesh {
                     "startUrl" => "SSO start URL",
                     "ssoRegion" => "SSO region",
                     "defaultRegion" => "Default region",
+                    "group" | "renamed" => "Group name",
                     _ => key,
                 };
                 panel = panel.child(
@@ -1928,8 +2118,10 @@ impl Sesh {
                         "Working…"
                     } else if form.destructive {
                         "Remove"
-                    } else {
+                    } else if form.operation == "saveSession" {
                         "Save session"
+                    } else {
+                        "Save"
                     },
                     Command::Confirm,
                     cx,
@@ -2210,6 +2402,9 @@ impl Render for Sesh {
             }))
             .on_action(cx.listener(|this, _: &ToggleSidebar, window, cx| {
                 this.dispatch(Command::ToggleSidebar, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &TogglePin, window, cx| {
+                this.dispatch(Command::TogglePin, window, cx)
             }))
             .when(
                 self.translucency.read(cx).value().end() > 0. && self.appearance.dithering,

@@ -16,6 +16,7 @@ import type {
   SSOLoginInfo,
   TokenCache,
   AccountCache,
+  AccountLayout,
   RoleCredentials,
   LastSelected,
   LastSelectedPerSession,
@@ -258,6 +259,19 @@ export function createAwsesh(options: AwseshOptions) {
       getAll: async (sessionName: string): Promise<Record<string, string>> => {
         const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-regions")
         return data?.[sessionName] ?? {}
+      },
+    },
+
+    accountLayout: {
+      get: async (sessionName: string): Promise<AccountLayout> => {
+        const data = await storage.read<Record<string, Partial<AccountLayout>>>("preference/account-layout")
+        return { pinned: [], groups: {}, collapsed: [], ...data?.[sessionName] }
+      },
+      update: async (sessionName: string, fn: (layout: AccountLayout) => AccountLayout): Promise<void> => {
+        await storage.update<Record<string, Partial<AccountLayout>>>("preference/account-layout", (draft) => {
+          draft[sessionName] = fn({ pinned: [], groups: {}, collapsed: [], ...draft[sessionName] })
+          return draft
+        })
       },
     },
 
