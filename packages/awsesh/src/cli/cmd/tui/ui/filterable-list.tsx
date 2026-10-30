@@ -353,7 +353,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
       </Show>
 
       <Show when={props.showFilter !== false}>
-        <box flexDirection="column">
+        <box flexDirection="column" flexShrink={0}>
           <box
             paddingLeft={1}
             paddingRight={1}

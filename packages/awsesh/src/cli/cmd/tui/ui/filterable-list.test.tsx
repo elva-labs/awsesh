@@ -340,6 +340,35 @@ test("page navigation uses its remapped bindings", async () => {
   expect(await list.selectedId()).toBe("account-0")
 })
 
+test("overflowing account lists keep their first heading below the search separator", async () => {
+  const list = await renderList(Array.from({ length: 30 }, (_, index) => ({
+    ...item(`account-${index}`, "111122223333 · AdministratorAccess · eu-north-1"),
+    category: "Production",
+    categoryId: "group:Production",
+  })), { height: 12, collapsed: [] })
+  if (!setup) throw new Error("List renderer was not initialized")
+  const view = setup
+  for (const dimensions of [{ width: 80, height: 12 }, { width: 45, height: 24 }, { width: 80, height: 8 }]) {
+    view.resize(dimensions.width, dimensions.height)
+    await view.flush()
+    const lines = list.frame().split("\n")
+    const search = lines.findIndex((line) => line.includes("Search..."))
+    const heading = lines.findIndex((line) => line.includes("Production"))
+    expect(search).toBeGreaterThanOrEqual(0)
+    expect(lines[search + 1]?.trim()).toBe("─".repeat(dimensions.width))
+    expect(heading).toBeGreaterThan(search + 1)
+  }
+})
+
+test("overflowing ungrouped lists keep account rows below the search separator", async () => {
+  const list = await renderList(Array.from({ length: 30 }, (_, index) => item(`account-${index}`, "AdministratorAccess")), { height: 12 })
+  const lines = list.frame().split("\n")
+  const search = lines.findIndex((line) => line.includes("Search..."))
+  expect(search).toBeGreaterThanOrEqual(0)
+  expect(lines[search + 1]?.trim()).toBe("─".repeat(80))
+  expect(lines.findIndex((line) => line.includes("account-0"))).toBeGreaterThan(search + 1)
+})
+
 test("remapped navigation, activation, folding, filtering and back replace the default keys", async () => {
   bindings = { ...bindings, nav_down: ["n"], nav_up: ["u"], nav_left: ["x"], nav_right: ["y"], select: ["v"], filter: ["s"], back: ["b"] }
   const list = await renderList([
