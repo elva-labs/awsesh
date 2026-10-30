@@ -1332,9 +1332,9 @@ impl Sesh {
                 ("Copy account name".into(), Command::CopyName),
                 (
                     if account.pinned {
-                        "Unpin account"
+                        "Remove account from favorites"
                     } else {
-                        "Pin account to top"
+                        "Add account to favorites"
                     }
                     .into(),
                     Command::TogglePin,
@@ -2041,7 +2041,7 @@ impl Sesh {
                         .count();
                     self.show_form(
                         "Remove group?",
-                        &format!("Its {count} accounts move to Other accounts. Pinned accounts stay pinned."),
+                        &format!("Its {count} accounts move to Other accounts. Favorites stay in Favorites."),
                         vec![],
                         "removeAccountGroup",
                         json!({"name": name, "group": group}),

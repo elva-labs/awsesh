@@ -36,6 +36,11 @@ impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
         if path == "icons/refresh.svg" {
             return Ok(Some(Cow::Borrowed(include_bytes!("../assets/refresh.svg"))));
+        if path == "icons/star-filled.svg" {
+            return Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/star-filled.svg"
+            ))));
+        }
         }
         gpui_component_assets::Assets.load(path)
     }
@@ -44,6 +49,9 @@ impl AssetSource for Assets {
         let mut assets = gpui_component_assets::Assets.list(path)?;
         if "icons/refresh.svg".starts_with(path) {
             assets.push("icons/refresh.svg".into());
+        if "icons/star-filled.svg".starts_with(path) {
+            assets.push("icons/star-filled.svg".into());
+        }
         }
         Ok(assets)
     }
@@ -1017,7 +1025,11 @@ impl Sesh {
                             ("Set credentials", Command::SetCredentials, cached),
                             ("Open AWS Console", Command::Console, false),
                             (
-                                if pinned { "Unpin" } else { "Pin to top" },
+                                if pinned {
+                                    "Remove from favorites"
+                                } else {
+                                    "Add to favorites"
+                                },
                                 Command::TogglePin,
                                 false,
                             ),
@@ -1025,6 +1037,7 @@ impl Sesh {
                             ("Copy account ID", Command::CopyAccount, false),
                             ("Copy account name", Command::CopyName, false),
                         ]
+                    .group("account-row")
                     } else {
                         vec![
                             ("Copy CLI profile", Command::CopyProfile, false),
@@ -1060,7 +1073,7 @@ impl Sesh {
     ) -> AnyElement {
         let colors = self.colors(cx);
         let label = match group.as_deref() {
-            None => "Pinned".to_owned(),
+            None => "Favorites".to_owned(),
             Some("") => "Other accounts".to_owned(),
             Some(group) => group.to_owned(),
         };
@@ -1087,6 +1100,44 @@ impl Sesh {
                     .items_center()
                     .gap_2()
                     .text_size(px(11.))
+                    .when(account_row, |row| {
+                        row.child(
+                            div()
+                                .flex_shrink_0()
+                                .when(!pinned, |star| {
+                                    star.invisible()
+                                        .group_hover("account-row", |style| style.visible())
+                                })
+                                .child(
+                                    self.button(
+                                        ("account-favorite", position),
+                                        "",
+                                        Command::ItemAction(position, Box::new(Command::TogglePin)),
+                                        cx,
+                                    )
+                                    .ghost()
+                                    .size(px(28.))
+                                    .p_0()
+                                    .rounded(px(6.))
+                                    .cursor_pointer()
+                                    .child(
+                                        Icon::new(IconName::Star)
+                                            .size(px(16.))
+                                            .when(pinned, |icon| icon.path("icons/star-filled.svg"))
+                                            .text_color(if pinned {
+                                                cx.theme().yellow
+                                            } else {
+                                                colors.muted
+                                            }),
+                                    )
+                                    .tooltip(if pinned {
+                                        "Remove from favorites"
+                                    } else {
+                                        "Add to favorites"
+                                    }),
+                                ),
+                        )
+                    })
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(colors.muted)
                     .child(Icon::new(icon).size(px(14.)).flex_shrink_0())
@@ -1540,20 +1591,23 @@ impl Sesh {
                                             .rounded(px(6.))
                                             .cursor_pointer()
                                             .child(
-                                                Icon::new(IconName::Star).size(px(16.)).text_color(
-                                                    if account.pinned {
+                                                Icon::new(IconName::Star)
+                                                    .size(px(16.))
+                                                    .when(account.pinned, |icon| {
+                                                        icon.path("icons/star-filled.svg")
+                                                    })
+                                                    .text_color(if account.pinned {
                                                         cx.theme().yellow
                                                     } else {
                                                         colors.muted
-                                                    },
-                                                ),
+                                                    }),
                                             )
                                             .tooltip(format!(
                                                 "{} · {}",
                                                 if account.pinned {
-                                                    "Unpin"
+                                                    "Remove from favorites"
                                                 } else {
-                                                    "Pin to top"
+                                                    "Add to favorites"
                                                 },
                                                 platform::shortcut_label(
                                                     "pin_account",

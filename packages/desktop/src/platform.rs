@@ -342,7 +342,7 @@ pub fn shortcuts() -> Vec<Shortcut> {
         entry("console", "Open AWS Console", shortcut("o"), Console),
         entry(
             "pin_account",
-            "Pin or unpin the selected account",
+            "Add or remove the selected account from favorites",
             shortcut("d"),
             TogglePin,
         ),
