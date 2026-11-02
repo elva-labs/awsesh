@@ -10,6 +10,7 @@ import { AWSClient } from "./client"
 import { Credentials } from "./credentials"
 import { Sessions } from "./sessions"
 import { Storage } from "./storage"
+import { legacySessionKey, readJsonFile, sessionStorageKey } from "./filesystem"
 import type {
   AwseshOptions,
   SSOSession,
@@ -36,6 +37,10 @@ function hashUrl(url: string): string {
   return createHash("sha256").update(url).digest("hex").slice(0, 16)
 }
 
+function own<T>(record: Record<string, T> | undefined, key: string): T | undefined {
+  return record && Object.hasOwn(record, key) ? record[key] : undefined
+}
+
 export function createAwsesh(options: AwseshOptions) {
   const { configDir, dataDir, awsDir } = options
 
@@ -47,11 +52,47 @@ export function createAwsesh(options: AwseshOptions) {
     return options.resolveAwsDir ? await options.resolveAwsDir() : awsDir
   }
 
+  async function accountCache(name: string) {
+    const cache = await storage.read<AccountCache>(`accounts/${sessionStorageKey(name)}`)
+    const legacy = legacySessionKey(name)
+    if (cache || legacy === undefined) return cache
+    const session = await readJsonFile<SSOSession>(`${configDir}/sessions/${legacy}.json`).catch(() => undefined)
+    return session?.name === name ? storage.read<AccountCache>(`accounts/${legacy}`) : undefined
+  }
+
   return {
     sessions: {
       list: () => sessions.list(),
       get: (name: string) => sessions.load(name),
-      save: (session: SSOSession) => sessions.save(session),
+      save: async (session: SSOSession, originalName?: string) => {
+        if (originalName === undefined || originalName === session.name) {
+          const cache = await accountCache(session.name)
+          if (cache) await storage.write(`accounts/${sessionStorageKey(session.name)}`, cache)
+          return sessions.save(session)
+        }
+        if (!await sessions.exists(originalName)) throw new Error(`SSO session not found: ${originalName}`)
+        if (await sessions.exists(session.name)) throw new Error("A session with this name already exists")
+        await sessions.save(session)
+        const cache = await accountCache(originalName)
+        if (cache) await storage.write(`accounts/${sessionStorageKey(session.name)}`, cache)
+        for (const key of ["last-accounts", "last-profiles", "profile-names", "preferred-roles", "preferred-regions", "account-layout"]) {
+          const values = await storage.read<Record<string, unknown>>(`preference/${key}`)
+          if (!values || !Object.hasOwn(values, originalName)) continue
+          const updated = { ...values, [session.name]: values[originalName] }
+          delete updated[originalName]
+          await storage.write(`preference/${key}`, updated)
+        }
+        for (const key of ["last-session", "last-selected"]) {
+          const value = await storage.read<LastSelected>(`preference/${key}`)
+          if (value?.session === originalName) await storage.write(`preference/${key}`, { ...value, session: session.name })
+        }
+        const active = await storage.read<ActiveCredential[]>("credentials/active")
+        if (active) await storage.write("credentials/active", active.map((value) => value.sessionName === originalName ? { ...value, sessionName: session.name } : value))
+        const previous = await storage.read<LastSetCredential>("credentials/last-set")
+        if (previous?.sessionName === originalName) await storage.write("credentials/last-set", { ...previous, sessionName: session.name })
+        await sessions.remove(originalName)
+        await storage.remove(`accounts/${sessionStorageKey(originalName)}`)
+      },
       remove: (name: string) => sessions.remove(name),
       exists: (name: string) => sessions.exists(name),
       count: () => sessions.count(),
@@ -132,8 +173,8 @@ export function createAwsesh(options: AwseshOptions) {
     },
 
     accounts: {
-      get: (sessionName: string) => storage.read<AccountCache>(`accounts/${sessionName}`),
-      save: (sessionName: string, cache: AccountCache) => storage.write(`accounts/${sessionName}`, cache),
+      get: accountCache,
+      save: (sessionName: string, cache: AccountCache) => storage.write(`accounts/${sessionStorageKey(sessionName)}`, cache),
     },
 
     lastSelected: {
@@ -162,12 +203,11 @@ export function createAwsesh(options: AwseshOptions) {
     lastAccountPerSession: {
       get: async (sessionName: string): Promise<string | undefined> => {
         const data = await storage.read<LastSelectedPerSession>("preference/last-accounts")
-        return data?.[sessionName]
+        return own(data, sessionName)
       },
       save: async (sessionName: string, accountId: string): Promise<void> => {
         await storage.update<LastSelectedPerSession>("preference/last-accounts", (draft) => {
-          draft[sessionName] = accountId
-          return draft
+          return { ...draft, [sessionName]: accountId }
         })
       },
       getAll: async (): Promise<LastSelectedPerSession> => {
@@ -179,7 +219,7 @@ export function createAwsesh(options: AwseshOptions) {
     lastProfiles: {
       getAll: async (sessionName: string): Promise<Record<string, string>> => {
         const data = await storage.read<Record<string, Record<string, string>>>("preference/last-profiles")
-        return data?.[sessionName] ?? {}
+        return own(data, sessionName) ?? {}
       },
     },
 
@@ -188,16 +228,14 @@ export function createAwsesh(options: AwseshOptions) {
         const data = await storage.read<Record<string, Record<string, Record<string, string>>>>(
           "preference/profile-names"
         )
-        return data?.[sessionName]?.[accountName]?.[roleName]
+        return own(own(own(data, sessionName), accountName), roleName)
       },
       save: async (sessionName: string, accountName: string, roleName: string, profileName: string): Promise<void> => {
         await storage.update<Record<string, Record<string, Record<string, string>>>>(
           "preference/profile-names",
           (draft) => {
-            if (!draft[sessionName]) draft[sessionName] = {}
-            if (!draft[sessionName][accountName]) draft[sessionName][accountName] = {}
-            draft[sessionName][accountName][roleName] = profileName
-            return draft
+            const accounts = own(draft, sessionName)
+            return { ...draft, [sessionName]: { ...accounts, [accountName]: { ...own(accounts, accountName), [roleName]: profileName } } }
           }
         )
       },
@@ -205,13 +243,13 @@ export function createAwsesh(options: AwseshOptions) {
         const data = await storage.read<Record<string, Record<string, Record<string, string>>>>(
           "preference/profile-names"
         )
-        return data?.[sessionName]?.[accountName] ?? {}
+        return own(own(data, sessionName), accountName) ?? {}
       },
       remove: async (sessionName: string, accountName: string, roleName: string): Promise<void> => {
         await storage.update<Record<string, Record<string, Record<string, string>>>>(
           "preference/profile-names",
           (draft) => {
-            if (draft[sessionName]?.[accountName]?.[roleName]) {
+            if (own(own(own(draft, sessionName), accountName), roleName)) {
               delete draft[sessionName][accountName][roleName]
               if (Object.keys(draft[sessionName][accountName]).length === 0) {
                 delete draft[sessionName][accountName]
@@ -229,48 +267,43 @@ export function createAwsesh(options: AwseshOptions) {
     preferredRoles: {
       get: async (sessionName: string, accountId: string): Promise<string | undefined> => {
         const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-roles")
-        return data?.[sessionName]?.[accountId]
+        return own(own(data, sessionName), accountId)
       },
       save: async (sessionName: string, accountId: string, roleName: string): Promise<void> => {
         await storage.update<Record<string, Record<string, string>>>("preference/preferred-roles", (draft) => {
-          if (!draft[sessionName]) draft[sessionName] = {}
-          draft[sessionName][accountId] = roleName
-          return draft
+          return { ...draft, [sessionName]: { ...own(draft, sessionName), [accountId]: roleName } }
         })
       },
       getAll: async (sessionName: string): Promise<Record<string, string>> => {
         const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-roles")
-        return data?.[sessionName] ?? {}
+        return own(data, sessionName) ?? {}
       },
     },
 
     preferredRegions: {
       get: async (sessionName: string, accountId: string): Promise<string | undefined> => {
         const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-regions")
-        return data?.[sessionName]?.[accountId]
+        return own(own(data, sessionName), accountId)
       },
       save: async (sessionName: string, accountId: string, region: string): Promise<void> => {
         await storage.update<Record<string, Record<string, string>>>("preference/preferred-regions", (draft) => {
-          if (!draft[sessionName]) draft[sessionName] = {}
-          draft[sessionName][accountId] = region
-          return draft
+          return { ...draft, [sessionName]: { ...own(draft, sessionName), [accountId]: region } }
         })
       },
       getAll: async (sessionName: string): Promise<Record<string, string>> => {
         const data = await storage.read<Record<string, Record<string, string>>>("preference/preferred-regions")
-        return data?.[sessionName] ?? {}
+        return own(data, sessionName) ?? {}
       },
     },
 
     accountLayout: {
       get: async (sessionName: string): Promise<AccountLayout> => {
         const data = await storage.read<Record<string, Partial<AccountLayout>>>("preference/account-layout")
-        return { pinned: [], groups: {}, collapsed: [], ...data?.[sessionName] }
+        return { pinned: [], groups: {}, collapsed: [], ...own(data, sessionName) }
       },
       update: async (sessionName: string, fn: (layout: AccountLayout) => AccountLayout): Promise<void> => {
         await storage.update<Record<string, Partial<AccountLayout>>>("preference/account-layout", (draft) => {
-          draft[sessionName] = fn({ pinned: [], groups: {}, collapsed: [], ...draft[sessionName] })
-          return draft
+          return { ...draft, [sessionName]: fn({ pinned: [], groups: {}, collapsed: [], ...own(draft, sessionName) }) }
         })
       },
     },
@@ -369,7 +402,7 @@ export function createAwsesh(options: AwseshOptions) {
       // Look up configured profile if none provided
       const configuredProfile = customProfileName === undefined
         ? await storage.read<Record<string, Record<string, Record<string, string>>>>("preference/profile-names")
-            .then(data => data?.[sessionName]?.[accountName]?.[roleName])
+            .then(data => own(own(own(data, sessionName), accountName), roleName))
         : undefined
 
       const profileName = customProfileName || configuredProfile || "default"
@@ -419,9 +452,7 @@ export function createAwsesh(options: AwseshOptions) {
       })
 
       await storage.update<Record<string, Record<string, string>>>("preference/last-profiles", (draft) => {
-        draft[sessionName] ??= {}
-        draft[sessionName][accountId] = profileName
-        return draft
+        return { ...draft, [sessionName]: { ...own(draft, sessionName), [accountId]: profileName } }
       })
 
       // 4. Update last selected (for UI defaults)

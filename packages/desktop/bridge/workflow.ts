@@ -29,7 +29,7 @@ export async function dispatchWorkflow(operation: string, args: Record<string, u
     case "selectSession": return workflow.selectSession(string(name), args.refresh === true)
     case "saveSession": {
       if (!("startUrl" in args) || !("ssoRegion" in args) || !("defaultRegion" in args)) throw new Error("Incomplete SSO session")
-      return workflow.saveSession({ name: string(name), startUrl: string(args.startUrl), ssoRegion: string(args.ssoRegion), defaultRegion: string(args.defaultRegion) }, args.creating === true)
+      return workflow.saveSession({ name: string(name), startUrl: string(args.startUrl), ssoRegion: string(args.ssoRegion), defaultRegion: string(args.defaultRegion) }, args.creating === true, optional(args.originalName))
     }
     case "removeSession": return workflow.removeSession(string(name))
     case "startLogin": return workflow.startLogin(string(name))

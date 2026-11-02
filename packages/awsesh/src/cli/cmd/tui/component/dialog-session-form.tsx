@@ -1,4 +1,4 @@
-import { createSignal, onMount } from "solid-js"
+import { createSignal, onCleanup, onMount } from "solid-js"
 import type { InputRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useTheme } from "../context/theme"
@@ -26,7 +26,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
 
   const isEdit = props.mode === "edit"
   const initialSession = props.session
-  const originalName = initialSession?.name
+  const originalName = isEdit ? initialSession?.name : undefined
 
   const extractOrgName = (url: string): string => {
     const match = url.match(/^https:\/\/([^.]+)\.awsapps\.com\/start\/?$/)
@@ -50,6 +50,9 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   const [defaultRegion, setDefaultRegion] = createSignal(initialSession?.defaultRegion ?? "us-east-1")
   const [errors, setErrors] = createSignal<Record<string, string>>({})
   const [focusIndex, setFocusIndex] = createSignal(0)
+  const [saving, setSaving] = createSignal(false)
+  let disposed = false
+  onCleanup(() => { disposed = true })
 
   const startUrl = () => buildStartUrl(orgName())
 
@@ -61,14 +64,15 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   const inputs = () => [nameInput, startUrlInput, ssoRegionInput, defaultRegionInput]
 
   onMount(() => {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       if (nameInput) {
         nameInput.focus()
         if (isEdit) {
-          nameInput.cursorOffset = nameInput.value.length
+          nameInput.gotoBufferEnd()
         }
       }
     }, 1)
+    onCleanup(() => clearTimeout(timer))
   })
 
   const validate = (): boolean => {
@@ -99,21 +103,22 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   }
 
   const handleSave = async () => {
-    if (!validate()) return
+    if (saving() || !validate()) return
+    setSaving(true)
 
     const session: SSOSession = {
-      name: name().trim(),
+      name: name(),
       startUrl: startUrl().trim(),
       ssoRegion: ssoRegion().trim(),
       defaultRegion: defaultRegion().trim(),
     }
 
     try {
-      if (isEdit && originalName && originalName !== session.name) {
-        await awsesh.sessions.remove(originalName)
-      }
-      await awsesh.sessions.save(session)
+      if (!isEdit && await awsesh.sessions.exists(session.name)) throw new Error("A session with this name already exists")
+      await awsesh.sessions.save(session, originalName)
+      if (disposed) return
       await aws.refreshSessions()
+      if (disposed) return
       toast.show({
         variant: "success",
         message: isEdit ? "SSO Session updated" : "SSO Session created",
@@ -121,7 +126,9 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
       dialog.clear()
       props.onSuccess?.()
     } catch (e) {
-      toast.error(e)
+      if (!disposed) toast.error(e)
+    } finally {
+      if (!disposed) setSaving(false)
     }
   }
 
@@ -141,7 +148,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
       const input = inputs()[nextIndex]
       if (input) {
         input.focus()
-        input.cursorOffset = input.value.length
+        input.gotoBufferEnd()
       }
     }
 
@@ -200,7 +207,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
             onClick={handleCancel}
           />
           <DialogButton
-            label="Save"
+            label={saving() ? "Saving…" : "Save"}
             variant="primary"
             onClick={handleSave}
           />

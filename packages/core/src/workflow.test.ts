@@ -93,7 +93,7 @@ describe("Full Workflow", () => {
     await workflow.assumeRole("production", "123456789012", "ReadOnly");
     await awsesh.setCredential({ credentials: sampleCreds, sessionName: "secondary", accountId: "222222222222", accountName: "Other", roleName: "Admin" });
     await awsesh.credentials.write("unrelated", sampleCreds);
-    await expect(workflow.clearAllCredentials("../escape")).rejects.toThrow("Session names");
+    await expect(workflow.clearAllCredentials("../escape")).rejects.toThrow("not found");
     expect(await awsesh.activeCredentials.list()).toHaveLength(2);
     const clearedAll = await workflow.clearAllCredentials("production");
     expect(clearedAll.credentials).toEqual([]);
@@ -114,7 +114,7 @@ describe("Full Workflow", () => {
 
   test("interactive workflow validates session and preference inputs before writing", async () => {
     const workflow = createWorkflow(awsesh);
-    await expect(workflow.saveSession({ ...sampleSession, name: "../escape" })).rejects.toThrow("Session names");
+    await expect(workflow.saveSession({ ...sampleSession, name: "   " })).rejects.toThrow("required");
     await expect(workflow.saveSession({ ...sampleSession, startUrl: "http://example.com" })).rejects.toThrow("HTTPS");
     await expect(workflow.saveSession({ ...sampleSession, ssoRegion: "invalid" })).rejects.toThrow("region");
     expect(await awsesh.sessions.count()).toBe(0);
@@ -128,9 +128,80 @@ describe("Full Workflow", () => {
     await expect(workflow.setProfile("production", "123", "Admin", "profile\n[default]")).rejects.toThrow("profile");
     await expect(workflow.preferRole("production", "123", "Unknown")).rejects.toThrow("not available");
     await expect(workflow.assumeRole("production", "123", "Admin")).rejects.toThrow("Sign in");
-    await expect(workflow.snapshot("../escape")).rejects.toThrow("Session names");
+    await expect(workflow.snapshot("../escape")).rejects.toThrow("not found");
     const removed = await workflow.removeSession("production");
     expect(removed.sessions).toEqual([]);
+  });
+
+  test("session and account names survive credential and profile operations", async () => {
+    const workflow = createWorkflow(awsesh);
+    awsesh.sso.listRoles = async () => ["AdministratorAccess"];
+    awsesh.sso.getCredentials = async () => sampleCreds;
+    await awsesh.tokens.save(sampleSession.startUrl, "mock-token", new Date(Date.now() + 3600000));
+    for (const [name, accountName] of [["Lantmännen", "Production / [東京]"], ["__proto__", "constructor"], ["constructor", "__proto__"]]) {
+      const account = { accountId: "123456789012", name: accountName, roles: [], rolesLoaded: false };
+      awsesh.sso.listAccounts = async () => [account];
+      await workflow.saveSession({ ...sampleSession, name }, true);
+      expect((await workflow.selectSession(name)).accounts[0].name).toBe(accountName);
+      await workflow.loadRoles(name, account.accountId);
+      await workflow.setProfile(name, account.accountId, "AdministratorAccess", "account-admin");
+      const state = await workflow.assumeRole(name, account.accountId, "AdministratorAccess");
+      expect(state.credentials[0]).toMatchObject({ sessionName: name, accountName, profileName: "account-admin" });
+      await workflow.setProfile(name, account.accountId, "AdministratorAccess", "");
+      expect(await awsesh.profileNames.get(name, accountName, "AdministratorAccess")).toBeUndefined();
+      await workflow.clearAllCredentials(name);
+      await workflow.removeSession(name);
+    }
+    expect(await awsesh.sessions.list()).toEqual([]);
+  });
+
+  test("renaming from either client preserves all session state and rejects collisions", async () => {
+    const workflow = createWorkflow(awsesh);
+    await fs.mkdir(path.join(tempConfigDir, "sessions"), { recursive: true });
+    await fs.writeFile(path.join(tempConfigDir, "sessions", "Lantmännen.json"), JSON.stringify({ ...sampleSession, name: "Lantmännen" }));
+    await fs.mkdir(path.join(tempDataDir, "storage", "accounts"), { recursive: true });
+    await fs.writeFile(path.join(tempDataDir, "storage", "accounts", "Lantmännen.json"), JSON.stringify({
+      accounts: [{ accountId: "123456789012", name: "Account / [Production]", roles: ["Admin"], rolesLoaded: true }], lastUpdated: Date.now(),
+    }));
+    await workflow.saveSession({ ...sampleSession, name: "lantmännen" }, true);
+    expect((await workflow.snapshot("lantmännen")).accounts).toEqual([]);
+    await workflow.removeSession("lantmännen");
+    await workflow.saveSession({ ...sampleSession, name: "Other" }, true);
+    await awsesh.tokens.save(sampleSession.startUrl, "mock-token", new Date(Date.now() + 3600000));
+    awsesh.sso.listAccounts = async () => { throw new Error("Renaming must preserve the existing account cache"); };
+    awsesh.sso.getCredentials = async () => sampleCreds;
+    await workflow.selectSession("Lantmännen");
+    await workflow.preferRole("Lantmännen", "123456789012", "Admin");
+    await workflow.setRegion("Lantmännen", "123456789012", "eu-north-1");
+    await workflow.setProfile("Lantmännen", "123456789012", "Admin", "production-admin");
+    await workflow.pinAccount("Lantmännen", "123456789012", true);
+    await workflow.setAccountGroup("Lantmännen", "123456789012", "Production");
+    await workflow.collapseAccountGroup("Lantmännen", "Production", true);
+    await workflow.assumeRole("Lantmännen", "123456789012", "Admin");
+    const initial = await workflow.snapshot("Lantmännen");
+    await expect(workflow.saveSession({ ...sampleSession, name: "Other" }, false, "Lantmännen")).rejects.toThrow("already exists");
+    expect(await workflow.snapshot("Lantmännen")).toEqual(initial);
+    let original = "Lantmännen";
+    for (const [index, name] of ["lantmännen", "__proto__"].entries()) {
+      if (index % 2 === 0) await workflow.saveSession({ ...sampleSession, name }, false, original);
+      if (index % 2 !== 0) await awsesh.sessions.save({ ...sampleSession, name }, original);
+      expect(await awsesh.sessions.get(original)).toBeUndefined();
+      const restarted = createAwsesh({ configDir: tempConfigDir, dataDir: tempDataDir, awsDir: tempAwsDir });
+      const state = await createWorkflow(restarted).snapshot(name);
+      expect(state.accounts).toEqual(initial.accounts);
+      expect(state.collapsedGroups).toEqual(initial.collapsedGroups);
+      expect(state.lastAccount).toBe(initial.lastAccount);
+      expect(state.lastSession).toBe(name);
+      expect(state.lastSelected.session).toBe(name);
+      expect(state.credentials[0].sessionName).toBe(name);
+      expect((await restarted.lastSetCredential.get())?.sessionName).toBe(name);
+      expect(state.sessions.find((value) => value.name === name)?.authenticated).toBe(true);
+      expect(await restarted.credentials.listProfiles()).toEqual(["production-admin"]);
+      original = name;
+    }
+    expect(await awsesh.sessions.count()).toBe(2);
+    await workflow.signOut(original);
+    expect(await awsesh.credentials.listProfiles()).toEqual([]);
   });
 
   test("interactive workflow arranges accounts per session", async () => {
@@ -184,7 +255,7 @@ describe("Full Workflow", () => {
     await expect(workflow.setAccountGroup("production", "111", "Line\nbreak")).rejects.toThrow("Group names");
     await expect(workflow.setAccountGroup("production", "111", "x".repeat(65))).rejects.toThrow("Group names");
     await expect(workflow.renameAccountGroup("production", "Production", "")).rejects.toThrow("Group names");
-    await expect(workflow.collapseAccountGroup("../escape", "", true)).rejects.toThrow("Session names");
+    await expect(workflow.collapseAccountGroup("../escape", "", true)).rejects.toThrow("not found");
   });
 
   test("interactive workflow keeps device authorization inside the SDK", async () => {
@@ -199,7 +270,9 @@ describe("Full Workflow", () => {
     });
     awsesh.sso.pollForToken = async () => ({ token: "private-token", expiresAt: new Date(Date.now() + 3600000) });
     expect(await workflow.startLogin("production")).toEqual({ url: "https://example.com/verify?code=ABC", code: "ABC" });
-    expect(await workflow.pollLogin("production")).toEqual({ complete: true });
+    await workflow.saveSession({ ...sampleSession, name: "Lantmännen / renamed" }, false, "production");
+    expect(await workflow.pollLogin("Lantmännen / renamed")).toEqual({ complete: true });
+    await workflow.saveSession(sampleSession, false, "Lantmännen / renamed");
     expect((await workflow.snapshot()).sessions[0].authenticated).toBe(true);
     await workflow.startLogin("production");
     await workflow.cancelLogin("production");

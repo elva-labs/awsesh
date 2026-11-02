@@ -166,6 +166,7 @@ struct Form {
     fields: Vec<(String, Entity<InputState>)>,
     operation: &'static str,
     args: Value,
+    submission: Option<Value>,
     destructive: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -487,9 +488,6 @@ impl Sesh {
             view.error = true;
             view.message = format!("Cannot configure shortcuts: {error}");
         }
-        view.request("getAppearance", json!({}), cx);
-        view.request("wslStatus", json!({}), cx);
-        view.request("snapshot", json!({}), cx);
         view
     }
 
@@ -789,6 +787,7 @@ impl Sesh {
             .into();
         }
         let sdk = self.sdk.clone();
+        let request = args.clone();
         let window = self.window;
         let task = cx.background_executor().spawn(async move {
             let mut guard = sdk
@@ -809,8 +808,14 @@ impl Sesh {
                     this.busy = false;
                     this.active = None;
                     match result {
-                        Ok(value) => this.receive(operation, value, window, cx),
+                        Ok(value) => this.receive(operation, value, &request, window, cx),
                         Err(error) => {
+                            if let Some(form) = &mut this.form
+                                && form.operation == operation
+                                && form.submission.as_ref() == Some(&request)
+                            {
+                                form.submission = None;
+                            }
                             if operation == "setAppearance" {
                                 this.themes.update(cx, |state, cx| {
                                     state.set_selected_value(&this.appearance.theme, window, cx);
@@ -848,9 +853,13 @@ impl Sesh {
         &mut self,
         operation: &'static str,
         value: Value,
+        request: &Value,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let submitted = self.form.as_ref().is_some_and(|form| {
+            form.operation == operation && form.submission.as_ref() == Some(request)
+        });
         if !matches!(
             operation,
             "snapshot" | "getAppearance" | "openThemeDirectory"
@@ -897,7 +906,9 @@ impl Sesh {
                 }
             };
             let current = data.session == self.data.session;
-            if !self.initialized || current || matches!(operation, "saveSession" | "removeSession")
+            if !self.initialized
+                || current
+                || (submitted && matches!(operation, "saveSession" | "removeSession"))
             {
                 let collapsed = self
                     .requests
@@ -939,12 +950,12 @@ impl Sesh {
                 }
                 return;
             }
-            if matches!(operation, "saveSession" | "removeSession") {
+            if submitted && matches!(operation, "saveSession" | "removeSession") {
                 let created = self
                     .form
                     .as_ref()
                     .and_then(|form| form.fields.iter().find(|(key, _)| key == "name"))
-                    .map(|(_, input)| input.read(cx).value().trim().to_owned());
+                    .map(|(_, input)| input.read(cx).value().to_string());
                 self.form = None;
                 self.focus.focus(window);
                 let name = created
@@ -1007,17 +1018,16 @@ impl Sesh {
                 operation,
                 "clearCredential" | "clearAllCredentials" | "signOut"
             ) {
-                self.form = None;
-                self.focus.focus(window);
+                if submitted {
+                    self.form = None;
+                    self.focus.focus(window);
+                }
                 self.message = "Local credentials removed".into();
             }
             if matches!(
                 operation,
                 "setAccountGroup" | "renameAccountGroup" | "removeAccountGroup"
-            ) && self
-                .form
-                .as_ref()
-                .is_some_and(|form| form.operation == operation)
+            ) && submitted
             {
                 self.form = None;
                 self.focus.focus(window);
@@ -1098,7 +1108,13 @@ impl Sesh {
                 self.preferences.clear();
                 self.preference_save = None;
                 self.reset_search(window, cx);
-                self.receive("snapshot", value["snapshot"].clone(), window, cx);
+                self.receive(
+                    "snapshot",
+                    value["snapshot"].clone(),
+                    &json!({}),
+                    window,
+                    cx,
+                );
             }
         }
     }
@@ -1537,6 +1553,7 @@ impl Sesh {
             fields,
             operation,
             args,
+            submission: None,
             destructive: matches!(
                 operation,
                 "removeSession"
@@ -1829,24 +1846,25 @@ impl Sesh {
             }
             Command::Confirm => {
                 if let Some(form) = &self.form {
+                    if form.submission.is_some() {
+                        return;
+                    }
+                    let operation = form.operation;
                     let mut args = form.args.clone();
                     for (key, input) in &form.fields {
                         let value = input.read(cx).value();
                         args[key] = json!(if key == "startUrl" {
                             sso_start_url(&value)
+                        } else if key == "name" {
+                            value.to_string()
                         } else {
                             value.trim().to_owned()
                         });
                     }
-                    if args["originalName"]
-                        .as_str()
-                        .is_some_and(|original| args["name"].as_str() != Some(original))
-                    {
-                        self.error = true;
-                        self.message = "The session name cannot be changed when editing.".into();
-                    } else {
-                        self.request(form.operation, args, cx);
+                    if let Some(form) = &mut self.form {
+                        form.submission = Some(args.clone());
                     }
+                    self.request(operation, args, cx);
                 }
             }
             Command::Palette => {
@@ -2114,7 +2132,13 @@ fn main() {
                 },
                 |window, cx| {
                     platform::configure_window(window);
-                    let view = cx.new(|cx| Sesh::new(window, cx));
+                    let view = cx.new(|cx| {
+                        let mut view = Sesh::new(window, cx);
+                        view.request("getAppearance", json!({}), cx);
+                        view.request("wslStatus", json!({}), cx);
+                        view.request("snapshot", json!({}), cx);
+                        view
+                    });
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             );
@@ -2149,6 +2173,75 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::sso_start_url;
+
+    #[gpui::test]
+    fn completed_save_does_not_close_a_replacement_form(cx: &mut gpui::TestAppContext) {
+        use super::*;
+        cx.update(gpui_component::init);
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let state = cx.new(|cx| {
+                let mut state = Sesh::new(window, cx);
+                state.busy = true;
+                state.initialized = true;
+                state.appearance.mode = "dark".into();
+                state
+            });
+            view = Some(state.clone());
+            Root::new(state, window, cx)
+        });
+        let view = view.unwrap();
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.dispatch(Command::NewSession, window, cx)
+            })
+        });
+        cx.simulate_input("First session");
+        cx.simulate_keystrokes("enter enter");
+        view.read_with(cx, |view, _| assert_eq!(view.requests.len(), 1));
+        let request = view.read_with(cx, |view, _| view.requests[0].1.clone());
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.dispatch(Command::Cancel, window, cx);
+                view.dispatch(Command::NewSession, window, cx);
+            })
+        });
+        cx.simulate_input("Replacement draft");
+        cx.update(|window, cx| view.update(cx, |view, cx| view.receive("saveSession", json!({
+            "sessions": [{"name":"First session","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","authenticated":false}],
+            "accounts": [], "credentials": [], "collapsedGroups": []
+        }), &request, window, cx)));
+        view.read_with(cx, |view, cx| {
+            let form = view
+                .form
+                .as_ref()
+                .expect("The replacement form must remain open");
+            assert_eq!(
+                form.fields[0].1.read(cx).value().as_str(),
+                "Replacement draft"
+            );
+        });
+        cx.simulate_keystrokes("enter enter");
+        let request = view.read_with(cx, |view, _| {
+            assert_eq!(view.requests.len(), 2);
+            view.requests[1].1.clone()
+        });
+        cx.update(|window, cx| view.update(cx, |view, cx| view.receive("saveSession", json!({
+            "sessions": [{"name":"Replacement draft","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","authenticated":false}],
+            "accounts": [], "credentials": [], "collapsedGroups": []
+        }), &request, window, cx)));
+        view.read_with(cx, |view, _| {
+            assert!(view.form.is_none());
+            assert_eq!(view.data.session.as_deref(), Some("Replacement draft"));
+        });
+        cx.dispatch_action(Search);
+        cx.simulate_input("missing account");
+        cx.simulate_keystrokes("enter enter");
+        view.read_with(cx, |view, cx| {
+            assert_eq!(view.search.read(cx).value().as_str(), "missing account");
+            assert!(view.account.is_none());
+        });
+    }
 
     #[test]
     fn validates_shortcut_overrides_and_replaces_bindings() -> anyhow::Result<()> {

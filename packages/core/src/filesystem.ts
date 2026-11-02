@@ -1,5 +1,15 @@
 import path from "node:path"
 import fs from "node:fs/promises"
+import { createHash } from "node:crypto"
+
+export function sessionStorageKey(name: string): string {
+  return `by-name/${createHash("sha256").update(name).digest("hex")}`
+}
+
+export function legacySessionKey(name: string): string | undefined {
+  if (/[\/\\\0]/.test(name) || Buffer.byteLength(`${name}.json`) > 255) return undefined
+  return name
+}
 
 export async function readJsonFile<T>(filePath: string): Promise<T> {
   const content = await fs.readFile(filePath, "utf-8")

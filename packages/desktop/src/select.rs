@@ -182,6 +182,9 @@ impl Dropdown {
     }
 
     fn open_submenu(&mut self, cx: &mut Context<Self>) {
+        if self.submenu {
+            return;
+        }
         let Some(index) = self.selected else { return };
         if self.options[index].children.is_empty() || self.options[index].disabled {
             return;
@@ -191,6 +194,10 @@ impl Dropdown {
             .children
             .iter()
             .position(|option| !option.disabled);
+        if let Some(child) = self.child {
+            self.child_scroll
+                .scroll_to_item(child, gpui::ScrollStrategy::Center);
+        }
         cx.notify();
     }
 
@@ -373,7 +380,8 @@ impl Dropdown {
         } else {
             visible.len()
         };
-        let height = (px(32.) * count).min(px(320.).min(window.viewport_size().height - px(100.)));
+        let height = (px(32.) * count)
+            .min(px(320.).min((window.viewport_size().height - px(100.)).max(px(0.))));
         let view = cx.entity().clone();
         div()
             .id(if child {
@@ -382,7 +390,9 @@ impl Dropdown {
                 "select-popup"
             })
             .relative()
-            .w(self.width)
+            .w(self
+                .width
+                .min((window.viewport_size().width - px(16.)).max(px(0.))))
             .p_1()
             .rounded(px(12.))
             .border_1()
@@ -545,5 +555,77 @@ impl Render for Dropdown {
                     )
                 },
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::size;
+
+    #[gpui::test]
+    fn submenu_navigation_does_not_reset_the_selected_child(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let mut group = SelectOption::new("group".into(), "Move to group".into());
+        group.children = vec![
+            SelectOption::new("first".into(), "First".into()),
+            SelectOption::new("second".into(), "Second".into()),
+        ];
+        let mut menu = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let state = cx.new(|cx| Dropdown::new(vec![group], false, px(240.), window, cx));
+            menu = Some(state.clone());
+            gpui_component::Root::new(state, window, cx)
+        });
+        let menu = menu.unwrap();
+        cx.update(|window, cx| menu.read(cx).focus_handle(cx).focus(window));
+        cx.simulate_keystrokes("right down");
+        menu.read_with(cx, |menu, _| assert_eq!(menu.child, Some(1)));
+        cx.simulate_keystrokes("right");
+        menu.read_with(cx, |menu, _| assert_eq!(menu.child, Some(1)));
+        cx.simulate_keystrokes("left right");
+        menu.read_with(cx, |menu, _| assert_eq!(menu.child, Some(0)));
+    }
+
+    #[gpui::test]
+    fn dropdown_search_survives_empty_results_disabled_items_and_unicode(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(gpui_component::init);
+        let mut disabled = SelectOption::new("disabled".into(), "Disabled".into());
+        disabled.disabled = true;
+        let options = vec![
+            disabled,
+            SelectOption::new("unicode".into(), "Lantmännen 東京".into()),
+            SelectOption::new("long".into(), "A".repeat(1000).into()),
+        ];
+        let mut menu = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let state = cx.new(|cx| Dropdown::new(options, true, px(240.), window, cx));
+            menu = Some(state.clone());
+            gpui_component::Root::new(state, window, cx)
+        });
+        let menu = menu.unwrap();
+        cx.update(|window, cx| menu.read(cx).focus_handle(cx).focus(window));
+        cx.simulate_input("missing");
+        cx.simulate_keystrokes("up down enter");
+        menu.read_with(cx, |menu, _| assert_eq!(menu.selected, None));
+        cx.update(|window, cx| {
+            menu.update(cx, |menu, cx| {
+                menu.search
+                    .as_ref()
+                    .unwrap()
+                    .update(cx, |input, cx| input.set_value("東京", window, cx))
+            })
+        });
+        menu.read_with(cx, |menu, _| assert_eq!(menu.selected, Some(1)));
+        cx.simulate_keystrokes("up down");
+        menu.read_with(cx, |menu, _| assert_eq!(menu.selected, Some(1)));
+        cx.simulate_resize(size(px(180.), px(80.)));
+        cx.run_until_parked();
+        menu.read_with(cx, |menu, _| {
+            assert!(menu.bounds.size.width <= px(180.));
+            assert!(menu.bounds.size.height <= px(80.));
+        });
     }
 }

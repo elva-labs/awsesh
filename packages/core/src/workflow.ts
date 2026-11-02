@@ -6,12 +6,6 @@ import type { SSOLoginInfo, SSOSession } from "./types"
 export function createWorkflow(awsesh: Awsesh) {
   const logins = new Map<string, SSOLoginInfo>()
 
-  function validateName(name: string) {
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,127}$/.test(name)) {
-      throw new Error("Session names must contain letters, numbers, spaces, dashes or underscores")
-    }
-  }
-
   function validateRegion(region: string) {
     if (!/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(region)) throw new Error("Invalid AWS region")
   }
@@ -23,7 +17,6 @@ export function createWorkflow(awsesh: Awsesh) {
   }
 
   async function session(name: string) {
-    validateName(name)
     const value = await awsesh.sessions.get(name)
     if (!value) throw new Error(`SSO session not found: ${name}`)
     return value
@@ -89,14 +82,18 @@ export function createWorkflow(awsesh: Awsesh) {
       await awsesh.lastSession.save(name)
       return snapshot(name)
     },
-    async saveSession(value: SSOSession, creating = false) {
-      validateName(value.name)
+    async saveSession(value: SSOSession, creating = false, originalName?: string) {
       const url = new URL(value.startUrl)
       if (url.protocol !== "https:" || url.username || url.password) throw new Error("SSO start URL must use HTTPS")
       validateRegion(value.ssoRegion)
       validateRegion(value.defaultRegion)
       if (creating && await awsesh.sessions.exists(value.name)) throw new Error("A session with this name already exists")
-      await awsesh.sessions.save(value)
+      await awsesh.sessions.save(value, originalName)
+      if (originalName !== undefined && originalName !== value.name) {
+        const login = logins.get(originalName)
+        if (login) logins.set(value.name, login)
+        logins.delete(originalName)
+      }
       return snapshot()
     },
     async removeSession(name: string) {
