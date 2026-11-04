@@ -52,6 +52,7 @@ export function Dialog(
       >
         <scrollbox
           id="dialog-content"
+          contentOptions={{ minHeight: 0 }}
           maxHeight={Math.max(1, dimensions().height - Math.floor(dimensions().height / 4) - 2)}
           scrollbarOptions={{ visible: false }}
         >
