@@ -63,6 +63,7 @@ mock.module("./toast", () => ({ useToast: () => ({ show: () => {}, error: (error
 const { Layout } = await import("./layout")
 const { DialogPrompt } = await import("./dialog-prompt")
 const { DialogSelect } = await import("./dialog-select")
+const { DialogCommand } = await import("./dialog-command")
 const { DialogSessionForm } = await import("../component/dialog-session-form")
 
 let setup: TestRendererSetup | undefined
@@ -366,4 +367,26 @@ test("tall dialogs remain scrollable after resizing to a tiny terminal", async (
   for (let index = 0; index < 20; index++) await setup.mockMouse.scroll(40, 12, "down")
   await setup.flush()
   expect(setup.captureCharFrame()).toContain("Save changes")
+})
+
+test("command dialogs fit their content and keep the last command reachable after resizing", async () => {
+  const options = Array.from({ length: 24 }, (_, index) => ({
+    id: `command-${index}`,
+    title: `Command ${index + 1}`,
+    category: `Category ${Math.floor(index / 6) + 1}`,
+  }))
+  setup = await testRender(() => <Dialog onClose={() => {}}><DialogCommand options={options} /></Dialog>, { width: 160, height: 80 })
+  await setup.renderOnce()
+  const content = setup.renderer.root.findDescendantById("dialog-content")
+  expect(content).toBeDefined()
+  expect(content?.height).toBeLessThanOrEqual(34)
+  expect(setup.captureCharFrame()).toContain("Command 24")
+  setup.resize(80, 30)
+  await setup.flush()
+  for (let index = 0; index < 23; index++) {
+    setup.mockInput.pressArrow("down")
+    await setup.flush()
+  }
+  await setup.flush()
+  expect(setup.captureCharFrame()).toContain("Command 24")
 })
