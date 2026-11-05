@@ -18,10 +18,21 @@ export const accounts = cmd({
         alias: "j",
         describe: "Output as JSON",
         default: false,
+      })
+      .option("cached", {
+        type: "boolean",
+        describe: "List the accounts awsesh has cached, without logging in or calling AWS",
+        default: false,
       }),
   handler: async (args) => {
-    const { session: sessionName, json } = args as { session?: string; json: boolean }
+    const { session: sessionName, json, cached } = args as { session?: string; json: boolean; cached: boolean }
     const awsesh = getAwsesh()
+
+    if (cached && sessionName) {
+      const accountList = (await awsesh.accounts.get(sessionName))?.accounts ?? []
+      UI.println(json ? JSON.stringify(accountList) : accountList.map((a) => `${a.name}  ${a.accountId}`).join("\n"))
+      return
+    }
 
     let selectedSession = sessionName
 

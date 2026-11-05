@@ -1,0 +1,7 @@
+{
+  "name": "awsesh",
+  "version": "0.1.0",
+  "description": "Gives each Claude Code session its own AWS account through awsesh, with /sesh to switch and a per-project allow list",
+  "author": { "name": "elva-labs" },
+  "types": "./types/index.d.ts"
+}
