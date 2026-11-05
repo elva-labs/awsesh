@@ -207,6 +207,9 @@ struct Sesh {
     role: Option<String>,
     role_focus: FocusHandle,
     role_bounds: Bounds<Pixels>,
+    list_width: Pixels,
+    dragging: Option<usize>,
+    drop_section: Option<Option<String>>,
     region: Entity<InputState>,
     profile: Entity<InputState>,
     preferences: BTreeMap<&'static str, Value>,
@@ -419,6 +422,9 @@ impl Sesh {
             role: None,
             role_focus: cx.focus_handle(),
             role_bounds: Bounds::default(),
+            list_width: px(0.),
+            dragging: None,
+            drop_section: None,
             region,
             profile,
             preferences: BTreeMap::new(),
@@ -2241,6 +2247,159 @@ mod tests {
             assert_eq!(view.search.read(cx).value().as_str(), "missing account");
             assert!(view.account.is_none());
         });
+    }
+
+    #[gpui::test]
+    fn dragging_accounts_moves_them_between_sections(cx: &mut gpui::TestAppContext) {
+        use super::*;
+        use gpui::{Modifiers, MouseButton};
+        cx.update(gpui_component::init);
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let state = cx.new(|cx| {
+                let mut state = Sesh::new(window, cx);
+                // Keep requests queued rather than sending them to the SDK.
+                state.busy = true;
+                state.initialized = true;
+                state.appearance.mode = "dark".into();
+                state.data = serde_json::from_value(json!({
+                    "sessions": [{"name":"Org","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","authenticated":true}],
+                    "session": "Org",
+                    "accounts": [
+                        {"accountId":"1","name":"Favorite","roles":[],"rolesLoaded":false,"profiles":{},"pinned":true,"group":null},
+                        {"accountId":"2","name":"Grouped","roles":[],"rolesLoaded":false,"profiles":{},"pinned":false,"group":"Prod"},
+                        {"accountId":"3","name":"Loose","roles":[],"rolesLoaded":false,"profiles":{},"pinned":false,"group":null},
+                        {"accountId":"4","name":"Other","roles":[],"rolesLoaded":false,"profiles":{},"pinned":false,"group":null}
+                    ],
+                    "collapsedGroups": [], "credentials": []
+                }))
+                .unwrap();
+                state
+            });
+            view = Some(state.clone());
+            Root::new(state, window, cx)
+        });
+        let view = view.unwrap();
+        cx.run_until_parked();
+
+        // Positions follow the rendered order: Favorites, Prod, then Other accounts.
+        let drag = |cx: &mut gpui::VisualTestContext, from: &'static str, to: &'static str| {
+            let from = cx.debug_bounds(from).expect(from).center();
+            let to = cx.debug_bounds(to).expect(to).center();
+            let none = Modifiers::none();
+            cx.simulate_mouse_down(from, MouseButton::Left, none);
+            cx.simulate_mouse_move(from + gpui::point(px(0.), px(8.)), MouseButton::Left, none);
+            cx.simulate_mouse_move(to, MouseButton::Left, none);
+            cx.simulate_mouse_up(to, MouseButton::Left, none);
+            cx.run_until_parked();
+        };
+        let moves = |cx: &mut gpui::VisualTestContext| {
+            view.update(cx, |view, _| {
+                let moves = view
+                    .requests
+                    .iter()
+                    .filter(|(operation, _)| matches!(*operation, "setAccountGroup" | "pinAccount"))
+                    .map(|(operation, args)| {
+                        let mut args = args.clone();
+                        args.as_object_mut().unwrap().remove("name");
+                        (*operation, args)
+                    })
+                    .collect::<Vec<_>>();
+                view.requests.clear();
+                moves
+            })
+        };
+
+        drag(cx, "account-2", "section-Prod");
+        assert_eq!(
+            moves(cx),
+            [("setAccountGroup", json!({"accountId":"3","group":"Prod"}))],
+            "Dropping on a group heading moves the account into it"
+        );
+
+        drag(cx, "account-1", "account-3");
+        assert_eq!(
+            moves(cx),
+            [("setAccountGroup", json!({"accountId":"2","group":""}))],
+            "Dropping on another section's account moves the account there"
+        );
+
+        drag(cx, "account-0", "account-3");
+        assert_eq!(
+            moves(cx),
+            [
+                ("setAccountGroup", json!({"accountId":"1","group":""})),
+                ("pinAccount", json!({"accountId":"1","pinned":false})),
+            ],
+            "Leaving Favorites unpins the account"
+        );
+
+        drag(cx, "account-3", "section-Favorites");
+        assert_eq!(
+            moves(cx),
+            [("pinAccount", json!({"accountId":"4","pinned":true}))],
+            "Dropping on Favorites pins the account"
+        );
+
+        drag(cx, "account-2", "account-3");
+        assert!(
+            moves(cx).is_empty(),
+            "Dropping within a section does nothing"
+        );
+
+        // Mid-drag, the row lifts out as a same-sized copy and leaves a faded placeholder.
+        let row = cx.debug_bounds("account-2").unwrap();
+        let none = Modifiers::none();
+        cx.simulate_mouse_down(row.center(), MouseButton::Left, none);
+        cx.simulate_mouse_move(
+            row.center() + gpui::point(px(0.), px(8.)),
+            MouseButton::Left,
+            none,
+        );
+        cx.simulate_mouse_move(
+            row.center() + gpui::point(px(0.), px(48.)),
+            MouseButton::Left,
+            none,
+        );
+        cx.run_until_parked();
+        let preview = cx.debug_bounds("account-drag").expect("drag preview");
+        assert_eq!(preview.size, row.size);
+        assert_eq!(preview.origin, row.origin + gpui::point(px(0.), px(40.)));
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.dragging, Some(2));
+            assert_eq!(
+                view.drop_section, None,
+                "A row's own section is not a target"
+            );
+        });
+        // Hovering any part of another section outlines it, heading and rows alike.
+        for (item, section) in [("section-Prod", Some("Prod")), ("account-0", None)] {
+            let point = cx.debug_bounds(item).unwrap().center();
+            cx.simulate_mouse_move(point, MouseButton::Left, none);
+            cx.run_until_parked();
+            view.read_with(cx, |view, _| {
+                assert_eq!(
+                    view.drop_section,
+                    Some(section.map(str::to_owned)),
+                    "{item}"
+                )
+            });
+        }
+        cx.simulate_mouse_move(row.center(), MouseButton::Left, none);
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert_eq!(view.drop_section, None));
+        cx.simulate_mouse_up(row.center(), MouseButton::Left, none);
+        cx.run_until_parked();
+        assert!(
+            moves(cx).is_empty(),
+            "Dropping a row back in place does nothing"
+        );
+
+        let row = cx.debug_bounds("account-3").unwrap().center();
+        cx.simulate_click(row, Modifiers::none());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert_eq!(view.selected, Some(3)));
+        assert!(moves(cx).is_empty(), "Clicking an account does not move it");
     }
 
     #[test]

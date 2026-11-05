@@ -29,6 +29,129 @@ impl Render for SidebarResize {
     }
 }
 
+/// An account being dragged between list sections, drawn as a lifted copy of its row.
+#[derive(Clone)]
+struct AccountDrag {
+    position: usize,
+    section: Option<String>,
+    title: SharedString,
+    detail: SharedString,
+    width: gpui::Pixels,
+    background: Hsla,
+    selection: Hsla,
+    border: Hsla,
+    text: Hsla,
+    muted: Hsla,
+    accent: Hsla,
+}
+
+impl Render for AccountDrag {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .debug_selector(|| "account-drag".into())
+            .w(self.width)
+            .h(px(66.))
+            .rounded_md()
+            .border_1()
+            .border_color(self.border)
+            .bg(self.background)
+            .shadow_lg()
+            .font_family(cx.theme().font_family.clone())
+            .text_size(px(14.))
+            .text_color(self.text)
+            .child(
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .px_3()
+                    .rounded_md()
+                    .bg(self.selection)
+                    .child(
+                        Icon::new(IconName::Building2)
+                            .size(px(18.))
+                            .flex_shrink_0()
+                            .text_color(self.accent),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(self.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_family(platform::mono_font())
+                                    .text_size(px(11.))
+                                    .text_color(self.muted)
+                                    .child(self.detail.clone()),
+                            ),
+                    ),
+            )
+    }
+}
+
+/// Accept accounts from other sections, moving them into `target` when dropped.
+///
+/// While an account hovers anywhere over a section, each of its items draws its part of an
+/// outline around the whole section: the heading opens it and the `last` item closes it.
+fn drop_target<E: InteractiveElement + ParentElement + Styled + FluentBuilder>(
+    element: E,
+    target: Option<String>,
+    highlighted: bool,
+    last: bool,
+    heading: bool,
+    accent: Hsla,
+    cx: &Context<Sesh>,
+) -> E {
+    let accepted = target.clone();
+    let hovered = target.clone();
+    element
+        .relative()
+        .can_drop(move |value, _, _| {
+            value
+                .downcast_ref::<AccountDrag>()
+                .is_some_and(|drag| drag.section != accepted)
+        })
+        .on_drag_move(cx.listener(
+            move |this, event: &gpui::DragMoveEvent<AccountDrag>, _, cx| {
+                if event.bounds.contains(&event.event.position) && event.drag(cx).section != hovered
+                {
+                    this.drop_section = Some(hovered.clone());
+                    cx.notify();
+                }
+            },
+        ))
+        .on_drop(cx.listener(move |this, drag: &AccountDrag, window, cx| {
+            this.drop_account(drag, target.clone(), window, cx)
+        }))
+        .when(highlighted, |element| {
+            element.child(
+                div()
+                    .absolute()
+                    .left(px(6.))
+                    .right(px(6.))
+                    .top(px(if heading { 4. } else { 0. }))
+                    .bottom_0()
+                    .bg(accent.opacity(0.06))
+                    .border_color(accent)
+                    .border_l_2()
+                    .border_r_2()
+                    .when(heading, |outline| outline.border_t_2().rounded_t_lg())
+                    .when(last, |outline| outline.border_b_2().rounded_b_lg()),
+            )
+        })
+}
+
 pub(super) struct Assets;
 
 impl AssetSource for Assets {
@@ -958,7 +1081,7 @@ impl Sesh {
             .into_any_element()
     }
 
-    fn row(&self, position: usize, index: usize, cx: &Context<Self>) -> AnyElement {
+    fn row(&self, position: usize, index: usize, last: bool, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
         let (title, detail, status, status_color) = if self.screen == Screen::Accounts {
             let value = &self.data.accounts[index];
@@ -1013,12 +1136,33 @@ impl Sesh {
         let disabled = self.modal();
         let account_row = self.screen == Screen::Accounts;
         let pinned = account_row && self.data.accounts[index].pinned;
+        let section = self.section(index);
+        let drag = section.clone().map(|section| AccountDrag {
+            position,
+            section,
+            title: title.clone().into(),
+            detail: detail.clone().into(),
+            // The row surface is inset by the row's horizontal padding.
+            width: self.list_width - px(24.),
+            background: colors.background,
+            selection: colors.selection,
+            border: colors.border,
+            text: colors.text,
+            muted: colors.muted,
+            accent: colors.accent,
+        });
+        let dragged = cx.has_active_drag() && self.dragging == Some(position);
+        let view = cx.entity().downgrade();
         div()
             .id(("row", position))
             .w_full()
             .h(px(74.))
             .px_3()
             .py_1()
+            .when_some(section, |row, section| {
+                let highlighted = self.drop_highlighted(&section, cx);
+                drop_target(row, section, highlighted, last, false, colors.accent, cx)
+            })
             .child(
                 div()
                     .h_full()
@@ -1034,6 +1178,17 @@ impl Sesh {
                         Hsla::transparent_black()
                     })
                     .id(("row-surface", position))
+                    .debug_selector(|| format!("account-{position}"))
+                    .when_some(drag, |surface, drag| {
+                        surface.on_drag(drag, move |value, _, _, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.dragging = Some(value.position);
+                                cx.notify();
+                            });
+                            cx.new(|_| value.clone())
+                        })
+                    })
+                    .when(dragged, |surface| surface.opacity(0.35))
                     .group("account-row")
                     .cursor_pointer()
                     .hover(move |style| {
@@ -1206,12 +1361,63 @@ impl Sesh {
             .into_any_element()
     }
 
+    /// The list section an account row sits in, while accounts can be dragged between sections.
+    fn section(&self, index: usize) -> Option<Option<String>> {
+        let accounts = &self.data.accounts;
+        if self.screen != Screen::Accounts
+            || self.modal()
+            || !accounts
+                .iter()
+                .any(|account| account.pinned || account.group.is_some())
+        {
+            return None;
+        }
+        let account = &accounts[index];
+        Some((!account.pinned).then(|| account.group.clone().unwrap_or_default()))
+    }
+
+    fn drop_account(
+        &mut self,
+        drag: &AccountDrag,
+        target: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.drop_section = None;
+        if self.modal() || drag.section == target {
+            return;
+        }
+        let commands = match target {
+            None => vec![Command::TogglePin],
+            Some(group) => {
+                let mut commands = vec![Command::SetGroup((!group.is_empty()).then_some(group))];
+                // Favorites are listed above every group, so leaving them requires unpinning.
+                if drag.section.is_none() {
+                    commands.push(Command::TogglePin);
+                }
+                commands
+            }
+        };
+        for command in commands {
+            self.dispatch(
+                Command::ItemAction(drag.position, Box::new(command)),
+                window,
+                cx,
+            );
+        }
+    }
+
+    fn drop_highlighted(&self, section: &Option<String>, cx: &Context<Self>) -> bool {
+        cx.has_active_drag() && self.drop_section.as_ref() == Some(section)
+    }
+
     fn heading(
         &self,
         ix: usize,
         group: Option<String>,
         count: usize,
         collapsed: bool,
+        last: bool,
         cx: &Context<Self>,
     ) -> AnyElement {
         let colors = self.colors(cx);
@@ -1225,6 +1431,7 @@ impl Sesh {
             Some(_) if collapsed => IconName::ChevronRight,
             Some(_) => IconName::ChevronDown,
         };
+        let target = (self.screen == Screen::Accounts && !self.modal()).then(|| group.clone());
         let toggle =
             group.filter(|_| !self.modal() && self.search.read(cx).value().trim().is_empty());
         div()
@@ -1233,9 +1440,14 @@ impl Sesh {
             .h(px(36.))
             .px_3()
             .pt_2()
+            .when_some(target, |heading, target| {
+                let highlighted = self.drop_highlighted(&target, cx);
+                drop_target(heading, target, highlighted, last, true, colors.accent, cx)
+            })
             .child(
                 div()
                     .id(("section-surface", ix))
+                    .debug_selector(|| format!("section-{label}"))
                     .h_full()
                     .px_3()
                     .rounded_md()
@@ -1307,12 +1519,36 @@ impl Sesh {
         } else {
             "Accounts"
         };
+        let view = cx.entity().downgrade();
         let mut list = div()
             .flex_1()
             .min_w_0()
             .h_full()
             .flex()
             .flex_col()
+            // Runs before the items' own drag listeners, which claim the section under the cursor.
+            .on_drag_move(
+                cx.listener(|this, _: &gpui::DragMoveEvent<AccountDrag>, _, cx| {
+                    this.drop_section = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                canvas(
+                    move |bounds, _, cx| {
+                        let _ = view.update(cx, |this, cx| {
+                            if this.list_width != bounds.size.width {
+                                this.list_width = bounds.size.width;
+                                cx.notify();
+                            }
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
             .child(
                 div()
                     .px_5()
@@ -1366,13 +1602,17 @@ impl Sesh {
             list = list.child(
                 v_virtual_list(cx.entity(), "items", sizes, move |this, range, _, cx| {
                     range
-                        .map(|ix| match &entries[ix] {
-                            Entry::Heading {
-                                group,
-                                count,
-                                collapsed,
-                            } => this.heading(ix, group.clone(), *count, *collapsed, cx),
-                            Entry::Account(index) => this.row(positions[ix], *index, cx),
+                        .map(|ix| {
+                            let last =
+                                matches!(entries.get(ix + 1), None | Some(Entry::Heading { .. }));
+                            match &entries[ix] {
+                                Entry::Heading {
+                                    group,
+                                    count,
+                                    collapsed,
+                                } => this.heading(ix, group.clone(), *count, *collapsed, last, cx),
+                                Entry::Account(index) => this.row(positions[ix], *index, last, cx),
+                            }
                         })
                         .collect::<Vec<_>>()
                 })
