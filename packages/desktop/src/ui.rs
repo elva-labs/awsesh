@@ -1,7 +1,7 @@
 use crate::{
     Accounts, Back, Command, Console, Credentials, EditSession, Entry, NewSession, Next, Palette,
     Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, ToggleDithering,
-    TogglePin, ToggleSidebar, platform, select, sso_start_url, theme,
+    TogglePin, ToggleSidebar, platform, select, shared_group, sso_start_url, theme,
 };
 use gpui::{
     AnyElement, AssetSource, Context, ElementId, Focusable, FontWeight, Hsla, Render, SharedString,
@@ -27,6 +27,181 @@ impl Render for SidebarResize {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         gpui::Empty
     }
+}
+
+/// An account being dragged between list sections, drawn as a lifted copy of its row.
+#[derive(Clone)]
+struct AccountDrag {
+    position: usize,
+    /// The sections of every account being moved, including the grabbed row's.
+    sections: Vec<Option<String>>,
+    ids: Vec<String>,
+    title: SharedString,
+    detail: SharedString,
+    width: gpui::Pixels,
+    background: Hsla,
+    selection: Hsla,
+    border: Hsla,
+    text: Hsla,
+    muted: Hsla,
+    accent: Hsla,
+}
+
+impl Render for AccountDrag {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let count = self.ids.len();
+        div()
+            .debug_selector(|| "account-drag".into())
+            .relative()
+            .w(self.width)
+            .h(px(66.))
+            .font_family(cx.theme().font_family.clone())
+            // A multi-selection lifts out as a stack, with its size badged on top.
+            .when(count > 1, |stack| {
+                stack.child(
+                    div()
+                        .absolute()
+                        .top(px(6.))
+                        .left(px(6.))
+                        .size_full()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(self.border)
+                        .bg(self.background)
+                        .shadow_lg(),
+                )
+            })
+            .child(self.row())
+            .when(count > 1, |stack| {
+                stack.child(
+                    div()
+                        .absolute()
+                        .top(px(-8.))
+                        .right(px(-8.))
+                        .min_w(px(22.))
+                        .h(px(22.))
+                        .px_1p5()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(self.accent)
+                        .text_color(self.background)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(count.to_string()),
+                )
+            })
+    }
+}
+
+impl AccountDrag {
+    fn moves_to(&self, target: &Option<String>) -> bool {
+        self.sections.iter().any(|section| section != target)
+    }
+
+    fn row(&self) -> gpui::Div {
+        div()
+            .absolute()
+            .size_full()
+            .rounded_md()
+            .border_1()
+            .border_color(self.border)
+            .bg(self.background)
+            .shadow_lg()
+            .text_size(px(14.))
+            .text_color(self.text)
+            .child(
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .px_3()
+                    .rounded_md()
+                    .bg(self.selection)
+                    .child(
+                        Icon::new(IconName::Building2)
+                            .size(px(18.))
+                            .flex_shrink_0()
+                            .text_color(self.accent),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(self.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_family(platform::mono_font())
+                                    .text_size(px(11.))
+                                    .text_color(self.muted)
+                                    .child(self.detail.clone()),
+                            ),
+                    ),
+            )
+    }
+}
+
+/// Accept accounts from other sections, moving them into `target` when dropped.
+///
+/// While an account hovers anywhere over a section, each of its items draws its part of an
+/// outline around the whole section: the heading opens it and the `last` item closes it.
+fn drop_target<E: InteractiveElement + ParentElement + Styled + FluentBuilder>(
+    element: E,
+    target: Option<String>,
+    highlighted: bool,
+    last: bool,
+    heading: bool,
+    accent: Hsla,
+    cx: &Context<Sesh>,
+) -> E {
+    let accepted = target.clone();
+    let hovered = target.clone();
+    element
+        .relative()
+        .can_drop(move |value, _, _| {
+            value
+                .downcast_ref::<AccountDrag>()
+                .is_some_and(|drag| drag.moves_to(&accepted))
+        })
+        .on_drag_move(cx.listener(
+            move |this, event: &gpui::DragMoveEvent<AccountDrag>, _, cx| {
+                if event.bounds.contains(&event.event.position) && event.drag(cx).moves_to(&hovered)
+                {
+                    this.drop_section = Some(hovered.clone());
+                    cx.notify();
+                }
+            },
+        ))
+        .on_drop(cx.listener(move |this, drag: &AccountDrag, window, cx| {
+            this.drop_account(drag, target.clone(), window, cx)
+        }))
+        .when(highlighted, |element| {
+            element.child(
+                div()
+                    .absolute()
+                    .left(px(6.))
+                    .right(px(6.))
+                    .top(px(if heading { 4. } else { 0. }))
+                    .bottom_0()
+                    .bg(accent.opacity(0.06))
+                    .border_color(accent)
+                    .border_l_2()
+                    .border_r_2()
+                    .when(heading, |outline| outline.border_t_2().rounded_t_lg())
+                    .when(last, |outline| outline.border_b_2().rounded_b_lg()),
+            )
+        })
 }
 
 pub(super) struct Assets;
@@ -159,13 +334,20 @@ impl Sesh {
             if let Command::ItemAction(position, action) = &command
                 && matches!(**action, Command::GroupMenu)
             {
-                let account = self
-                    .visible(cx)
-                    .get(*position)
-                    .and_then(|index| self.data.accounts.get(*index));
-                let current = account.and_then(|account| account.group.as_ref());
+                let targets = if self.marked.len() > 1 {
+                    self.targets(cx)
+                } else {
+                    self.visible(cx)
+                        .get(*position)
+                        .and_then(|index| self.data.accounts.get(*index))
+                        .cloned()
+                        .into_iter()
+                        .collect()
+                };
+                let current = shared_group(&targets).flatten();
+                let grouped = targets.iter().any(|account| account.group.is_some());
                 for group in self.groups() {
-                    let selected = current == Some(&group);
+                    let selected = current.as_ref() == Some(&group);
                     let mut child = menu_option(
                         group.clone().into(),
                         Command::ItemAction(*position, Box::new(Command::SetGroup(Some(group)))),
@@ -175,7 +357,7 @@ impl Sesh {
                     child.checked = selected;
                     option.children.push(child);
                 }
-                if current.is_some() {
+                if grouped {
                     option.children.push(menu_option(
                         "Remove from group".into(),
                         Command::ItemAction(*position, Box::new(Command::SetGroup(None))),
@@ -958,7 +1140,7 @@ impl Sesh {
             .into_any_element()
     }
 
-    fn row(&self, position: usize, index: usize, cx: &Context<Self>) -> AnyElement {
+    fn row(&self, position: usize, index: usize, last: bool, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
         let (title, detail, status, status_color) = if self.screen == Screen::Accounts {
             let value = &self.data.accounts[index];
@@ -1008,17 +1190,63 @@ impl Sesh {
                 },
             )
         };
-        let selected = self.selected == Some(position);
+        let account_id =
+            (self.screen == Screen::Accounts).then(|| self.data.accounts[index].account_id.clone());
+        let marked = account_id
+            .as_ref()
+            .is_some_and(|id| self.marked.len() > 1 && self.marked.contains(id));
+        let selected = if self.marked.len() > 1 {
+            marked
+        } else {
+            self.selected == Some(position)
+        };
         let cached = self.screen == Screen::Accounts && !self.authenticated();
         let disabled = self.modal();
         let account_row = self.screen == Screen::Accounts;
         let pinned = account_row && self.data.accounts[index].pinned;
+        let section = self.section(index);
+        // Dragging a selected row carries the whole multi-selection along.
+        let moving = if marked {
+            self.targets(cx)
+        } else {
+            vec![self.data.accounts[index].clone()]
+        };
+        let drag = section.clone().map(|_| AccountDrag {
+            position,
+            sections: moving
+                .iter()
+                .map(|account| (!account.pinned).then(|| account.group.clone().unwrap_or_default()))
+                .collect(),
+            ids: moving
+                .into_iter()
+                .map(|account| account.account_id)
+                .collect(),
+            title: title.clone().into(),
+            detail: detail.clone().into(),
+            // The row surface is inset by the row's horizontal padding.
+            width: self.list_width - px(24.),
+            background: colors.background,
+            selection: colors.selection,
+            border: colors.border,
+            text: colors.text,
+            muted: colors.muted,
+            accent: colors.accent,
+        });
+        let dragged = cx.has_active_drag()
+            && account_id
+                .as_ref()
+                .is_some_and(|id| self.dragging.contains(id));
+        let view = cx.entity().downgrade();
         div()
             .id(("row", position))
             .w_full()
             .h(px(74.))
             .px_3()
             .py_1()
+            .when_some(section, |row, section| {
+                let highlighted = self.drop_highlighted(&section, cx);
+                drop_target(row, section, highlighted, last, false, colors.accent, cx)
+            })
             .child(
                 div()
                     .h_full()
@@ -1034,6 +1262,20 @@ impl Sesh {
                         Hsla::transparent_black()
                     })
                     .id(("row-surface", position))
+                    .debug_selector(|| format!("account-{position}"))
+                    .when_some(drag, |surface, drag| {
+                        surface.on_drag(drag, move |value, _, _, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                if value.ids.len() == 1 {
+                                    this.marked.clear();
+                                }
+                                this.dragging = value.ids.clone();
+                                cx.notify();
+                            });
+                            cx.new(|_| value.clone())
+                        })
+                    })
+                    .when(dragged, |surface| surface.opacity(0.35))
                     .group("account-row")
                     .cursor_pointer()
                     .hover(move |style| {
@@ -1152,6 +1394,13 @@ impl Sesh {
                         );
                         return;
                     }
+                    let modifiers = event.modifiers();
+                    if this.screen == Screen::Accounts && (modifiers.secondary() || modifiers.shift)
+                    {
+                        this.mark(position, modifiers.shift, window, cx);
+                        return;
+                    }
+                    this.marked.clear();
                     this.selected = Some(position);
                     this.focus.focus(window);
                     this.inspect(window, cx);
@@ -1164,7 +1413,41 @@ impl Sesh {
                     if disabled {
                         return;
                     }
-                    let commands = if account_row {
+                    if !marked {
+                        this.marked.clear();
+                    }
+                    let count = this.targets(cx).len();
+                    let commands: Vec<(SharedString, Command, bool)> = if marked && count > 1 {
+                        let pinned = this.targets(cx).iter().all(|account| account.pinned);
+                        vec![
+                            (
+                                if pinned {
+                                    format!("Remove {count} from favorites")
+                                } else {
+                                    format!("Add {count} to favorites")
+                                }
+                                .into(),
+                                Command::Pin(!pinned),
+                                false,
+                            ),
+                            (
+                                format!("Move {count} to group").into(),
+                                Command::GroupMenu,
+                                false,
+                            ),
+                            (
+                                format!("Copy {count} account IDs").into(),
+                                Command::CopyAccount,
+                                false,
+                            ),
+                            (
+                                format!("Copy {count} account names").into(),
+                                Command::CopyName,
+                                false,
+                            ),
+                            ("Clear selection".into(), Command::ClearSelection, false),
+                        ]
+                    } else if account_row {
                         vec![
                             ("Set credentials", Command::SetCredentials, cached),
                             ("Open AWS Console", Command::Console, false),
@@ -1181,6 +1464,9 @@ impl Sesh {
                             ("Copy account ID", Command::CopyAccount, false),
                             ("Copy account name", Command::CopyName, false),
                         ]
+                        .into_iter()
+                        .map(|(label, command, unavailable)| (label.into(), command, unavailable))
+                        .collect()
                     } else {
                         vec![
                             ("Copy CLI profile", Command::CopyProfile, false),
@@ -1188,12 +1474,15 @@ impl Sesh {
                             ("Copy account name", Command::CopyName, false),
                             ("Remove profile…", Command::RemoveCredential, false),
                         ]
+                        .into_iter()
+                        .map(|(label, command, unavailable)| (label.into(), command, unavailable))
+                        .collect()
                     };
                     let items = commands
                         .into_iter()
                         .map(|(label, command, unavailable)| {
                             (
-                                label.into(),
+                                label,
                                 Command::ItemAction(position, Box::new(command)),
                                 unavailable,
                             )
@@ -1206,12 +1495,94 @@ impl Sesh {
             .into_any_element()
     }
 
+    /// Extend the multi-selection with ⌘/Ctrl-click, which toggles one account, or Shift-click,
+    /// which selects the range from the current row.
+    fn mark(&mut self, position: usize, range: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let visible = self.visible(cx);
+        let id = |position: usize| self.data.accounts[visible[position]].account_id.clone();
+        if range {
+            let anchor = self.selected.unwrap_or(position);
+            self.marked = (anchor.min(position)..=anchor.max(position))
+                .map(id)
+                .collect();
+        } else {
+            if self.marked.is_empty()
+                && let Some(selected) = self.selected.filter(|selected| *selected < visible.len())
+            {
+                self.marked.insert(id(selected));
+            }
+            let clicked = id(position);
+            if self.marked.remove(&clicked) {
+                // Keep inspecting an account that is still selected.
+                self.selected =
+                    (0..visible.len()).find(|position| self.marked.contains(&id(*position)));
+            } else {
+                self.marked.insert(clicked);
+                self.selected = Some(position);
+            }
+            self.inspect(window, cx);
+        }
+        self.focus.focus(window);
+        cx.notify();
+    }
+
+    /// The list section an account row sits in, while accounts can be dragged between sections.
+    fn section(&self, index: usize) -> Option<Option<String>> {
+        let accounts = &self.data.accounts;
+        if self.screen != Screen::Accounts
+            || self.modal()
+            || !accounts
+                .iter()
+                .any(|account| account.pinned || account.group.is_some())
+        {
+            return None;
+        }
+        let account = &accounts[index];
+        Some((!account.pinned).then(|| account.group.clone().unwrap_or_default()))
+    }
+
+    fn drop_account(
+        &mut self,
+        drag: &AccountDrag,
+        target: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.drop_section = None;
+        if self.modal() || !drag.moves_to(&target) {
+            return;
+        }
+        let commands = match target {
+            None => vec![Command::Pin(true)],
+            Some(group) => {
+                let mut commands = vec![Command::SetGroup((!group.is_empty()).then_some(group))];
+                // Favorites are listed above every group, so leaving them requires unpinning.
+                if drag.sections.contains(&None) {
+                    commands.push(Command::Pin(false));
+                }
+                commands
+            }
+        };
+        for command in commands {
+            self.dispatch(
+                Command::ItemAction(drag.position, Box::new(command)),
+                window,
+                cx,
+            );
+        }
+    }
+
+    fn drop_highlighted(&self, section: &Option<String>, cx: &Context<Self>) -> bool {
+        cx.has_active_drag() && self.drop_section.as_ref() == Some(section)
+    }
+
     fn heading(
         &self,
         ix: usize,
         group: Option<String>,
         count: usize,
         collapsed: bool,
+        last: bool,
         cx: &Context<Self>,
     ) -> AnyElement {
         let colors = self.colors(cx);
@@ -1225,6 +1596,7 @@ impl Sesh {
             Some(_) if collapsed => IconName::ChevronRight,
             Some(_) => IconName::ChevronDown,
         };
+        let target = (self.screen == Screen::Accounts && !self.modal()).then(|| group.clone());
         let toggle =
             group.filter(|_| !self.modal() && self.search.read(cx).value().trim().is_empty());
         div()
@@ -1233,9 +1605,14 @@ impl Sesh {
             .h(px(36.))
             .px_3()
             .pt_2()
+            .when_some(target, |heading, target| {
+                let highlighted = self.drop_highlighted(&target, cx);
+                drop_target(heading, target, highlighted, last, true, colors.accent, cx)
+            })
             .child(
                 div()
                     .id(("section-surface", ix))
+                    .debug_selector(|| format!("section-{label}"))
                     .h_full()
                     .px_3()
                     .rounded_md()
@@ -1307,12 +1684,36 @@ impl Sesh {
         } else {
             "Accounts"
         };
+        let view = cx.entity().downgrade();
         let mut list = div()
             .flex_1()
             .min_w_0()
             .h_full()
             .flex()
             .flex_col()
+            // Runs before the items' own drag listeners, which claim the section under the cursor.
+            .on_drag_move(
+                cx.listener(|this, _: &gpui::DragMoveEvent<AccountDrag>, _, cx| {
+                    this.drop_section = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                canvas(
+                    move |bounds, _, cx| {
+                        let _ = view.update(cx, |this, cx| {
+                            if this.list_width != bounds.size.width {
+                                this.list_width = bounds.size.width;
+                                cx.notify();
+                            }
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
             .child(
                 div()
                     .px_5()
@@ -1366,13 +1767,17 @@ impl Sesh {
             list = list.child(
                 v_virtual_list(cx.entity(), "items", sizes, move |this, range, _, cx| {
                     range
-                        .map(|ix| match &entries[ix] {
-                            Entry::Heading {
-                                group,
-                                count,
-                                collapsed,
-                            } => this.heading(ix, group.clone(), *count, *collapsed, cx),
-                            Entry::Account(index) => this.row(positions[ix], *index, cx),
+                        .map(|ix| {
+                            let last =
+                                matches!(entries.get(ix + 1), None | Some(Entry::Heading { .. }));
+                            match &entries[ix] {
+                                Entry::Heading {
+                                    group,
+                                    count,
+                                    collapsed,
+                                } => this.heading(ix, group.clone(), *count, *collapsed, last, cx),
+                                Entry::Account(index) => this.row(positions[ix], *index, last, cx),
+                            }
                         })
                         .collect::<Vec<_>>()
                 })
@@ -1518,6 +1923,161 @@ impl Sesh {
             .into_any_element()
     }
 
+    /// The inspector for a multi-selection: what is selected, and what can be done to all of it.
+    fn bulk_inspector(
+        &self,
+        panel: gpui::Stateful<gpui::Div>,
+        targets: &[crate::Account],
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let colors = self.colors(cx);
+        let count = targets.len();
+        let pinned = targets.iter().all(|account| account.pinned);
+        let grouped = targets.iter().any(|account| account.group.is_some());
+        let accounts = targets.iter().map(|account| {
+            let place = if account.pinned {
+                "Favorites"
+            } else {
+                account.group.as_deref().unwrap_or("Other accounts")
+            };
+            div()
+                .py_2()
+                .flex()
+                .items_center()
+                .gap_3()
+                .border_b_1()
+                .border_color(colors.border)
+                .child(
+                    Icon::new(IconName::Building2)
+                        .size(px(16.))
+                        .flex_shrink_0()
+                        .text_color(colors.muted),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(px(13.))
+                                .child(account.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .truncate()
+                                .font_family(platform::mono_font())
+                                .text_size(px(11.))
+                                .text_color(colors.muted)
+                                .child(account.account_id.clone()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .max_w(px(96.))
+                        .truncate()
+                        .text_size(px(11.))
+                        .text_color(colors.muted)
+                        .child(place.to_owned()),
+                )
+        });
+        panel
+            .debug_selector(|| "bulk-inspector".into())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(20.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(format!("{count} accounts selected")),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(colors.muted)
+                            .child("Actions apply to every selected account."),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        self.button(
+                            "bulk-pin",
+                            if pinned {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
+                            Command::Pin(!pinned),
+                            cx,
+                        )
+                        .icon(if pinned {
+                            IconName::StarOff
+                        } else {
+                            IconName::Star
+                        })
+                        .w_full(),
+                    )
+                    .child(
+                        self.button("bulk-group", "Move to group…", Command::GroupMenu, cx)
+                            .icon(IconName::Folder)
+                            .w_full(),
+                    )
+                    .when(grouped, |actions| {
+                        actions.child(
+                            self.button(
+                                "bulk-ungroup",
+                                "Remove from groups",
+                                Command::SetGroup(None),
+                                cx,
+                            )
+                            .icon(IconName::FolderOpen)
+                            .w_full(),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                self.button("bulk-copy-ids", "Copy IDs", Command::CopyAccount, cx)
+                                    .icon(IconName::Copy)
+                                    .flex_1(),
+                            )
+                            .child(
+                                self.button("bulk-copy-names", "Copy names", Command::CopyName, cx)
+                                    .icon(IconName::Copy)
+                                    .flex_1(),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .pt_3()
+                    .border_t_1()
+                    .border_color(colors.border)
+                    .children(accounts),
+            )
+            .child(
+                self.button("bulk-clear", "Clear selection", Command::ClearSelection, cx)
+                    .ghost()
+                    .w_full(),
+            )
+            .into_any_element()
+    }
+
     fn inspector(&self, cx: &Context<Self>) -> AnyElement {
         let colors = self.colors(cx);
         let mut panel = div()
@@ -1610,6 +2170,10 @@ impl Sesh {
                 );
             }
             return panel.into_any_element();
+        }
+        let targets = self.targets(cx);
+        if targets.len() > 1 {
+            return self.bulk_inspector(panel, &targets, cx);
         }
         let Some(account) = &self.account else {
             return panel

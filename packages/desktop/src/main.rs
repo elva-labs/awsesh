@@ -20,7 +20,7 @@ use gpui_component::{
 };
 use sdk::{Account, Credential, Sdk, Snapshot};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -96,6 +96,8 @@ enum Command {
     CopyProfile,
     CopyName,
     TogglePin,
+    Pin(bool),
+    ClearSelection,
     GroupMenu,
     NewGroup,
     SetGroup(Option<String>),
@@ -160,6 +162,14 @@ fn sections(
         .collect()
 }
 
+/// The group every account is in, when they all share one; `Some(None)` when none are grouped.
+fn shared_group(accounts: &[Account]) -> Option<Option<String>> {
+    let (first, rest) = accounts.split_first()?;
+    rest.iter()
+        .all(|account| account.group == first.group)
+        .then(|| first.group.clone())
+}
+
 struct Form {
     title: String,
     description: String,
@@ -202,11 +212,16 @@ struct Sesh {
     sidebar_save: Option<gpui::Task<()>>,
     window_should_move: bool,
     selected: Option<usize>,
+    /// Account IDs picked with ⌘/Ctrl- or Shift-click for bulk operations.
+    marked: BTreeSet<String>,
     account: Option<Account>,
     search: Entity<InputState>,
     role: Option<String>,
     role_focus: FocusHandle,
     role_bounds: Bounds<Pixels>,
+    list_width: Pixels,
+    dragging: Vec<String>,
+    drop_section: Option<Option<String>>,
     region: Entity<InputState>,
     profile: Entity<InputState>,
     preferences: BTreeMap<&'static str, Value>,
@@ -338,6 +353,7 @@ impl Sesh {
                     if matches!(event, InputEvent::Change) {
                         this.flush_preferences(cx);
                         this.selected = None;
+                        this.marked.clear();
                         this.account = None;
                         this.scroll.scroll_to_item(0, gpui::ScrollStrategy::Top);
                         cx.notify();
@@ -414,11 +430,15 @@ impl Sesh {
             sidebar_save: None,
             window_should_move: false,
             selected: None,
+            marked: BTreeSet::new(),
             account: None,
             search,
             role: None,
             role_focus: cx.focus_handle(),
             role_bounds: Bounds::default(),
+            list_width: px(0.),
+            dragging: Vec::new(),
+            drop_section: None,
             region,
             profile,
             preferences: BTreeMap::new(),
@@ -1237,6 +1257,24 @@ impl Sesh {
         }
     }
 
+    /// Accounts an account operation applies to: the visible multi-selection when there is
+    /// one, otherwise the inspected account.
+    fn targets(&self, cx: &App) -> Vec<Account> {
+        if self.screen == Screen::Accounts && self.marked.len() > 1 {
+            let accounts: Vec<Account> = self
+                .visible(cx)
+                .into_iter()
+                .map(|index| &self.data.accounts[index])
+                .filter(|account| self.marked.contains(&account.account_id))
+                .cloned()
+                .collect();
+            if accounts.len() > 1 {
+                return accounts;
+            }
+        }
+        self.account.clone().into_iter().collect()
+    }
+
     fn scroll_to_selection(&self, strategy: gpui::ScrollStrategy, cx: &App) {
         let Some(selected) = self.selected else {
             return;
@@ -1330,7 +1368,48 @@ impl Sesh {
                 ),
             ]);
         }
-        if let Some(account) = &self.account {
+        let targets = self.targets(cx);
+        if targets.len() > 1 {
+            let count = targets.len();
+            let current = shared_group(&targets);
+            commands.extend([
+                (format!("Copy {count} account IDs"), Command::CopyAccount),
+                (format!("Copy {count} account names"), Command::CopyName),
+                if targets.iter().all(|account| account.pinned) {
+                    (
+                        format!("Remove {count} accounts from favorites"),
+                        Command::Pin(false),
+                    )
+                } else {
+                    (
+                        format!("Add {count} accounts to favorites"),
+                        Command::Pin(true),
+                    )
+                },
+            ]);
+            commands.extend(
+                self.groups()
+                    .into_iter()
+                    .filter(|group| current.as_ref() != Some(&Some(group.clone())))
+                    .map(|group| {
+                        (
+                            format!("Move {count} accounts to {group}"),
+                            Command::SetGroup(Some(group)),
+                        )
+                    }),
+            );
+            commands.push((
+                format!("Move {count} accounts to a new group…"),
+                Command::NewGroup,
+            ));
+            if targets.iter().any(|account| account.group.is_some()) {
+                commands.push((
+                    format!("Remove {count} accounts from their groups"),
+                    Command::SetGroup(None),
+                ));
+            }
+            commands.push(("Clear selection".into(), Command::ClearSelection));
+        } else if let Some(account) = &self.account {
             commands.extend([
                 ("Copy account ID".into(), Command::CopyAccount),
                 ("Copy account name".into(), Command::CopyName),
@@ -1576,8 +1655,15 @@ impl Sesh {
         {
             return;
         }
-        self.popup = None;
+        let dismissed = self.popup.take().is_some()
+            || self.form.is_some()
+            || self.palette
+            || self.login.is_some()
+            || self.recording.is_some();
         if matches!(command, Command::Cancel) {
+            if !dismissed {
+                self.marked.clear();
+            }
             self.recording = None;
             self.shortcut_error = None;
             if let Some(login) = self.login.take() {
@@ -1620,6 +1706,7 @@ impl Sesh {
                     Command::CopyAccount
                         | Command::CopyName
                         | Command::TogglePin
+                        | Command::Pin(_)
                         | Command::GroupMenu
                         | Command::SetGroup(_)
                         | Command::NewGroup
@@ -1861,6 +1948,19 @@ impl Sesh {
                             value.trim().to_owned()
                         });
                     }
+                    // A bulk form saves each account in turn, and closes once the last one saves.
+                    if let Some(Value::Array(ids)) = args
+                        .as_object_mut()
+                        .and_then(|args| args.remove("accountIds"))
+                        && let Some((last, rest)) = ids.split_last()
+                    {
+                        for id in rest {
+                            let mut each = args.clone();
+                            each["accountId"] = id.clone();
+                            self.request(operation, each, cx);
+                        }
+                        args["accountId"] = last.clone();
+                    }
                     if let Some(form) = &mut self.form {
                         form.submission = Some(args.clone());
                     }
@@ -1935,6 +2035,16 @@ impl Sesh {
                 }));
             }
             Command::CopyAccount => {
+                let targets = self.targets(cx);
+                if targets.len() > 1 {
+                    let ids: Vec<&str> = targets
+                        .iter()
+                        .map(|value| value.account_id.as_str())
+                        .collect();
+                    cx.write_to_clipboard(ClipboardItem::new_string(ids.join("\n")));
+                    self.message = format!("{} account IDs copied", ids.len());
+                    return cx.notify();
+                }
                 let value = self
                     .credential(cx)
                     .map(|value| value.account_id)
@@ -1951,6 +2061,14 @@ impl Sesh {
                 }
             }
             Command::CopyName => {
+                let targets = self.targets(cx);
+                if targets.len() > 1 {
+                    let names: Vec<&str> =
+                        targets.iter().map(|value| value.name.as_str()).collect();
+                    cx.write_to_clipboard(ClipboardItem::new_string(names.join("\n")));
+                    self.message = format!("{} account names copied", names.len());
+                    return cx.notify();
+                }
                 let value = self
                     .credential(cx)
                     .map(|value| value.account_name)
@@ -1961,19 +2079,31 @@ impl Sesh {
                 }
             }
             Command::TogglePin => {
-                if let Some(account) = &self.account {
-                    self.request(
-                        "pinAccount",
-                        json!({"name": name, "accountId": account.account_id, "pinned": !account.pinned}),
-                        cx,
-                    );
+                let targets = self.targets(cx);
+                if !targets.is_empty() {
+                    let pinned = !targets.iter().all(|account| account.pinned);
+                    self.dispatch(Command::Pin(pinned), window, cx);
                 }
             }
+            Command::Pin(pinned) => {
+                for account in self.targets(cx) {
+                    if account.pinned != pinned {
+                        self.request(
+                            "pinAccount",
+                            json!({"name": name, "accountId": account.account_id, "pinned": pinned}),
+                            cx,
+                        );
+                    }
+                }
+            }
+            Command::ClearSelection => self.marked.clear(),
             Command::GroupMenu => {
-                let Some(current) = self.account.as_ref().map(|account| account.group.clone())
-                else {
+                let targets = self.targets(cx);
+                if targets.is_empty() {
                     return;
-                };
+                }
+                let current = shared_group(&targets).flatten();
+                let grouped = targets.iter().any(|account| account.group.is_some());
                 let groups = self.groups();
                 if groups.is_empty() {
                     self.dispatch(Command::NewGroup, window, cx);
@@ -1991,7 +2121,7 @@ impl Sesh {
                     })
                     .collect();
                 items.push(("New group…".into(), Command::NewGroup, false));
-                if current.is_some() {
+                if grouped {
                     items.push(("Remove from group".into(), Command::SetGroup(None), false));
                 }
                 cx.defer_in(window, move |this, window, cx| {
@@ -1999,7 +2129,26 @@ impl Sesh {
                 });
             }
             Command::NewGroup => {
-                if let Some(account) = &self.account {
+                let targets = self.targets(cx);
+                if targets.len() > 1 {
+                    let description = format!(
+                        "Move {} accounts into a new group. Groups are kept per organization.",
+                        targets.len()
+                    );
+                    let ids: Vec<&str> = targets
+                        .iter()
+                        .map(|account| account.account_id.as_str())
+                        .collect();
+                    self.show_form(
+                        "New group",
+                        &description,
+                        vec![("group", String::new())],
+                        "setAccountGroup",
+                        json!({"name": name, "accountIds": ids}),
+                        window,
+                        cx,
+                    );
+                } else if let Some(account) = &self.account {
                     let description = format!(
                         "Move ‘{}’ into a new group. Groups are kept per organization.",
                         account.name
@@ -2017,12 +2166,14 @@ impl Sesh {
                 }
             }
             Command::SetGroup(group) => {
-                if let Some(account) = &self.account {
-                    self.request(
-                        "setAccountGroup",
-                        json!({"name": name, "accountId": account.account_id, "group": group.unwrap_or_default()}),
-                        cx,
-                    );
+                for account in self.targets(cx) {
+                    if account.group != group {
+                        self.request(
+                            "setAccountGroup",
+                            json!({"name": name, "accountId": account.account_id, "group": group.clone().unwrap_or_default()}),
+                            cx,
+                        );
+                    }
                 }
             }
             Command::ToggleGroup(group) => {
@@ -2241,6 +2392,277 @@ mod tests {
             assert_eq!(view.search.read(cx).value().as_str(), "missing account");
             assert!(view.account.is_none());
         });
+    }
+
+    /// An account list rendered as Favorites (account-0), Prod (account-1), then Other accounts
+    /// (account-2 and account-3), with requests queued rather than sent to the SDK.
+    fn account_list(
+        cx: &mut gpui::TestAppContext,
+    ) -> (gpui::Entity<super::Sesh>, &mut gpui::VisualTestContext) {
+        use super::*;
+        cx.update(gpui_component::init);
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let state = cx.new(|cx| {
+                let mut state = Sesh::new(window, cx);
+                state.busy = true;
+                state.initialized = true;
+                state.appearance.mode = "dark".into();
+                state.data = serde_json::from_value(json!({
+                    "sessions": [{"name":"Org","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","authenticated":true}],
+                    "session": "Org",
+                    "accounts": [
+                        {"accountId":"1","name":"Favorite","roles":[],"rolesLoaded":false,"profiles":{},"pinned":true,"group":null},
+                        {"accountId":"2","name":"Grouped","roles":[],"rolesLoaded":false,"profiles":{},"pinned":false,"group":"Prod"},
+                        {"accountId":"3","name":"Loose","roles":[],"rolesLoaded":false,"profiles":{},"pinned":false,"group":null},
+                        {"accountId":"4","name":"Other","roles":[],"rolesLoaded":false,"profiles":{},"pinned":false,"group":null}
+                    ],
+                    "collapsedGroups": [], "credentials": []
+                }))
+                .unwrap();
+                state
+            });
+            view = Some(state.clone());
+            Root::new(state, window, cx)
+        });
+        cx.run_until_parked();
+        (view.unwrap(), cx)
+    }
+
+    fn drag(cx: &mut gpui::VisualTestContext, from: &'static str, to: &'static str) {
+        use gpui::{Modifiers, MouseButton, px};
+        let from = cx.debug_bounds(from).expect(from).center();
+        let to = cx.debug_bounds(to).expect(to).center();
+        let none = Modifiers::none();
+        cx.simulate_mouse_down(from, MouseButton::Left, none);
+        cx.simulate_mouse_move(from + gpui::point(px(0.), px(8.)), MouseButton::Left, none);
+        cx.simulate_mouse_move(to, MouseButton::Left, none);
+        cx.simulate_mouse_up(to, MouseButton::Left, none);
+        cx.run_until_parked();
+    }
+
+    /// Takes the queued group and favorite changes, without the session name.
+    fn account_moves(
+        view: &gpui::Entity<super::Sesh>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Vec<(&'static str, serde_json::Value)> {
+        view.update(cx, |view, _| {
+            let moves = view
+                .requests
+                .iter()
+                .filter(|(operation, _)| matches!(*operation, "setAccountGroup" | "pinAccount"))
+                .map(|(operation, args)| {
+                    let mut args = args.clone();
+                    args.as_object_mut().unwrap().remove("name");
+                    (*operation, args)
+                })
+                .collect();
+            view.requests.clear();
+            moves
+        })
+    }
+
+    #[gpui::test]
+    fn dragging_accounts_moves_them_between_sections(cx: &mut gpui::TestAppContext) {
+        use super::*;
+        use gpui::{Modifiers, MouseButton};
+        let (view, cx) = account_list(cx);
+        let moves = |cx: &mut gpui::VisualTestContext| account_moves(&view, cx);
+
+        drag(cx, "account-2", "section-Prod");
+        assert_eq!(
+            moves(cx),
+            [("setAccountGroup", json!({"accountId":"3","group":"Prod"}))],
+            "Dropping on a group heading moves the account into it"
+        );
+
+        drag(cx, "account-1", "account-3");
+        assert_eq!(
+            moves(cx),
+            [("setAccountGroup", json!({"accountId":"2","group":""}))],
+            "Dropping on another section's account moves the account there"
+        );
+
+        drag(cx, "account-0", "account-3");
+        assert_eq!(
+            moves(cx),
+            [("pinAccount", json!({"accountId":"1","pinned":false}))],
+            "Leaving Favorites unpins the account"
+        );
+
+        drag(cx, "account-3", "section-Favorites");
+        assert_eq!(
+            moves(cx),
+            [("pinAccount", json!({"accountId":"4","pinned":true}))],
+            "Dropping on Favorites pins the account"
+        );
+
+        drag(cx, "account-2", "account-3");
+        assert!(
+            moves(cx).is_empty(),
+            "Dropping within a section does nothing"
+        );
+
+        // Mid-drag, the row lifts out as a same-sized copy and leaves a faded placeholder.
+        let row = cx.debug_bounds("account-2").unwrap();
+        let none = Modifiers::none();
+        cx.simulate_mouse_down(row.center(), MouseButton::Left, none);
+        cx.simulate_mouse_move(
+            row.center() + gpui::point(px(0.), px(8.)),
+            MouseButton::Left,
+            none,
+        );
+        cx.simulate_mouse_move(
+            row.center() + gpui::point(px(0.), px(48.)),
+            MouseButton::Left,
+            none,
+        );
+        cx.run_until_parked();
+        let preview = cx.debug_bounds("account-drag").expect("drag preview");
+        assert_eq!(preview.size, row.size);
+        assert_eq!(preview.origin, row.origin + gpui::point(px(0.), px(40.)));
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.dragging, ["3"]);
+            assert_eq!(
+                view.drop_section, None,
+                "A row's own section is not a target"
+            );
+        });
+        // Hovering any part of another section outlines it, heading and rows alike.
+        for (item, section) in [("section-Prod", Some("Prod")), ("account-0", None)] {
+            let point = cx.debug_bounds(item).unwrap().center();
+            cx.simulate_mouse_move(point, MouseButton::Left, none);
+            cx.run_until_parked();
+            view.read_with(cx, |view, _| {
+                assert_eq!(
+                    view.drop_section,
+                    Some(section.map(str::to_owned)),
+                    "{item}"
+                )
+            });
+        }
+        cx.simulate_mouse_move(row.center(), MouseButton::Left, none);
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert_eq!(view.drop_section, None));
+        cx.simulate_mouse_up(row.center(), MouseButton::Left, none);
+        cx.run_until_parked();
+        assert!(
+            moves(cx).is_empty(),
+            "Dropping a row back in place does nothing"
+        );
+
+        let row = cx.debug_bounds("account-3").unwrap().center();
+        cx.simulate_click(row, Modifiers::none());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert_eq!(view.selected, Some(3)));
+        assert!(moves(cx).is_empty(), "Clicking an account does not move it");
+    }
+
+    #[gpui::test]
+    fn selected_accounts_are_moved_together(cx: &mut gpui::TestAppContext) {
+        use super::*;
+        use gpui::Modifiers;
+        let (view, cx) = account_list(cx);
+        let moves = |cx: &mut gpui::VisualTestContext| account_moves(&view, cx);
+        let click = |cx: &mut gpui::VisualTestContext, row: &'static str, modifiers: Modifiers| {
+            let point = cx.debug_bounds(row).expect(row).center();
+            cx.simulate_click(point, modifiers);
+            cx.run_until_parked();
+        };
+        let selection = |cx: &mut gpui::VisualTestContext| {
+            view.update(cx, |view, cx| {
+                view.targets(cx)
+                    .into_iter()
+                    .map(|account| account.account_id)
+                    .collect::<Vec<_>>()
+            })
+        };
+        let run = |cx: &mut gpui::VisualTestContext, command: Command| {
+            cx.update(|window, cx| view.update(cx, |view, cx| view.dispatch(command, window, cx)));
+            cx.run_until_parked();
+        };
+
+        click(cx, "account-2", Modifiers::none());
+        click(cx, "account-3", Modifiers::secondary_key());
+        assert_eq!(selection(cx), ["3", "4"], "⌘-click adds to the clicked row");
+        assert!(
+            cx.debug_bounds("bulk-inspector").is_some(),
+            "The inspector offers bulk actions"
+        );
+
+        run(cx, Command::SetGroup(Some("Prod".into())));
+        assert_eq!(
+            moves(cx),
+            [
+                ("setAccountGroup", json!({"accountId":"3","group":"Prod"})),
+                ("setAccountGroup", json!({"accountId":"4","group":"Prod"})),
+            ]
+        );
+
+        drag(cx, "account-3", "section-Favorites");
+        assert_eq!(
+            moves(cx),
+            [
+                ("pinAccount", json!({"accountId":"3","pinned":true})),
+                ("pinAccount", json!({"accountId":"4","pinned":true})),
+            ],
+            "Dragging a selected row moves the whole selection"
+        );
+
+        click(cx, "account-0", Modifiers::none());
+        assert_eq!(selection(cx), ["1"], "A plain click clears the selection");
+        click(cx, "account-3", Modifiers::shift());
+        assert_eq!(
+            selection(cx),
+            ["1", "2", "3", "4"],
+            "Shift-click selects a range"
+        );
+
+        // Leaving Favorites unpins only the favorite; accounts already ungrouped stay put.
+        run(cx, Command::SetGroup(None));
+        assert_eq!(
+            moves(cx),
+            [("setAccountGroup", json!({"accountId":"2","group":""}))]
+        );
+        run(cx, Command::Pin(false));
+        assert_eq!(
+            moves(cx),
+            [("pinAccount", json!({"accountId":"1","pinned":false}))]
+        );
+
+        run(cx, Command::NewGroup);
+        cx.simulate_input("Dev");
+        run(cx, Command::Confirm);
+        assert_eq!(
+            moves(cx),
+            ["1", "2", "3", "4"]
+                .map(|id| ("setAccountGroup", json!({"accountId":id,"group":"Dev"}))),
+            "A new group saves every selected account"
+        );
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                view.form.as_ref().and_then(|form| form.submission.as_ref()),
+                Some(&json!({"name":"Org","accountId":"4","group":"Dev"})),
+                "The form closes once the last account saves"
+            )
+        });
+
+        run(cx, Command::Cancel);
+        assert_eq!(selection(cx).len(), 4, "Escape closes the form first");
+        run(cx, Command::Cancel);
+        assert_eq!(selection(cx).len(), 1, "Escape then clears the selection");
+
+        click(cx, "account-1", Modifiers::secondary_key());
+        click(cx, "account-1", Modifiers::secondary_key());
+        assert_eq!(selection(cx), ["1"], "⌘-click toggles an account back out");
+        view.read_with(cx, |view, _| assert_eq!(view.selected, Some(0)));
+
+        drag(cx, "account-2", "section-Prod");
+        assert_eq!(
+            moves(cx),
+            [("setAccountGroup", json!({"accountId":"3","group":"Prod"}))],
+            "Dragging an unselected row moves only that row"
+        );
     }
 
     #[test]
