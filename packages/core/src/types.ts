@@ -4,6 +4,8 @@ export interface AwseshOptions {
   awsDir: string
   /** Override the AWS directory at call time (e.g. to target WSL's ~/.aws instead of Windows'). Falls back to awsDir. */
   resolveAwsDir?: () => Promise<string>
+  /** Command the AWS tools run for a managed profile's credentials; the profile name is appended. Without it, profiles cannot be synced. */
+  credentialProcess?: string[] | (() => Promise<string[] | undefined>)
 }
 
 export interface SSOSession {
@@ -109,4 +111,35 @@ export interface SetCredentialResult {
   profileName: string
   expiration: Date
   isDefault: boolean
+}
+
+/** A profile awsesh keeps in ~/.aws/config, served through credential_process from the cached SSO login. */
+export interface ProfileDefinition {
+  session: string
+  /** Account ID, or account name as listed in the SSO session */
+  account: string
+  role: string
+  region?: string
+}
+
+export interface ManagedProfile extends ProfileDefinition {
+  name: string
+}
+
+export interface ProfileSyncResult {
+  written: string[]
+  removed: string[]
+  /** Profiles skipped because ~/.aws/config already has a section with that name that awsesh does not manage */
+  conflicts: string[]
+  /** Sections removed from ~/.aws/credentials whose temporary keys would shadow the managed profile */
+  cleared: string[]
+}
+
+/** credential_process output, version 1 */
+export interface ProcessCredentials {
+  Version: 1
+  AccessKeyId: string
+  SecretAccessKey: string
+  SessionToken: string
+  Expiration: string
 }

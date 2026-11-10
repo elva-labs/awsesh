@@ -32,6 +32,17 @@ pub struct Account {
     pub last_profile: Option<String>,
     pub pinned: bool,
     pub group: Option<String>,
+    /// Managed AWS profile names by role.
+    #[serde(default)]
+    pub managed_profiles: std::collections::HashMap<String, String>,
+}
+
+/// A profile awsesh keeps in ~/.aws/config, serving fresh role keys through credential_process.
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedProfile {
+    pub name: String,
+    pub region: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -57,6 +68,8 @@ pub struct Snapshot {
     pub credentials: Vec<Credential>,
     pub last_account: Option<String>,
     pub last_session: Option<String>,
+    #[serde(default)]
+    pub managed_profiles: Vec<ManagedProfile>,
 }
 
 pub struct Sdk {

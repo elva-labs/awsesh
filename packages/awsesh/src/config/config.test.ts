@@ -78,6 +78,7 @@ describe("Config", () => {
       expect(keybinds.browser_open).toBeDefined();
       expect(keybinds.profile_set).toBeDefined();
       expect(keybinds.profile_clear).toBeDefined();
+      expect(keybinds.profile_manage).toEqual(["m"]);
       expect(keybinds.region_set).toBeDefined();
       expect(keybinds.role_list).toBeDefined();
       expect(keybinds.session_add).toBeDefined();

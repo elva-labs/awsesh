@@ -101,6 +101,10 @@ enum Command {
     GroupMenu,
     NewGroup,
     SetGroup(Option<String>),
+    AddProfiles,
+    RemoveProfiles,
+    ToggleProfile,
+    SyncProfiles,
     ToggleGroup(String),
     RenameGroup(String),
     RemoveGroup(String),
@@ -168,6 +172,19 @@ fn shared_group(accounts: &[Account]) -> Option<Option<String>> {
     rest.iter()
         .all(|account| account.group == first.group)
         .then(|| first.group.clone())
+}
+
+/// The role an account is added as an AWS profile with when none is chosen: its preferred
+/// role, or its only role.
+fn profile_role(account: &Account) -> Option<String> {
+    account
+        .preferred_role
+        .clone()
+        .filter(|role| account.roles.contains(role))
+        .or_else(|| match account.roles.as_slice() {
+            [role] => Some(role.clone()),
+            _ => None,
+        })
 }
 
 struct Form {
@@ -245,6 +262,10 @@ struct Sesh {
     command_selected: usize,
     command_scroll: UniformListScrollHandle,
     pending: Option<(String, Option<String>, Command)>,
+    /// Accounts to add as AWS profiles once their roles have loaded.
+    profile_batch: Option<(String, Vec<String>)>,
+    /// Accounts left out of the AWS profiles being added, reported once they are saved.
+    profile_skipped: Vec<String>,
     appearance: theme::Appearance,
     themes: Entity<SelectState<SearchableVec<String>>>,
     translucency: Entity<SliderState>,
@@ -458,6 +479,8 @@ impl Sesh {
             command_selected: 0,
             command_scroll: UniformListScrollHandle::new(),
             pending: None,
+            profile_batch: None,
+            profile_skipped: Vec::new(),
             appearance: theme::Appearance {
                 theme: "system".into(),
                 mode: "system".into(),
@@ -802,6 +825,7 @@ impl Sesh {
                 "assumeRole" => "Setting credentials…",
                 "selectSession" => "Loading accounts…",
                 "loadRoles" => "Loading available roles…",
+                "addProfiles" | "removeProfiles" | "syncProfiles" => "Updating AWS profiles…",
                 _ => "Saving…",
             }
             .into();
@@ -857,6 +881,9 @@ impl Sesh {
                         }
                     }
                     if !this.busy {
+                        this.add_profiles(cx);
+                    }
+                    if !this.busy {
                         if let Some((operation, args)) = this.requests.pop_front() {
                             this.start_request(operation, args, cx);
                         }
@@ -872,7 +899,7 @@ impl Sesh {
     fn receive(
         &mut self,
         operation: &'static str,
-        value: Value,
+        mut value: Value,
         request: &Value,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -916,6 +943,14 @@ impl Sesh {
             }
             return;
         }
+        // Profile changes report what they wrote to the AWS config alongside the snapshot.
+        let sync =
+            matches!(operation, "addProfiles" | "removeProfiles" | "syncProfiles").then(|| {
+                let mut sync = value["sync"].take();
+                sync["skipped"] = value["skipped"].take();
+                value = value["snapshot"].take();
+                sync
+            });
         if value.get("sessions").is_some() {
             let data = match serde_json::from_value::<Snapshot>(value) {
                 Ok(data) => data,
@@ -1044,9 +1079,12 @@ impl Sesh {
                 }
                 self.message = "Local credentials removed".into();
             }
+            if let Some(sync) = sync {
+                self.report_profiles(operation, &sync, request);
+            }
             if matches!(
                 operation,
-                "setAccountGroup" | "renameAccountGroup" | "removeAccountGroup"
+                "setAccountGroup" | "renameAccountGroup" | "removeAccountGroup" | "removeProfiles"
             ) && submitted
             {
                 self.form = None;
@@ -1137,6 +1175,189 @@ impl Sesh {
                 );
             }
         }
+    }
+
+    /// Adds the accounts in `profile_batch` as AWS profiles once none of their roles are loading.
+    fn add_profiles(&mut self, cx: &mut Context<Self>) {
+        let Some((name, ids)) = &self.profile_batch else {
+            return;
+        };
+        if self.data.session.as_ref() != Some(name) {
+            self.profile_batch = None;
+            return;
+        }
+        if self
+            .active
+            .iter()
+            .chain(self.requests.iter())
+            .any(|(operation, args)| {
+                *operation == "loadRoles"
+                    && args["name"].as_str() == Some(name)
+                    && args["accountId"]
+                        .as_str()
+                        .is_some_and(|id| ids.iter().any(|value| value == id))
+            })
+        {
+            return;
+        }
+        let Some((name, ids)) = self.profile_batch.take() else {
+            return;
+        };
+        let mut items = vec![];
+        let mut skipped = vec![];
+        let mut existing = 0;
+        for account in ids.iter().filter_map(|id| {
+            self.data
+                .accounts
+                .iter()
+                .find(|account| account.account_id == *id)
+        }) {
+            match profile_role(account) {
+                Some(role) if account.managed_profiles.contains_key(&role) => existing += 1,
+                Some(role) => {
+                    items.push(json!({"accountId": account.account_id, "role": role}));
+                }
+                None if !account.roles_loaded => {
+                    skipped.push(format!("{} (roles not loaded)", account.name));
+                }
+                None => skipped.push(format!("{} (no preferred role)", account.name)),
+            }
+        }
+        if !items.is_empty() {
+            self.profile_skipped = skipped;
+            self.request("addProfiles", json!({"name": name, "items": items}), cx);
+        } else if !skipped.is_empty() {
+            self.error = true;
+            self.message = format!("No AWS profiles added: {}", skipped.join(", "));
+        } else if existing > 0 {
+            self.error = false;
+            self.message = if existing == 1 {
+                "Already an AWS profile".into()
+            } else {
+                format!("All {existing} accounts are already AWS profiles")
+            };
+        }
+    }
+
+    fn report_profiles(&mut self, operation: &str, sync: &Value, request: &Value) {
+        let names = |value: &Value| -> Vec<String> {
+            value
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        };
+        let listed = |verb: &str, names: &[String]| match names {
+            [name] => format!("{verb} AWS profile {name}"),
+            _ => format!("{verb} {} AWS profiles: {}", names.len(), names.join(", ")),
+        };
+        let mut parts = vec![];
+        match operation {
+            "addProfiles" => {
+                let added: Vec<String> = request["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|item| {
+                        self.data
+                            .accounts
+                            .iter()
+                            .find(|account| {
+                                item["accountId"].as_str() == Some(&account.account_id)
+                            })?
+                            .managed_profiles
+                            .get(item["role"].as_str()?)
+                            .cloned()
+                    })
+                    .collect();
+                if !added.is_empty() {
+                    parts.push(listed("Added", &added));
+                }
+                let mut skipped = std::mem::take(&mut self.profile_skipped);
+                skipped.extend(
+                    sync["skipped"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|item| {
+                            let account = item["accountId"].as_str().unwrap_or_default();
+                            let account = self
+                                .data
+                                .accounts
+                                .iter()
+                                .find(|value| value.account_id == account)
+                                .map_or(account, |value| value.name.as_str());
+                            format!(
+                                "{account} ({})",
+                                item["reason"].as_str().unwrap_or("could not be added")
+                            )
+                        }),
+                );
+                if !skipped.is_empty() {
+                    parts.push(format!("Skipped {}", skipped.join(", ")));
+                }
+            }
+            "removeProfiles" => parts.push(listed("Removed", &names(&request["profiles"]))),
+            _ => parts.push(match names(&sync["written"]).len() {
+                1 => "Synced 1 AWS profile".into(),
+                count => format!("Synced {count} AWS profiles"),
+            }),
+        }
+        let cleared = names(&sync["cleared"]);
+        if !cleared.is_empty() {
+            parts.push(format!(
+                "Replaced static keys in ~/.aws/credentials: {}",
+                cleared.join(", ")
+            ));
+        }
+        let conflicts = names(&sync["conflicts"]);
+        if !conflicts.is_empty() {
+            self.error = true;
+            parts.push(format!(
+                "Not written, ~/.aws/config has its own: {}",
+                conflicts.join(", ")
+            ));
+        }
+        self.message = parts.join(" · ");
+    }
+
+    fn confirm_remove_profiles(
+        &mut self,
+        mut profiles: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if profiles.is_empty() {
+            return;
+        }
+        profiles.sort();
+        let (title, description) = match profiles.as_slice() {
+            [profile] => (
+                "Remove AWS profile?",
+                format!(
+                    "Removes ‘{profile}’ from your AWS config. Tools that use it stop getting credentials from Sesh."
+                ),
+            ),
+            _ => (
+                "Remove AWS profiles?",
+                format!(
+                    "Removes {} profiles from your AWS config: {}. Tools that use them stop getting credentials from Sesh.",
+                    profiles.len(),
+                    profiles.join(", ")
+                ),
+            ),
+        };
+        self.show_form(
+            title,
+            &description,
+            vec![],
+            "removeProfiles",
+            json!({"name": self.data.session, "profiles": profiles}),
+            window,
+            cx,
+        );
     }
 
     fn poll(&mut self, cx: &mut Context<Self>) {
@@ -1367,6 +1588,9 @@ impl Sesh {
                     },
                 ),
             ]);
+            if !self.data.managed_profiles.is_empty() {
+                commands.push(("Sync AWS profiles".into(), Command::SyncProfiles));
+            }
         }
         let targets = self.targets(cx);
         if targets.len() > 1 {
@@ -1408,6 +1632,19 @@ impl Sesh {
                     Command::SetGroup(None),
                 ));
             }
+            commands.push((
+                format!("Add {count} accounts as AWS profiles"),
+                Command::AddProfiles,
+            ));
+            if targets
+                .iter()
+                .any(|account| !account.managed_profiles.is_empty())
+            {
+                commands.push((
+                    format!("Remove AWS profiles from {count} accounts…"),
+                    Command::RemoveProfiles,
+                ));
+            }
             commands.push(("Clear selection".into(), Command::ClearSelection));
         } else if let Some(account) = &self.account {
             commands.extend([
@@ -1437,6 +1674,16 @@ impl Sesh {
             commands.push(("Move account to a new group…".into(), Command::NewGroup));
             if account.group.is_some() {
                 commands.push(("Remove account from group".into(), Command::SetGroup(None)));
+            }
+            if let Some(role) = self.role(cx) {
+                if let Some(profile) = account.managed_profiles.get(&role) {
+                    commands.push((
+                        format!("Remove AWS profile {profile}…"),
+                        Command::ToggleProfile,
+                    ));
+                } else if account.roles.contains(&role) {
+                    commands.push((format!("Add {role} as AWS profile"), Command::ToggleProfile));
+                }
             }
             if self.role(cx).is_some() {
                 commands.push(("Open AWS Console".into(), Command::Console));
@@ -1640,6 +1887,7 @@ impl Sesh {
                     | "clearCredential"
                     | "clearAllCredentials"
                     | "removeAccountGroup"
+                    | "removeProfiles"
             ),
             _subscriptions: subscriptions,
         });
@@ -1710,6 +1958,8 @@ impl Sesh {
                         | Command::GroupMenu
                         | Command::SetGroup(_)
                         | Command::NewGroup
+                        | Command::AddProfiles
+                        | Command::RemoveProfiles
                 )
             {
                 let account = self
@@ -2174,6 +2424,64 @@ impl Sesh {
                             cx,
                         );
                     }
+                }
+            }
+            Command::AddProfiles => {
+                let Some(name) = name else {
+                    return;
+                };
+                let targets = self.targets(cx);
+                if targets.is_empty() {
+                    return;
+                }
+                // The CLI profile name, when set, names the profile; save any pending edit first.
+                self.flush_preferences(cx);
+                if self.authenticated() {
+                    for account in targets.iter().filter(|account| !account.roles_loaded) {
+                        self.request(
+                            "loadRoles",
+                            json!({"name": name, "accountId": account.account_id}),
+                            cx,
+                        );
+                    }
+                }
+                self.profile_batch = Some((
+                    name,
+                    targets
+                        .into_iter()
+                        .map(|account| account.account_id)
+                        .collect(),
+                ));
+                self.add_profiles(cx);
+            }
+            Command::RemoveProfiles => {
+                let profiles = self
+                    .targets(cx)
+                    .into_iter()
+                    .flat_map(|account| account.managed_profiles.into_values())
+                    .collect();
+                self.confirm_remove_profiles(profiles, window, cx);
+            }
+            Command::ToggleProfile => {
+                let (Some(name), Some(account), Some(role)) = (name, self.account.clone(), role)
+                else {
+                    return;
+                };
+                if let Some(profile) = account.managed_profiles.get(&role) {
+                    self.confirm_remove_profiles(vec![profile.clone()], window, cx);
+                } else if account.roles.contains(&role) {
+                    self.flush_preferences(cx);
+                    self.profile_skipped.clear();
+                    self.request(
+                        "addProfiles",
+                        json!({"name": name, "items": [{"accountId": account.account_id, "role": role}]}),
+                        cx,
+                    );
+                }
+            }
+            Command::SyncProfiles => {
+                if name.is_some() {
+                    self.request("syncProfiles", json!({"name": name}), cx);
                 }
             }
             Command::ToggleGroup(group) => {
@@ -2662,6 +2970,111 @@ mod tests {
             moves(cx),
             [("setAccountGroup", json!({"accountId":"3","group":"Prod"}))],
             "Dragging an unselected row moves only that row"
+        );
+    }
+
+    #[gpui::test]
+    fn selected_accounts_are_added_as_aws_profiles(cx: &mut gpui::TestAppContext) {
+        use super::*;
+        use gpui::Modifiers;
+        let (view, cx) = account_list(cx);
+        view.update(cx, |view, cx| {
+            cx.notify();
+            let roles = |account: &mut Account, roles: &[&str]| {
+                account.roles = roles.iter().map(|role| role.to_string()).collect();
+                account.roles_loaded = true;
+            };
+            let accounts = &mut view.data.accounts;
+            roles(&mut accounts[0], &["Admin", "Read"]);
+            accounts[0].preferred_role = Some("Admin".into());
+            roles(&mut accounts[1], &["Admin", "Read"]);
+            roles(&mut accounts[3], &["Dev"]);
+            accounts[3]
+                .managed_profiles
+                .insert("Dev".into(), "other-dev".into());
+        });
+        cx.run_until_parked();
+        let click = |cx: &mut gpui::VisualTestContext, row: &'static str, modifiers: Modifiers| {
+            let point = cx.debug_bounds(row).expect(row).center();
+            cx.simulate_click(point, modifiers);
+            cx.run_until_parked();
+        };
+        let run = |cx: &mut gpui::VisualTestContext, command: Command| {
+            cx.update(|window, cx| view.update(cx, |view, cx| view.dispatch(command, window, cx)));
+            cx.run_until_parked();
+        };
+        let requests = |cx: &mut gpui::VisualTestContext| {
+            view.update(cx, |view, _| view.requests.drain(..).collect::<Vec<_>>())
+        };
+        assert!(
+            cx.debug_bounds("managed-3").is_some(),
+            "Accounts with a managed profile are marked"
+        );
+
+        click(cx, "account-0", Modifiers::none());
+        click(cx, "account-3", Modifiers::shift());
+        requests(cx);
+        run(cx, Command::AddProfiles);
+        assert_eq!(
+            requests(cx),
+            [("loadRoles", json!({"name":"Org","accountId":"3"}))],
+            "Roles load before an account is added"
+        );
+
+        view.update(cx, |view, cx| {
+            view.data.accounts[2].roles = vec!["Ops".into()];
+            view.data.accounts[2].roles_loaded = true;
+            view.add_profiles(cx);
+        });
+        let added = requests(cx);
+        assert_eq!(
+            added,
+            [(
+                "addProfiles",
+                json!({"name":"Org","items":[{"accountId":"1","role":"Admin"},{"accountId":"3","role":"Ops"}]})
+            )],
+            "Each account adds its preferred or only role, once"
+        );
+
+        let mut snapshot = json!({
+            "sessions": [{"name":"Org","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","authenticated":true}],
+            "session": "Org",
+            "accounts": [
+                {"accountId":"1","name":"Favorite","roles":["Admin","Read"],"rolesLoaded":true,"preferredRole":"Admin","profiles":{},"pinned":true,"managedProfiles":{"Admin":"favorite-admin"}},
+                {"accountId":"2","name":"Grouped","roles":["Admin","Read"],"rolesLoaded":true,"profiles":{},"pinned":false,"group":"Prod","managedProfiles":{}},
+                {"accountId":"3","name":"Loose","roles":["Ops"],"rolesLoaded":true,"profiles":{},"pinned":false,"managedProfiles":{}},
+                {"accountId":"4","name":"Other","roles":["Dev"],"rolesLoaded":true,"profiles":{},"pinned":false,"managedProfiles":{"Dev":"other-dev"}}
+            ],
+            "managedProfiles": [{"name":"favorite-admin","session":"Org","account":"1","role":"Admin","region":"eu-west-1"}],
+            "collapsedGroups": [], "credentials": []
+        });
+        let result = json!({
+            "sync": {"written":["favorite-admin","other-dev"],"removed":[],"conflicts":[],"cleared":[]},
+            "snapshot": snapshot.take(),
+            "skipped": [{"accountId":"3","role":"Ops","reason":"name taken"}],
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.receive("addProfiles", result, &added[0].1, window, cx)
+            })
+        });
+        view.read_with(cx, |view, _| {
+            assert!(!view.error);
+            assert_eq!(
+                view.message,
+                "Added AWS profile favorite-admin · Skipped Grouped (no preferred role), Loose (name taken)"
+            );
+        });
+
+        run(cx, Command::RemoveProfiles);
+        run(cx, Command::Confirm);
+        assert_eq!(
+            requests(cx),
+            [(
+                "removeProfiles",
+                json!({"name":"Org","profiles":["favorite-admin","other-dev"]})
+            )],
+            "Removing asks first, then removes every selected account's profiles"
         );
     }
 

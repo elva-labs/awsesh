@@ -19,7 +19,7 @@ import { useExit } from "../context/exit"
 import { DialogSettings } from "../component/dialog-settings"
 import { RegionSelectorDialog } from "../component/region-selector-dialog"
 import { DateUtil } from "@/util/date"
-import { createWorkflow, type Account, type AccountLayout } from "@awsesh/core"
+import { createWorkflow, Profiles, type Account, type AccountLayout, type ManagedProfile, type ProfileSyncResult } from "@awsesh/core"
 
 export function AccountListScreen() {
   const { theme } = useTheme()
@@ -44,6 +44,8 @@ export function AccountListScreen() {
   const [lastAccountId, setLastAccountId] = createSignal<string | undefined>(undefined)
   const [layout, setLayout] = createSignal<AccountLayout>({ pinned: [], groups: {}, collapsed: [] })
   const [layoutBusy, setLayoutBusy] = createSignal(false)
+  const [managedProfiles, setManagedProfiles] = createSignal<ManagedProfile[]>([])
+  const [profilesBusy, setProfilesBusy] = createSignal(false)
 
   const session = createMemo(() => aws.sessions.find((s) => s.name === routeData.sessionName))
   const selectedAccount = createMemo(() => aws.accounts.find((a) => a.accountId === selectedAccountId()))
@@ -58,6 +60,16 @@ export function AccountListScreen() {
     awsesh.accountLayout.get(name).then((value) => {
       if (session()?.name === name) setLayout(value)
     }).catch((error) => toast.error(error))
+  })
+
+  const loadManagedProfiles = (name: string) =>
+    awsesh.profiles.list().then((value) => {
+      if (session()?.name === name) setManagedProfiles(value.filter((profile) => profile.session === name))
+    }).catch((error) => toast.error(error))
+
+  createEffect(() => {
+    const name = session()?.name
+    if (name) loadManagedProfiles(name)
   })
 
   const updateLayout = async (update: (name: string) => Promise<unknown>) => {
@@ -263,6 +275,27 @@ export function AccountListScreen() {
       },
     },
     {
+      id: "account.profile.managed",
+      title: "Toggle AWS Profile",
+      category: "Account",
+      keybind: "profile_manage",
+      disabled: !selectedAccount() || profilesBusy(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleToggleManagedProfile(account)
+      },
+    },
+    {
+      id: "account.profile.managed.roles",
+      title: "Choose Roles for AWS Profiles",
+      category: "Account",
+      disabled: !selectedAccount() || profilesBusy(),
+      onSelect: () => {
+        const account = selectedAccount()
+        if (account) handleManagedProfileRoles(account)
+      },
+    },
+    {
       id: "account.region",
       title: "Set Region",
       category: "Account",
@@ -346,6 +379,20 @@ export function AccountListScreen() {
     return profileNames()[account.name]?.[roleName]
   }
 
+  const managedProfilesFor = (account: Account) =>
+    managedProfiles().filter((profile) => profile.account === account.accountId || profile.account === account.name)
+
+  const managedProfileName = (account: Account, role: string) =>
+    managedProfilesFor(account).find((profile) => profile.role === role)?.name
+
+  const managedTag = (names: string[]) =>
+    names.length === 0 ? undefined : `aws:${names[0]}${names.length > 1 ? ` +${names.length - 1}` : ""}`
+
+  const managedRoleTag = (account: Account, role: string) => {
+    const name = managedProfileName(account, role)
+    return name ? `aws:${name}` : undefined
+  }
+
   const getCredentialExpiration = (accountId: string): string | undefined => {
     const creds = aws.activeCredentials.filter((c) => c.accountId === accountId)
     if (creds.length === 0) return undefined
@@ -390,6 +437,7 @@ export function AccountListScreen() {
         category: grouped ? favorite ? "★ Favorites" : group ?? "Other accounts" : undefined,
         categoryId: grouped ? favorite ? "favorites" : group ? `group:${group}` : "other" : undefined,
         description: favorite ? group : undefined,
+        tag: managedTag(managedProfilesFor(account).map((profile) => profile.name)),
         indicator: aws.getCredentialStatus(account.accountId),
         footer: getCredentialExpiration(account.accountId),
       }
@@ -463,6 +511,7 @@ export function AccountListScreen() {
         options={roles.map((role) => ({
           title: role,
           value: role,
+          footer: managedRoleTag(account, role),
         }))}
         onSelect={async (option) => {
           dialog.clear()
@@ -609,6 +658,132 @@ export function AccountListScreen() {
     })
   }
 
+  const loadAccountRoles = async (account: Account): Promise<string[] | undefined> => {
+    const s = session()
+    if (!s) return
+    const roles = account.rolesLoaded ? account.roles : await aws.loadRoles(s, account.accountId)
+    if (roles.length > 0) return roles
+    toast.show({
+      variant: "error",
+      message: "No roles found for this account",
+    })
+  }
+
+  const reportProfileSync = (result: ProfileSyncResult) => {
+    for (const name of result.conflicts) {
+      toast.show({
+        variant: "error",
+        message: `Skipped ${name}: the AWS config already has a [profile ${name}] that awsesh does not manage`,
+        duration: 5000,
+      })
+    }
+  }
+
+  const toggleManagedProfile = async (account: Account, role: string) => {
+    const s = session()
+    if (!s || profilesBusy()) return
+
+    const existing = managedProfileName(account, role)
+    if (existing) {
+      setProfilesBusy(true)
+      try {
+        const result = await workflow.removeProfiles([existing], s.name)
+        setManagedProfiles(result.snapshot.managedProfiles)
+        reportProfileSync(result.sync)
+        toast.show({
+          variant: "success",
+          message: `Removed AWS profile ${existing}`,
+        })
+      } catch (e) {
+        toast.error(e)
+        await loadManagedProfiles(s.name)
+      } finally {
+        setProfilesBusy(false)
+      }
+      return
+    }
+
+    const defaultName = await awsesh.profileNames.get(s.name, account.name, role) || Profiles.suggestName(account.name, account.accountId, role)
+    const name = await DialogPrompt.show(dialog, "Add AWS Profile", {
+      value: defaultName,
+      defaultValue: defaultName,
+      placeholder: "Profile name (letters, digits, - and _)",
+      description: () => (
+        <box flexDirection="column" gap={0}>
+          <text fg={theme.textMuted}>
+            {"Account: "}
+            <span style={{ fg: theme.text }}>{account.name}</span>
+          </text>
+          <text fg={theme.textMuted}>
+            {"Role: "}
+            <span style={{ fg: theme.text }}>{role}</span>
+          </text>
+          <text fg={theme.textMuted}>Written to ~/.aws/config. Any AWS tool gets fresh keys from your SSO login.</text>
+        </box>
+      ),
+    })
+    if (name === null) return
+
+    setProfilesBusy(true)
+    try {
+      const profile = name.trim() || defaultName
+      const result = await workflow.addProfiles(s.name, [{ accountId: account.accountId, role, profile }])
+      setManagedProfiles(result.snapshot.managedProfiles)
+      reportProfileSync(result.sync)
+      if (result.sync.conflicts.includes(profile)) return
+      const signedIn = result.snapshot.sessions.find((value) => value.name === s.name)?.authenticated === true
+      toast.show({
+        variant: signedIn ? "success" : "warning",
+        title: `Added ${profile}`,
+        message: [
+          { label: "Use", value: `aws --profile ${profile} sts get-caller-identity` },
+          ...(result.sync.cleared.length > 0 ? [{ label: "Replaced", value: `old keys for ${result.sync.cleared.join(", ")} in ~/.aws/credentials` }] : []),
+          ...(signedIn ? [] : [{ label: "Sign in", value: `Sign in to ${s.name} before using it` }]),
+        ],
+        duration: 6000,
+      })
+    } catch (e) {
+      toast.error(e)
+      // The definition may be saved even when writing ~/.aws/config failed
+      await loadManagedProfiles(s.name)
+    } finally {
+      setProfilesBusy(false)
+    }
+  }
+
+  const handleManagedProfileRoles = async (account: Account, loaded?: string[]) => {
+    const roles = loaded ?? await loadAccountRoles(account)
+    if (!roles) return
+
+    dialog.replaceRender(() => (
+      <DialogSelect
+        title={`AWS Profiles - ${account.name}`}
+        placeholder="Search roles…"
+        options={roles.map((role) => ({
+          title: role,
+          value: role,
+          footer: managedRoleTag(account, role),
+        }))}
+        onSelect={async (option) => {
+          dialog.clear()
+          await Promise.resolve()
+          await toggleManagedProfile(account, option.value)
+        }}
+      />
+    ))
+  }
+
+  // Several accounts can be marked in a row: the key acts on the account's chosen role and only asks when that is ambiguous
+  const handleToggleManagedProfile = async (account: Account) => {
+    if (profilesBusy()) return
+    const roles = await loadAccountRoles(account)
+    if (!roles) return
+    const preferred = preferredRoles()[account.accountId]
+    const role = preferred && roles.includes(preferred) ? preferred : roles.length === 1 ? roles[0] : undefined
+    if (role) await toggleManagedProfile(account, role)
+    else await handleManagedProfileRoles(account, roles)
+  }
+
   const handleSetRegion = async (account: Account) => {
     const s = session()
     if (!s) return
@@ -714,6 +889,7 @@ export function AccountListScreen() {
           <KeybindHint keybind={keybind.print("role_list")} label="Roles" onClick={() => command.trigger("account.roles")} />
           <KeybindHint keybind={keybind.print("account_favorite")} label="Favorite" onClick={() => command.trigger("account.favorite")} />
           <KeybindHint keybind={keybind.print("account_group")} label="Group" onClick={() => command.trigger("account.group")} />
+          <KeybindHint keybind={keybind.print("profile_manage")} label="AWS Profile" onClick={() => command.trigger("account.profile.managed")} />
           <KeybindHint keybind={keybind.print("browser_open")} label="Open in Browser" onClick={() => command.trigger("account.browser")} />
         </Footer>
       }
