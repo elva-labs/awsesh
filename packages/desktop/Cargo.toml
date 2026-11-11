@@ -35,3 +35,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 [profile.release]
 strip = true
 lto = "thin"
+
+[patch.crates-io]
+pin-utils = { path = "vendor/pin-utils" }
