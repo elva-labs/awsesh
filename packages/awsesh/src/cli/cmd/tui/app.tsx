@@ -118,15 +118,10 @@ async function printLastSetCredential(): Promise<void> {
 export async function tui(): Promise<void> {
   const mode = await Terminal.getTerminalBackgroundColor();
 
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     render(
       () => (
-        <ExitProvider
-          onExit={async () => {
-            await printLastSetCredential();
-            resolve();
-          }}
-        >
+        <ExitProvider>
           <KVProvider>
             <ConfigProvider>
               <RouteProvider>
@@ -157,6 +152,9 @@ export async function tui(): Promise<void> {
         </ExitProvider>
       ),
       {
+        onDestroy: () => {
+          printLastSetCredential().then(resolve, reject);
+        },
         targetFps: 60,
         gatherStats: false,
         exitOnCtrlC: false,
@@ -170,6 +168,6 @@ export async function tui(): Promise<void> {
           },
         },
       },
-    );
+    ).catch(reject);
   });
 }
