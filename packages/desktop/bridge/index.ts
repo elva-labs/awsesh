@@ -1,7 +1,7 @@
 import path from "node:path"
 import { createInterface } from "node:readline"
 import { configureAppearance, prepareThemeDirectory } from "./appearance"
-import { configDir, dataDir, dispatchWorkflow } from "./workflow"
+import { awsesh, configDir, dataDir, dispatchWorkflow } from "./workflow"
 import { isWslAvailable, WslWorkspace } from "./wsl"
 
 const helperPath = path.basename(process.execPath).toLowerCase() === "awsesh-sdk.exe"
@@ -35,6 +35,26 @@ async function dispatch(request: unknown) {
       ? workspace.request(request.operation, values)
       : dispatchWorkflow(request.operation, values)
   }
+}
+
+// credential_process for profiles the desktop app manages; stdout carries only the JSON
+const [command, subcommand, profile] = process.argv.slice(2)
+if (command === "profiles" && subcommand === "creds") {
+  try {
+    if (!profile) throw new Error("Usage: awsesh-sdk profiles creds <name>")
+    process.stdout.write(`${JSON.stringify(await awsesh.profiles.credentials(profile))}\n`)
+    process.exit(0)
+  } catch (error) {
+    process.stderr.write(`sesh: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.exit(1)
+  }
+}
+
+// Keeps credential_process pointing at this helper after the app moves or updates
+if (!await workspace.enabled()) {
+  await awsesh.profiles.list()
+    .then((profiles) => profiles.length > 0 ? awsesh.profiles.sync() : undefined)
+    .catch((error) => process.stderr.write(`sesh: could not sync AWS profiles: ${error instanceof Error ? error.message : String(error)}\n`))
 }
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
