@@ -24,7 +24,8 @@
   },
   "overrides": {
     "minimatch": "11.0.1",
-    "seroval": "1.6.8"
+    "seroval": "1.6.8",
+    "@aws-sdk/xml-builder": "3.972.19"
   },
   "repository": {
     "type": "git",
