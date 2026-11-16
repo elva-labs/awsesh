@@ -1,0 +1,18 @@
+name: Verify packaged WSL workspace
+description: Exercise the packaged Windows and Linux helpers through a real WSL distribution
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Ubuntu on WSL 2
+      uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7
+      with:
+        distribution: Ubuntu-24.04
+        wsl-version: 2
+        set-as-default: "true"
+
+    - name: Verify packaged WSL workspace
+      shell: pwsh
+      env:
+        AWSESH_REQUIRE_WSL: "1"
+      run: bun test packages/desktop/bridge/wsl.test.ts

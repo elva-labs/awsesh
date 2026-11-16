@@ -48,6 +48,8 @@ window for diagnostics; release builds do not.
 
 Rune and its upstream platform patches are pinned to the same Git revision in
 `Cargo.toml`. Keep those revisions together when upgrading the framework.
+The lockfile also keeps `gpu-allocator` on the same Windows bindings as
+`wgpu-hal`; preserve that alignment when updating Windows dependencies.
 
 ### Verification and previews
 
@@ -61,7 +63,7 @@ cargo run -- --scene folded --size 1200x780 --snap folded.png --chrome
 
 `--preview` and the named snapshot scenes use sample data, do not start the SDK
 helper, and do not save window geometry. Other scenes include `settings`,
-`credentials`, `credentials-selected`, `authenticated`, `session-form` and
+`credentials`, `credentials-selected`, `authenticated`, `session-form`,
 `commands` and `large` (1,000 accounts across ten groups). Headless snapshot and
 script tooling requires `--features rune/tooling` when building or running.
 `--chrome` checks that app controls clear the native macOS buttons.
@@ -167,6 +169,12 @@ read-modify-write race limitation.
 
 For development, build the bundled Linux helper with `bun run build:desktop`
 before enabling WSL mode in `dev:desktop`.
+
+CI verifies the packaged Windows-to-WSL transport in Ubuntu on WSL 2, including
+workspace switching, shared Linux state, helper recovery and local Windows
+appearance settings. Release staging runs the same checks before uploading the
+Windows package. These checks use temporary workspaces and do not perform live
+AWS authorization.
 
 ## Architecture
 

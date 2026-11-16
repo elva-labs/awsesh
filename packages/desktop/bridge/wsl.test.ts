@@ -114,6 +114,9 @@ describe("helper transport", () => {
 const linuxHelper = path.resolve(import.meta.dir, "../dist/Sesh/awsesh-sdk-linux-x64")
 const hasWsl = await isWslAvailable()
 const hasWslHelper = await Bun.file(linuxHelper).exists() && hasWsl
+if (process.env.AWSESH_REQUIRE_WSL === "1" && !hasWslHelper) {
+  throw new Error("WSL integration checks require a working default distribution and the packaged Linux helper")
+}
 
 test.skipIf(!hasWsl)("restarts a stopped WSL helper without replaying mutations or changing workspace", async () => {
   const root = await temporary()
