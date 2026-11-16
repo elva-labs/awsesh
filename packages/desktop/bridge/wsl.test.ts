@@ -3,6 +3,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { isWslAvailable, readWorkspace, wslCommand, WslHelper, WslWorkspace } from "./wsl"
+import { sessionStorageKey } from "../../core/src/filesystem"
 
 async function temporary() {
   return mkdtemp(path.join(tmpdir(), "sesh-workspace-"))
@@ -270,8 +271,8 @@ trap 'rm -rf "$root"' EXIT
 export HOME="$root" XDG_CONFIG_HOME="$root/config" XDG_DATA_HOME="$root/data" XDG_CACHE_HOME="$root/cache"
 export AWS_EC2_METADATA_DISABLED=true AWS_ENDPOINT_URL=http://127.0.0.1:1
 helper=$(wslpath -u "$1")
-mkdir -p "$XDG_DATA_HOME/awsesh/storage/accounts"
-printf '%s' '{"accounts":[{"accountId":"123456789012","name":"Example","roles":["Admin"],"rolesLoaded":true}],"lastUpdated":0}' > "$XDG_DATA_HOME/awsesh/storage/accounts/shared.json"
+mkdir -p "$XDG_DATA_HOME/awsesh/storage/accounts/by-name"
+printf '%s' '{"accounts":[{"accountId":"123456789012","name":"Example","roles":["Admin"],"rolesLoaded":true}],"lastUpdated":0}' > "$XDG_DATA_HOME/awsesh/storage/accounts/${sessionStorageKey("shared")}.json"
 printf '%s\\n' \
   '{"operation":"snapshot"}' \
   '{"operation":"saveSession","args":{"name":"shared","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","creating":true}}' \
@@ -285,7 +286,7 @@ printf '%s\\n' '{"operation":"snapshot","args":{"name":"shared"}}' | "$helper"`
   expect(code).toBe(0)
   const responses = stdout.trim().split("\n").map(line => JSON.parse(line))
   expect(responses).toHaveLength(6)
-  expect(responses.some(response => response.error)).toBe(false)
+  expect(responses.filter(response => response.error)).toEqual([])
   expect(responses[0].result.sessions).toEqual([])
   const snapshot = responses[5].result
   expect(snapshot.sessions.map((session: { name: string }) => session.name)).toEqual(["shared"])
