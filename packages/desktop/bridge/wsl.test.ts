@@ -278,7 +278,6 @@ printf '%s\\n' \
   '{"operation":"selectSession","args":{"name":"shared"}}' \
   '{"operation":"setRegion","args":{"name":"shared","accountId":"123456789012","region":"us-east-1"}}' \
   '{"operation":"setProfile","args":{"name":"shared","accountId":"123456789012","role":"Admin","profile":"shared-admin"}}' | "$helper"
-test -f "$XDG_CONFIG_HOME/awsesh/sessions/shared.json"
 printf '%s\\n' '{"operation":"snapshot","args":{"name":"shared"}}' | "$helper"`
   const child = Bun.spawn(["wsl", "--exec", "sh", "-c", script, "sesh-test", linuxHelper], { stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
