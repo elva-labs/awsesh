@@ -23,7 +23,8 @@
     "@awsesh/script": "workspace:*"
   },
   "overrides": {
-    "minimatch": "11.0.1"
+    "minimatch": "11.0.1",
+    "fast-xml-parser": "5.7.0"
   },
   "repository": {
     "type": "git",
