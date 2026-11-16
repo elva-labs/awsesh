@@ -24,7 +24,7 @@
   },
   "overrides": {
     "minimatch": "11.0.1",
-    "fast-xml-parser": "5.7.0"
+    "@aws-sdk/xml-builder": "3.972.19"
   },
   "repository": {
     "type": "git",
