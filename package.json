@@ -23,7 +23,8 @@
     "@awsesh/script": "workspace:*"
   },
   "overrides": {
-    "minimatch": "11.0.1"
+    "minimatch": "11.0.1",
+    "glob": "14.0.2"
   },
   "repository": {
     "type": "git",
