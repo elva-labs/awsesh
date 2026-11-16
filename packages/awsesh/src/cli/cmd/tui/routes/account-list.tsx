@@ -63,13 +63,12 @@ export function AccountListScreen() {
     }).catch((error) => toast.error(error))
   })
 
-  const updateLayout = async (update: (name: string) => Promise<unknown>) => {
+  const updateLayout = async (update: (name: string) => Promise<AccountLayout>) => {
     const name = session()?.name
     if (!name || layoutBusy()) return
     setLayoutBusy(true)
     try {
-      await update(name)
-      const value = await awsesh.accountLayout.get(name)
+      const value = await update(name)
       if (session()?.name === name) setLayout(value)
     } catch (error) {
       toast.error(error)
@@ -78,7 +77,7 @@ export function AccountListScreen() {
     }
   }
 
-  const handleFavorite = (account: Account) => updateLayout((name) => workflow.pinAccount(name, account.accountId, !layout().pinned.includes(account.accountId)))
+  const handleFavorite = (account: Account) => updateLayout((name) => workflow.layout.pinAccount(name, account.accountId, !pinnedAccounts().has(account.accountId)))
 
   const handleGroup = (account: Account) => {
     const current = layout().groups[account.accountId]
@@ -98,11 +97,11 @@ export function AccountListScreen() {
             await Promise.resolve()
             const group = await DialogPrompt.show(dialog, "New group", { placeholder: "Group name (1–64 characters)" })
             if (group === null || !group) return
-            await updateLayout((name) => workflow.setAccountGroup(name, account.accountId, group))
+            await updateLayout((name) => workflow.layout.setAccountGroup(name, account.accountId, group))
             return
           }
           const group = option.value === "ungrouped" ? "" : option.value.slice("group:".length)
-          await updateLayout((name) => workflow.setAccountGroup(name, account.accountId, group))
+          await updateLayout((name) => workflow.layout.setAccountGroup(name, account.accountId, group))
         }}
       />
     ))
@@ -115,7 +114,7 @@ export function AccountListScreen() {
       description: () => <text fg={theme.textMuted}>Using an existing group name merges the groups.</text>,
     })
     if (renamed === null || renamed === group) return
-    await updateLayout((name) => workflow.renameAccountGroup(name, group, renamed))
+    await updateLayout((name) => workflow.layout.renameAccountGroup(name, group, renamed))
   }
 
   const handleRemoveGroup = async (group: string) => {
@@ -125,13 +124,13 @@ export function AccountListScreen() {
       variant: "danger",
       confirmLabel: "Remove group",
     })
-    if (confirmed) await updateLayout((name) => workflow.removeAccountGroup(name, group))
+    if (confirmed) await updateLayout((name) => workflow.layout.removeAccountGroup(name, group))
   }
 
   const handleCategoryToggle = (category: string, collapsed: boolean) => {
-    if (category === "favorites") return updateLayout((name) => awsesh.accountLayout.update(name, (value) => ({ ...value, favoritesCollapsed: collapsed })))
+    if (category === "favorites") return updateLayout((name) => awsesh.accountLayout.updateAndGet(name, (value) => ({ ...value, favoritesCollapsed: collapsed })))
     const group = category === "other" ? "" : category.slice("group:".length)
-    return updateLayout((name) => workflow.collapseAccountGroup(name, group, collapsed))
+    return updateLayout((name) => workflow.layout.collapseAccountGroup(name, group, collapsed))
   }
 
   createEffect(() => {

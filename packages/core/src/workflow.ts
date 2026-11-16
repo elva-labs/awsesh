@@ -84,8 +84,56 @@ export function createWorkflow(awsesh: Awsesh) {
     }
   }
 
+  const layout = {
+    async pinAccount(name: string, accountId: string, pinned: boolean) {
+      await session(name)
+      await account(name, accountId)
+      return awsesh.accountLayout.updateAndGet(name, (layout) => ({
+        ...layout,
+        pinned: [...layout.pinned.filter((id) => id !== accountId), ...(pinned ? [accountId] : [])],
+      }))
+    },
+    async setAccountGroup(name: string, accountId: string, group: string) {
+      await session(name)
+      await account(name, accountId)
+      if (group) validateGroup(group)
+      return awsesh.accountLayout.updateAndGet(name, (layout) => {
+        const groups = { ...layout.groups }
+        if (group) groups[accountId] = group
+        else delete groups[accountId]
+        return { ...layout, groups }
+      })
+    },
+    async renameAccountGroup(name: string, group: string, renamed: string) {
+      await session(name)
+      validateGroup(renamed)
+      return awsesh.accountLayout.updateAndGet(name, (layout) => ({
+        ...layout,
+        groups: Object.fromEntries(Object.entries(layout.groups).map(([id, value]) => [id, value === group ? renamed : value])),
+        collapsed: [...new Set(layout.collapsed.map((value) => value === group ? renamed : value))],
+      }))
+    },
+    async removeAccountGroup(name: string, group: string) {
+      await session(name)
+      return awsesh.accountLayout.updateAndGet(name, (layout) => ({
+        ...layout,
+        groups: Object.fromEntries(Object.entries(layout.groups).filter(([, value]) => value !== group)),
+        collapsed: layout.collapsed.filter((value) => value !== group),
+      }))
+    },
+    async collapseAccountGroup(name: string, group: string, collapsed: boolean) {
+      await session(name)
+      if (group) validateGroup(group)
+      return awsesh.accountLayout.updateAndGet(name, (layout) => ({
+        ...layout,
+        collapsed: [...layout.collapsed.filter((value) => value !== group), ...(collapsed ? [group] : [])],
+      }))
+    },
+  }
+
   return {
     snapshot,
+    layout,
     async selectSession(name: string, refresh = false) {
       const value = await session(name)
       const cache = await awsesh.accounts.get(name)
@@ -177,52 +225,23 @@ export function createWorkflow(awsesh: Awsesh) {
       return snapshot(name)
     },
     async pinAccount(name: string, accountId: string, pinned: boolean) {
-      await session(name)
-      await account(name, accountId)
-      await awsesh.accountLayout.update(name, (layout) => ({
-        ...layout,
-        pinned: [...layout.pinned.filter((id) => id !== accountId), ...(pinned ? [accountId] : [])],
-      }))
+      await layout.pinAccount(name, accountId, pinned)
       return snapshot(name)
     },
     async setAccountGroup(name: string, accountId: string, group: string) {
-      await session(name)
-      await account(name, accountId)
-      if (group) validateGroup(group)
-      await awsesh.accountLayout.update(name, (layout) => {
-        const groups = { ...layout.groups }
-        if (group) groups[accountId] = group
-        else delete groups[accountId]
-        return { ...layout, groups }
-      })
+      await layout.setAccountGroup(name, accountId, group)
       return snapshot(name)
     },
     async renameAccountGroup(name: string, group: string, renamed: string) {
-      await session(name)
-      validateGroup(renamed)
-      await awsesh.accountLayout.update(name, (layout) => ({
-        ...layout,
-        groups: Object.fromEntries(Object.entries(layout.groups).map(([id, value]) => [id, value === group ? renamed : value])),
-        collapsed: [...new Set(layout.collapsed.map((value) => value === group ? renamed : value))],
-      }))
+      await layout.renameAccountGroup(name, group, renamed)
       return snapshot(name)
     },
     async removeAccountGroup(name: string, group: string) {
-      await session(name)
-      await awsesh.accountLayout.update(name, (layout) => ({
-        ...layout,
-        groups: Object.fromEntries(Object.entries(layout.groups).filter(([, value]) => value !== group)),
-        collapsed: layout.collapsed.filter((value) => value !== group),
-      }))
+      await layout.removeAccountGroup(name, group)
       return snapshot(name)
     },
     async collapseAccountGroup(name: string, group: string, collapsed: boolean) {
-      await session(name)
-      if (group) validateGroup(group)
-      await awsesh.accountLayout.update(name, (layout) => ({
-        ...layout,
-        collapsed: [...layout.collapsed.filter((value) => value !== group), ...(collapsed ? [group] : [])],
-      }))
+      await layout.collapseAccountGroup(name, group, collapsed)
       return snapshot(name)
     },
     async assumeRole(name: string, accountId: string, role: string) {

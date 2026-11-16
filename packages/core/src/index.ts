@@ -71,9 +71,19 @@ export function createAwsesh(options: AwseshOptions) {
   async function accountCache(name: string) {
     const cache = await storage.read<AccountCache>(`accounts/${sessionStorageKey(name)}`)
     const legacy = legacySessionKey(name)
-    if (cache || legacy === undefined) return cache
+    if (cache || legacy === undefined) return { cache, legacy: false }
     const session = await readJsonFile<SSOSession>(`${configDir}/sessions/${legacy}.json`).catch(() => undefined)
-    return session?.name === name ? storage.read<AccountCache>(`accounts/${legacy}`) : undefined
+    return {
+      cache: session?.name === name ? await storage.read<AccountCache>(`accounts/${legacy}`) : undefined,
+      legacy: true,
+    }
+  }
+
+  async function updateAccountLayout(sessionName: string, fn: (layout: AccountLayout) => AccountLayout): Promise<AccountLayout> {
+    const data = await storage.update<Record<string, Partial<AccountLayout>>>("preference/account-layout", (draft) => {
+      return { ...draft, [sessionName]: fn({ pinned: [], groups: {}, collapsed: [], ...own(draft, sessionName) }) }
+    })
+    return { pinned: [], groups: {}, collapsed: [], ...own(data, sessionName) }
   }
 
   return {
@@ -82,14 +92,14 @@ export function createAwsesh(options: AwseshOptions) {
       get: (name: string) => sessions.load(name),
       save: async (session: SSOSession, originalName?: string) => {
         if (originalName === undefined || originalName === session.name) {
-          const cache = await accountCache(session.name)
-          if (cache) await storage.write(`accounts/${sessionStorageKey(session.name)}`, cache)
+          const { cache, legacy } = await accountCache(session.name)
+          if (legacy && cache) await storage.write(`accounts/${sessionStorageKey(session.name)}`, cache)
           return sessions.save(session)
         }
         if (!await sessions.exists(originalName)) throw new Error(`SSO session not found: ${originalName}`)
         if (await sessions.exists(session.name)) throw new Error("A session with this name already exists")
         await sessions.save(session)
-        const cache = await accountCache(originalName)
+        const { cache } = await accountCache(originalName)
         if (cache) await storage.write(`accounts/${sessionStorageKey(session.name)}`, cache)
         for (const key of ["last-accounts", "last-profiles", "profile-names", "preferred-roles", "preferred-regions", "account-layout"]) {
           const values = await storage.read<Record<string, unknown>>(`preference/${key}`)
@@ -170,7 +180,7 @@ export function createAwsesh(options: AwseshOptions) {
     },
 
     accounts: {
-      get: accountCache,
+      get: async (name: string) => (await accountCache(name)).cache,
       save: (sessionName: string, cache: AccountCache) => storage.write(`accounts/${sessionStorageKey(sessionName)}`, cache),
     },
 
@@ -294,10 +304,9 @@ export function createAwsesh(options: AwseshOptions) {
         return { pinned: [], groups: {}, collapsed: [], ...own(data, sessionName) }
       },
       update: async (sessionName: string, fn: (layout: AccountLayout) => AccountLayout): Promise<void> => {
-        await storage.update<Record<string, Partial<AccountLayout>>>("preference/account-layout", (draft) => {
-          return { ...draft, [sessionName]: fn({ pinned: [], groups: {}, collapsed: [], ...own(draft, sessionName) }) }
-        })
+        await updateAccountLayout(sessionName, fn)
       },
+      updateAndGet: updateAccountLayout,
     },
 
     /** @internal Low-level primitive. Prefer `setCredential()` for most use cases. */
@@ -494,10 +503,11 @@ export function createAwsesh(options: AwseshOptions) {
       const sessionCreds = (active || []).filter((c) => c.sessionName === sessionName)
 
       // 1. Remove profiles from ~/.aws/credentials if requested
-      if (removeProfiles) {
-        for (const cred of sessionCreds) {
-          await Credentials.removeProfile({ awsDir: await getAwsDir(), profileName: cred.profileName })
-        }
+      if (removeProfiles && sessionCreds.length > 0) {
+        await Credentials.removeProfiles({
+          awsDir: await getAwsDir(),
+          profileNames: sessionCreds.map((cred) => cred.profileName),
+        })
       }
 
       // 2. Remove from active credentials tracking
@@ -521,8 +531,11 @@ export function createAwsesh(options: AwseshOptions) {
       // 1. Remove profiles from ~/.aws/credentials if requested
       if (removeProfiles) {
         const active = await storage.read<ActiveCredential[]>("credentials/active")
-        for (const cred of active || []) {
-          await Credentials.removeProfile({ awsDir: await getAwsDir(), profileName: cred.profileName })
+        if (active?.length) {
+          await Credentials.removeProfiles({
+            awsDir: await getAwsDir(),
+            profileNames: active.map((cred) => cred.profileName),
+          })
         }
       }
 
