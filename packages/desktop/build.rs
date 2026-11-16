@@ -7,6 +7,8 @@ fn main() {
         let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
         let icon = manifest_dir.join("assets").join("AppIcon.ico");
         std::fs::copy(&icon, out.join("AppIcon.ico")).expect("copy icon");
+        let manifest = manifest_dir.join("assets").join("windows.manifest");
+        std::fs::copy(&manifest, out.join("windows.manifest")).expect("copy application manifest");
 
         let version = std::env::var("AWSESH_RELEASE_VERSION")
             .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
@@ -17,6 +19,7 @@ fn main() {
             &resource,
             format!(
                 r#"1 ICON "AppIcon.ico"
+1 24 "windows.manifest"
 1 VERSIONINFO
 FILEVERSION {numeric}
 PRODUCTVERSION {numeric}
@@ -48,6 +51,7 @@ END
         .expect("write resource file");
         println!("cargo:rerun-if-env-changed=AWSESH_RELEASE_VERSION");
         println!("cargo:rerun-if-changed={}", icon.display());
+        println!("cargo:rerun-if-changed={}", manifest.display());
         embed_resource::compile(&resource, embed_resource::NONE)
             .manifest_optional()
             .expect("compile Windows resources");

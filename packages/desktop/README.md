@@ -1,6 +1,6 @@
 # Sesh desktop client
 
-Native Rust / GPUI client for awsesh. A desktop workspace with an organization
+Native Rust / Rune client for awsesh. A desktop workspace with an organization
 sidebar, searchable account list, account inspector and credential management.
 
 ## Installation and support
@@ -46,6 +46,28 @@ Platform prerequisites:
 `dev:desktop` runs a debug build. On Windows the debug build keeps a console
 window for diagnostics; release builds do not.
 
+Rune and its upstream platform patches are pinned to the same Git revision in
+`Cargo.toml`. Keep those revisions together when upgrading the framework.
+
+### Verification and previews
+
+```sh
+cd packages/desktop
+cargo test --locked
+cargo run -- --preview
+cargo run -- --scene expanded --size 1200x780 --snap expanded.png --chrome
+cargo run -- --scene folded --size 1200x780 --snap folded.png --chrome
+```
+
+`--preview` and the named snapshot scenes use sample data, do not start the SDK
+helper, and do not save window geometry. Other scenes include `settings`,
+`credentials`, `credentials-selected`, `authenticated`, `session-form` and
+`commands` and `large` (1,000 accounts across ten groups). Headless snapshot and
+script tooling requires `--features rune/tooling` when building or running.
+`--chrome` checks that app controls clear the native macOS buttons.
+Rune also accepts `--script`, `--video`, `--tree` and `--trace` for deterministic
+interaction and motion inspection.
+
 ## Build
 
 ```sh
@@ -63,7 +85,7 @@ Produces `packages/desktop/dist/Sesh.app`. The build targets ARM64 with a macOS
 release versions are preserved in Rust Settings and the `AWSESHReleaseVersion`
 bundle field; Apple's short version uses the numeric base. CI uses its positive
 `GITHUB_RUN_NUMBER` as the bundle build version; local builds use the numeric
-base. GPUI compiles its embedded Metal shaders at runtime, so no separate Metal
+base. Rune renders with its native Metal backend; no separately installed Metal
 compiler is required.
 
 ### Windows
@@ -93,7 +115,7 @@ Build properties:
 
 - Static CRT. The package imports no `vcruntime140.dll` or `msvcp140.dll` and
   needs no Visual C++ Redistributable.
-- GPUI's embedded manifest declares `PerMonitorV2` DPI awareness, so the window
+- The application's embedded manifest declares `PerMonitorV2` DPI awareness, so the window
   is crisp at 150% and 200% scaling. It requests `asInvoker`, so no elevation.
 - The executable carries the Sesh icon (resource ID 1), product metadata
   (`ProductName`, `CompanyName`, `FileDescription`) and `AWSESHReleaseVersion`.
@@ -148,13 +170,16 @@ before enabling WSL mode in `dev:desktop`.
 
 ## Architecture
 
-- `src/main.rs`: transient state, navigation and SDK request coordination.
-- `src/ui.rs`: shared GPUI workspace, inspectors, settings and dialogs.
-- `src/platform.rs`: platform shortcuts, fonts, application menus, titlebar
-  setup and the macOS blur/window-drag adapter.
-- `src/theme.rs`: resolved palette transport types and the GPUI rendering adapter.
+- `src/main.rs`: transient state, navigation, preference debounce and serialized
+  SDK requests on a background worker that wakes Rune when responses arrive.
+- `src/ui.rs`: Rune workspace, virtualized account sections, inspectors, settings,
+  dialogs and the animated titlebar island.
+- `src/platform.rs`: platform shortcuts, application menus and Windows acrylic.
+- `src/select.rs`: searchable Rune component options.
+- `src/theme.rs`: resolved palette transport types and the Rune/rune-kit adapter.
+- `src/window_state.rs`: native window geometry persistence.
 - `src/sdk.rs`: helper discovery and the private JSON-lines transport.
-- `build.rs`: Windows icon and VERSIONINFO resources.
+- `build.rs`: Windows icon, application manifest and VERSIONINFO resources.
 - `bridge/index.ts`: allowlisted JSON-lines transport over private process pipes.
 - `bridge/appearance.ts`: desktop appearance preferences and theme transport,
   independent of AWS workflows.
@@ -164,6 +189,11 @@ before enabling WSL mode in `dev:desktop`.
 - `@awsesh/core`'s `createWorkflow()`: session CRUD, authorization, account/role
   caching, preferences and credential lifecycle. Reusable by other clients.
 
+Account sections construct rows lazily with stable account-ID keys. Search text,
+group names and visible-list projections are cached and invalidated when snapshots,
+queries or collapsed groups change. Account menus are built only when opened,
+and the dither texture is initialized only when enabled.
+
 The helper is long-lived so device authorization stays inside the SDK. Access
 tokens, device secrets and role credentials never cross into Rust. Requests are
 serialized and run off the UI thread. Closing the app terminates its helper; on
@@ -171,13 +201,20 @@ Windows the helper also exits if the parent is killed, because its standard inpu
 closes. The app shares the CLI/TUI's XDG configuration and data directories and
 `~/.aws`. Development can select a Bun executable with `AWSESH_BUN`.
 
-The macOS toolbar and blur integration were inspired by
-[Zeron](https://github.com/zeronsh/zeron). Windows uses GPUI's native window
-decorations and acrylic translucency.
+The macOS toolbar design was inspired by
+[Zeron](https://github.com/zeronsh/zeron). Rune keeps the real AppKit traffic lights
+at `(18, 14)` while the sidebar folds and the rounded island fades in underneath.
+The native controls, sidebar toggle and command search remain stationary; the organization toolbar and
+account pane follow the sidebar. Interruptions retarget the existing spring, and
+Rune honors the system's reduced-motion preference. Sidebar toggles animate from
+the toolbar, keyboard shortcut, settings and native menu.
+The titlebar retains native dragging, double-click and fullscreen behavior.
+Windows uses Rune's custom titlebar with native resize/snap integration and
+system acrylic when translucency is enabled.
 
 ## Limitations
 
-- The Windows client does not read the OS reduce-motion preference, so the
-  sidebar animation always runs.
+- Rune is pre-release; framework updates require rechecking native titlebar,
+  accessibility and platform behavior.
 - AWS path overrides (`AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`,
   `AWS_PROFILE`) are not honored; the helper always uses `~/.aws`, matching macOS.
