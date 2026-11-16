@@ -1,9 +1,42 @@
-name: Verify packaged WSL workspace
-description: Exercise the packaged Windows and Linux helpers through a real WSL distribution
+name: Verify packaged Windows and WSL workflows
+description: Open the native Windows app and exercise packaged helpers through a real WSL distribution
 
 runs:
   using: composite
   steps:
+    - name: Verify native Windows window
+      shell: pwsh
+      run: |
+        $executable = (Resolve-Path packages/desktop/dist/Sesh/sesh.exe).Path
+        $application = Start-Process -FilePath $executable -ArgumentList "--preview" -PassThru
+        try {
+          $deadline = [DateTime]::UtcNow.AddSeconds(30)
+          do {
+            $application.Refresh()
+            if ($application.HasExited) {
+              throw "The packaged app exited before opening a window: $($application.ExitCode)"
+            }
+            if ($application.MainWindowHandle -ne [IntPtr]::Zero) {
+              break
+            }
+            Start-Sleep -Milliseconds 200
+          } while ([DateTime]::UtcNow -lt $deadline)
+          if ($application.MainWindowHandle -eq [IntPtr]::Zero) {
+            throw "The packaged app did not open a native window within 30 seconds"
+          }
+          Start-Sleep -Seconds 1
+          $application.Refresh()
+          if ($application.HasExited) {
+            throw "The packaged app exited after opening its window: $($application.ExitCode)"
+          }
+          Write-Host "Packaged Windows preview opened successfully"
+        } finally {
+          if (-not $application.HasExited) {
+            Stop-Process -Id $application.Id -Force
+          }
+          $application.Dispose()
+        }
+
     - name: Set up Ubuntu on WSL 2
       uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7
       with:

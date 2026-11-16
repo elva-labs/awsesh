@@ -170,7 +170,8 @@ read-modify-write race limitation.
 For development, build the bundled Linux helper with `bun run build:desktop`
 before enabling WSL mode in `dev:desktop`.
 
-CI verifies the packaged Windows-to-WSL transport in Ubuntu on WSL 2, including
+CI opens the packaged Windows app with sample data and verifies the
+Windows-to-WSL transport in Ubuntu on WSL 2, including
 workspace switching, shared Linux state, helper recovery and local Windows
 appearance settings. Release staging runs the same checks before uploading the
 Windows package. These checks use temporary workspaces and do not perform live
