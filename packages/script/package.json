@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit --strict --skipLibCheck --target ESNext --module ESNext --moduleResolution bundler --types bun --resolveJsonModule --allowImportingTsExtensions src/*.ts ../scripts/*.ts ../awsesh/script/*.ts ../core/script/*.ts"
   },
   "devDependencies": {
-    "@tsconfig/bun": "1.0.9",
-    "@types/bun": "1.4.2",
-    "typescript": "5.8.2"
+    "@tsconfig/bun": "1.0.12",
+    "@types/bun": "1.4.4",
+    "typescript": "5.9.3"
   }
 }

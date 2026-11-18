@@ -36,37 +36,51 @@ export function createWorkflow(awsesh: Awsesh) {
   }
 
   async function snapshot(name?: string) {
-    const sessions = await awsesh.sessions.list()
-    const selected = name ? await session(name) : undefined
-    const credentials = await awsesh.activeCredentials.list()
-    const cache = selected ? await awsesh.accounts.get(selected.name) : undefined
-    const roles = selected ? await awsesh.preferredRoles.getAll(selected.name) : {}
-    const regions = selected ? await awsesh.preferredRegions.getAll(selected.name) : {}
-    const profiles = selected ? await awsesh.lastProfiles.getAll(selected.name) : {}
-    const layout = selected ? await awsesh.accountLayout.get(selected.name) : undefined
-    const previous = await awsesh.lastSetCredential.get()
-    return {
-      sessions: await Promise.all(sessions.map(async (value) => ({
+    const [sessions, selected, credentials, previous, lastSelected, lastSession] = await Promise.all([
+      awsesh.sessions.list().then((sessions) => Promise.all(sessions.map(async (value) => ({
         ...value,
         authenticated: !!await awsesh.tokens.get(value.startUrl),
-      }))),
+      })))),
+      name ? session(name) : undefined,
+      awsesh.activeCredentials.list(),
+      awsesh.lastSetCredential.get(),
+      awsesh.lastSelected.get(),
+      awsesh.lastSession.get(),
+    ])
+    const preferences = selected && await Promise.all([
+      awsesh.accounts.get(selected.name),
+      awsesh.preferredRoles.getAll(selected.name),
+      awsesh.preferredRegions.getAll(selected.name),
+      awsesh.lastProfiles.getAll(selected.name),
+      awsesh.accountLayout.get(selected.name),
+      awsesh.profileNames.getAll(selected.name),
+      awsesh.lastAccountPerSession.get(selected.name),
+    ])
+    const [cache, roles, regions, profiles, layout, profileNames, lastAccount] = preferences ?? []
+    const pinned = new Set(layout?.pinned)
+    const credentialProfiles = new Map<string, string>()
+    for (const credential of credentials) {
+      if (credential.sessionName === selected?.name) credentialProfiles.set(credential.accountId, credential.profileName)
+    }
+    return {
+      sessions,
       session: selected?.name,
-      accounts: await Promise.all((cache?.accounts ?? []).map(async (value) => ({
+      accounts: (cache?.accounts ?? []).map((value) => ({
         ...value,
-        preferredRole: value.roles.includes(roles[value.accountId]) ? roles[value.accountId] : undefined,
-        region: regions[value.accountId] ?? selected?.defaultRegion,
-        profiles: await awsesh.profileNames.getForAccount(selected?.name ?? "", value.name),
-        lastProfile: profiles[value.accountId]
+        preferredRole: roles && value.roles.includes(roles[value.accountId]) ? roles[value.accountId] : undefined,
+        region: regions?.[value.accountId] ?? selected?.defaultRegion,
+        profiles: profileNames && Object.hasOwn(profileNames, value.name) ? profileNames[value.name] : {},
+        lastProfile: profiles?.[value.accountId]
           ?? (previous?.sessionName === selected?.name && previous?.accountId === value.accountId ? previous.profileName : undefined)
-          ?? credentials.findLast((credential) => credential.sessionName === selected?.name && credential.accountId === value.accountId)?.profileName,
-        pinned: layout?.pinned.includes(value.accountId) ?? false,
+          ?? credentialProfiles.get(value.accountId),
+        pinned: pinned.has(value.accountId),
         group: layout?.groups[value.accountId],
-      }))),
+      })),
       collapsedGroups: layout?.collapsed ?? [],
       credentials,
-      lastSelected: await awsesh.lastSelected.get(),
-      lastAccount: selected ? await awsesh.lastAccountPerSession.get(selected.name) : undefined,
-      lastSession: await awsesh.lastSession.get(),
+      lastSelected,
+      lastAccount,
+      lastSession,
     }
   }
 

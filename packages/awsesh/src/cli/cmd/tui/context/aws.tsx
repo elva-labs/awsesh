@@ -66,17 +66,6 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         return tokenStatus()[startUrl] ?? false
       },
 
-      getCredentialStatus(accountId: string): "default" | "active" | "inactive" {
-        const creds = activeCredentials()
-        const now = new Date()
-        const accountCreds = creds.filter(
-          (c) => c.accountId === accountId && new Date(c.expiration) > now
-        )
-        if (accountCreds.length === 0) return "inactive"
-        if (accountCreds.some((c) => c.isDefault)) return "default"
-        return "active"
-      },
-
       async loadAccounts(session: SSOSession): Promise<void> {
         setLoading(true)
         setError(undefined)

@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, createEffect, onMount } from "solid-js"
+import { Show, batch, createMemo, createSignal, createEffect, onCleanup } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useRoute, useRouteData } from "../context/route"
 import { useAWS } from "../context/aws"
@@ -46,7 +46,10 @@ export function AccountListScreen() {
   const [layoutBusy, setLayoutBusy] = createSignal(false)
 
   const session = createMemo(() => aws.sessions.find((s) => s.name === routeData.sessionName))
-  const selectedAccount = createMemo(() => aws.accounts.find((a) => a.accountId === selectedAccountId()))
+  const sessionName = createMemo(() => session()?.name)
+  const accountsById = createMemo(() => new Map(aws.accounts.map((account) => [account.accountId, account])))
+  const selectedAccount = createMemo(() => accountsById().get(selectedAccountId() ?? ""))
+  const pinnedAccounts = createMemo(() => new Set(layout().pinned))
   const groups = createMemo(() => [...new Set(aws.accounts.flatMap((account) => {
     const group = layout().groups[account.accountId]
     return group ? [group] : []
@@ -131,39 +134,31 @@ export function AccountListScreen() {
     return updateLayout((name) => workflow.collapseAccountGroup(name, group, collapsed))
   }
 
-  onMount(async () => {
-    const last = await awsesh.lastAccountPerSession.get(routeData.sessionName)
-    setLastAccountId(last)
-  })
-
-  createEffect(async () => {
-    const s = session()
-    if (!s) return
-    const roles = await awsesh.preferredRoles.getAll(s.name)
-    setPreferredRoles(roles)
-    const regions = await awsesh.preferredRegions.getAll(s.name)
-    setPreferredRegions(regions)
-  })
-
-  const loadProfileNamesForAccount = async (accountName: string) => {
-    const s = session()
-    if (!s) return
-    const names = await awsesh.profileNames.getForAccount(s.name, accountName)
-    if (Object.keys(names).length > 0) {
-      setProfileNames((prev) => ({ ...prev, [accountName]: names }))
-    }
-  }
-
   createEffect(() => {
-    for (const account of aws.accounts) {
-      loadProfileNamesForAccount(account.name)
-    }
+    const name = sessionName()
+    if (!name) return
+    let canceled = false
+    onCleanup(() => { canceled = true })
+    Promise.all([
+      awsesh.preferredRoles.getAll(name),
+      awsesh.preferredRegions.getAll(name),
+      awsesh.profileNames.getAll(name),
+      awsesh.lastAccountPerSession.get(name),
+    ]).then(([roles, regions, names, lastAccount]) => {
+      if (canceled) return
+      batch(() => {
+        setPreferredRoles(roles)
+        setPreferredRegions(regions)
+        setProfileNames(names)
+        setLastAccountId(lastAccount)
+      })
+    }).catch((error) => { if (!canceled) toast.error(error) })
   })
 
   command.register(() => [
     {
       id: "account.favorite",
-      title: selectedAccountId() && layout().pinned.includes(selectedAccountId() ?? "") ? "Remove from Favorites" : "Add to Favorites",
+      title: pinnedAccounts().has(selectedAccountId() ?? "") ? "Remove from Favorites" : "Add to Favorites",
       category: "Account",
       keybind: "account_favorite",
       disabled: !selectedAccount() || layoutBusy(),
@@ -343,42 +338,51 @@ export function AccountListScreen() {
 
   const getProfileNameForAccount = (account: Account): string | undefined => {
     const roleName = getPreferredRole(account)
-    return profileNames()[account.name]?.[roleName]
+    const names = profileNames()
+    if (!Object.hasOwn(names, account.name)) return undefined
+    const roles = names[account.name]
+    return Object.hasOwn(roles, roleName) ? roles[roleName] : undefined
   }
 
-  const getCredentialExpiration = (accountId: string): string | undefined => {
-    const creds = aws.activeCredentials.filter((c) => c.accountId === accountId)
-    if (creds.length === 0) return undefined
+  const accountCredentials = createMemo(() => {
+    const index = new Map<string, { latest: number; defaultUntil: number }>()
+    for (const credential of aws.activeCredentials) {
+      const state = index.get(credential.accountId) ?? { latest: 0, defaultUntil: 0 }
+      const expiration = Date.parse(credential.expiration)
+      if (expiration > state.latest) state.latest = expiration
+      if (credential.isDefault && expiration > state.defaultUntil) state.defaultUntil = expiration
+      index.set(credential.accountId, state)
+    }
+    return index
+  })
 
-    const now = new Date()
-    const validCreds = creds.filter((c) => new Date(c.expiration) > now)
-    if (validCreds.length === 0) return "Expired"
-
-    const sorted = validCreds.sort(
-      (a, b) => new Date(b.expiration).getTime() - new Date(a.expiration).getTime()
-    )
-    const expiration = new Date(sorted[0].expiration)
-    return `Expires ${DateUtil.formatTime(expiration, config.data.timeFormat)}`
-  }
-
-  const items = (): FilterableListItem<Account>[] => {
-    const arranged = [...aws.accounts].sort((a, b) => {
-      const pinned = Number(layout().pinned.includes(b.accountId)) - Number(layout().pinned.includes(a.accountId))
-      if (pinned) return pinned
-      if (layout().pinned.includes(a.accountId)) return a.name.localeCompare(b.name)
-      const first = layout().groups[a.accountId]
-      const second = layout().groups[b.accountId]
+  const arrangedAccounts = createMemo(() => {
+    const { groups } = layout()
+    const pinned = pinnedAccounts()
+    return [...aws.accounts].sort((a, b) => {
+      const favoriteOrder = Number(pinned.has(b.accountId)) - Number(pinned.has(a.accountId))
+      if (favoriteOrder) return favoriteOrder
+      if (pinned.has(a.accountId)) return a.name.localeCompare(b.name)
+      const first = groups[a.accountId]
+      const second = groups[b.accountId]
       if (first && !second) return -1
       if (!first && second) return 1
       return (first ?? "").localeCompare(second ?? "") || a.name.localeCompare(b.name)
     })
-    const grouped = aws.accounts.some((account) => layout().pinned.includes(account.accountId) || layout().groups[account.accountId])
-    return arranged.map((account) => {
-      const favorite = layout().pinned.includes(account.accountId)
-      const group = layout().groups[account.accountId]
+  })
+
+  const items = createMemo<FilterableListItem<Account>[]>(() => {
+    const { groups } = layout()
+    const pinned = pinnedAccounts()
+    const grouped = aws.accounts.some((account) => pinned.has(account.accountId) || groups[account.accountId])
+    const now = Date.now()
+    return arrangedAccounts().map((account) => {
+      const favorite = pinned.has(account.accountId)
+      const group = groups[account.accountId]
       const roleName = getPreferredRole(account)
       const region = preferredRegions()[account.accountId] ?? session()?.defaultRegion ?? "us-east-1"
       const customProfile = getProfileNameForAccount(account)
+      const state = accountCredentials().get(account.accountId)
       const subtitleParts = [account.accountId, roleName, region]
       if (customProfile) subtitleParts.push(customProfile)
       return {
@@ -390,11 +394,11 @@ export function AccountListScreen() {
         category: grouped ? favorite ? "★ Favorites" : group ?? "Other accounts" : undefined,
         categoryId: grouped ? favorite ? "favorites" : group ? `group:${group}` : "other" : undefined,
         description: favorite ? group : undefined,
-        indicator: aws.getCredentialStatus(account.accountId),
-        footer: getCredentialExpiration(account.accountId),
+        indicator: !state || state.latest <= now ? "inactive" : state.defaultUntil > now ? "default" : "active",
+        footer: !state ? undefined : state.latest <= now ? "Expired" : `Expires ${DateUtil.formatTime(new Date(state.latest), config.data.timeFormat)}`,
       }
     })
-  }
+  })
 
   const handleRefresh = async () => {
     const s = session()

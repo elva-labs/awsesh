@@ -18,6 +18,7 @@ const distPkg = {
   version: Script.version,
   description: pkg.description,
   type: "module",
+  engines: pkg.engines,
   main: "./index.js",
   types: "./index.d.ts",
   exports: {

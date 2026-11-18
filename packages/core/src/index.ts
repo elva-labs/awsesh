@@ -33,6 +33,9 @@ interface TokenCacheStored {
   startUrl: string
 }
 
+type AccountProfileNames = Record<string, Record<string, string>>
+type SessionProfileNames = Record<string, AccountProfileNames>
+
 function hashUrl(url: string): string {
   return createHash("sha256").update(url).digest("hex").slice(0, 16)
 }
@@ -46,6 +49,19 @@ export function createAwsesh(options: AwseshOptions) {
 
   const storage = Storage.create({ dir: `${dataDir}/storage` })
   const sessions = Sessions.create({ dir: `${configDir}/sessions` })
+  const clients = new Map<string, AWSClient>()
+
+  function clientForRegion(region: string): AWSClient {
+    const existing = clients.get(region)
+    if (existing) return existing
+    const client = new AWSClient(region)
+    clients.set(region, client)
+    return client
+  }
+
+  async function profileNamesForSession(sessionName: string): Promise<AccountProfileNames> {
+    return own(await storage.read<SessionProfileNames>("preference/profile-names"), sessionName) ?? {}
+  }
 
   // Resolved per-operation so a runtime toggle (e.g. WSL on/off) takes effect immediately
   async function getAwsDir(): Promise<string> {
@@ -99,34 +115,15 @@ export function createAwsesh(options: AwseshOptions) {
     },
 
     sso: {
-      startLogin: (session: SSOSession) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.startSSOLogin(session.startUrl)
-      },
-      pollForToken: (session: SSOSession, loginInfo: SSOLoginInfo) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.pollForToken(loginInfo)
-      },
-      listAccounts: (session: SSOSession, token: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.listAccounts(token)
-      },
-      listRoles: (session: SSOSession, token: string, accountId: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.listAccountRoles(token, accountId)
-      },
-      getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.getRoleCredentials(token, accountId, roleName)
-      },
-      getDashboardUrl: (session: SSOSession) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.getDashboardURL(session.startUrl)
-      },
-      getAccountUrl: (session: SSOSession, accountId: string, _token: string, roleName: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.getAccountURL(accountId, session.startUrl, roleName)
-      },
+      startLogin: (session: SSOSession) => clientForRegion(session.ssoRegion).startSSOLogin(session.startUrl),
+      pollForToken: (session: SSOSession, loginInfo: SSOLoginInfo) => clientForRegion(session.ssoRegion).pollForToken(loginInfo),
+      listAccounts: (session: SSOSession, token: string) => clientForRegion(session.ssoRegion).listAccounts(token),
+      listRoles: (session: SSOSession, token: string, accountId: string) => clientForRegion(session.ssoRegion).listAccountRoles(token, accountId),
+      getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) =>
+        clientForRegion(session.ssoRegion).getRoleCredentials(token, accountId, roleName),
+      getDashboardUrl: (session: SSOSession) => clientForRegion(session.ssoRegion).getDashboardURL(session.startUrl),
+      getAccountUrl: (session: SSOSession, accountId: string, _token: string, roleName: string) =>
+        clientForRegion(session.ssoRegion).getAccountURL(accountId, session.startUrl, roleName),
     },
 
     tokens: {
@@ -224,14 +221,12 @@ export function createAwsesh(options: AwseshOptions) {
     },
 
     profileNames: {
+      getAll: profileNamesForSession,
       get: async (sessionName: string, accountName: string, roleName: string): Promise<string | undefined> => {
-        const data = await storage.read<Record<string, Record<string, Record<string, string>>>>(
-          "preference/profile-names"
-        )
-        return own(own(own(data, sessionName), accountName), roleName)
+        return own(own(await profileNamesForSession(sessionName), accountName), roleName)
       },
       save: async (sessionName: string, accountName: string, roleName: string, profileName: string): Promise<void> => {
-        await storage.update<Record<string, Record<string, Record<string, string>>>>(
+        await storage.update<SessionProfileNames>(
           "preference/profile-names",
           (draft) => {
             const accounts = own(draft, sessionName)
@@ -240,13 +235,10 @@ export function createAwsesh(options: AwseshOptions) {
         )
       },
       getForAccount: async (sessionName: string, accountName: string): Promise<Record<string, string>> => {
-        const data = await storage.read<Record<string, Record<string, Record<string, string>>>>(
-          "preference/profile-names"
-        )
-        return own(own(data, sessionName), accountName) ?? {}
+        return own(await profileNamesForSession(sessionName), accountName) ?? {}
       },
       remove: async (sessionName: string, accountName: string, roleName: string): Promise<void> => {
-        await storage.update<Record<string, Record<string, Record<string, string>>>>(
+        await storage.update<SessionProfileNames>(
           "preference/profile-names",
           (draft) => {
             if (own(own(own(draft, sessionName), accountName), roleName)) {

@@ -1,6 +1,6 @@
 # @awsesh/core
 
-AWS SSO session management SDK for Node.js and Bun.
+AWS SSO session management SDK for Node.js 20+ and Bun.
 
 ## Installation
 
@@ -97,6 +97,17 @@ interface AwseshOptions {
 }
 
 const awsesh = createAwsesh(options)
+```
+
+### `profileNames.getAll(sessionName)`
+
+Reads the configured CLI profile names for a session in one call. The result is
+keyed first by account name, then by role name. An unconfigured session returns
+an empty object.
+
+```typescript
+const profilesByAccount = await awsesh.profileNames.getAll("production")
+const readOnlyProfile = profilesByAccount["Shared Services"]?.ReadOnly
 ```
 
 ---

@@ -13,14 +13,17 @@ import {
 import type { SSOLoginInfo, Account, RoleCredentials, TokenResult } from "./types"
 
 export class AWSClient {
-  private ssoClient: SSOClient
-  private oidcClient: SSOOIDCClient
-  private region: string
+  private sso?: SSOClient
+  private oidc?: SSOOIDCClient
 
-  constructor(region: string) {
-    this.region = region
-    this.ssoClient = new SSOClient({ region })
-    this.oidcClient = new SSOOIDCClient({ region })
+  constructor(private readonly region: string) {}
+
+  private get ssoClient() {
+    return this.sso ??= new SSOClient({ region: this.region })
+  }
+
+  private get oidcClient() {
+    return this.oidc ??= new SSOOIDCClient({ region: this.region })
   }
 
   async startSSOLogin(startUrl: string): Promise<SSOLoginInfo> {

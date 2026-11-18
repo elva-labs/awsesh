@@ -19,7 +19,6 @@ import { ToastProvider, useToast } from "./ui/toast";
 import { SessionListScreen } from "./routes/session-list";
 import { AccountListScreen } from "./routes/account-list";
 import { CredentialsScreen } from "./routes/credentials";
-import { Terminal } from "./util/terminal";
 import { getAwsesh } from "@/instance";
 import { printSessionInfo } from "@/util/styled-output";
 import { wereCredentialsSet, getCapturedEvalEnvironment } from "./context/session-state";
@@ -116,8 +115,6 @@ async function printLastSetCredential(): Promise<void> {
 }
 
 export async function tui(): Promise<void> {
-  const mode = await Terminal.getTerminalBackgroundColor();
-
   return new Promise<void>((resolve, reject) => {
     render(
       () => (
@@ -125,7 +122,7 @@ export async function tui(): Promise<void> {
           <KVProvider>
             <ConfigProvider>
               <RouteProvider>
-                <ThemeProvider mode={mode}>
+                <ThemeProvider>
                   <KeybindProvider>
                     <AwseshProvider>
                       <AWSProvider>

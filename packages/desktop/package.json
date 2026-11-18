@@ -13,8 +13,8 @@
     "@awsesh/themes": "workspace:*"
   },
   "devDependencies": {
-    "@types/bun": "1.4.2",
+    "@types/bun": "1.4.4",
     "fflate": "^0.8.2",
-    "typescript": "5.8.2"
+    "typescript": "5.9.3"
   }
 }
