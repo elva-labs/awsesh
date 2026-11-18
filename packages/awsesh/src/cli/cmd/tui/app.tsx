@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { createCliRenderer } from "@opentui/core";
 import { render, useTerminalDimensions, useRenderer, useKeyboard } from "@opentui/solid";
 import { copyToClipboard } from "@/util/clipboard";
 import { Switch, Match } from "solid-js";
@@ -115,8 +116,23 @@ async function printLastSetCredential(): Promise<void> {
 }
 
 export async function tui(): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    render(
+  const renderer = await createCliRenderer({
+    targetFps: 60,
+    gatherStats: false,
+    exitOnCtrlC: false,
+    useKittyKeyboard: {},
+    consoleOptions: {
+      keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
+      onCopySelection: (text) => {
+        copyToClipboard(text).catch((error) => {
+          console.error(`Failed to copy console selection to clipboard: ${error}`);
+        });
+      },
+    },
+  });
+
+  try {
+    await render(
       () => (
         <ExitProvider>
           <KVProvider>
@@ -148,23 +164,14 @@ export async function tui(): Promise<void> {
           </KVProvider>
         </ExitProvider>
       ),
-      {
-        onDestroy: () => {
-          printLastSetCredential().then(resolve, reject);
-        },
-        targetFps: 60,
-        gatherStats: false,
-        exitOnCtrlC: false,
-        useKittyKeyboard: {},
-        consoleOptions: {
-          keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
-          onCopySelection: (text) => {
-            copyToClipboard(text).catch((error) => {
-              console.error(`Failed to copy console selection to clipboard: ${error}`);
-            });
-          },
-        },
-      },
-    ).catch(reject);
-  });
+      renderer,
+    );
+  } catch (error) {
+    renderer.destroy();
+    await renderer.closed.catch(() => {});
+    throw error;
+  }
+
+  await renderer.closed;
+  await printLastSetCredential();
 }
