@@ -14,6 +14,11 @@ export interface RemoveProfileOptions {
   profileName: string
 }
 
+export interface RemoveProfilesOptions {
+  awsDir: string
+  profileNames: Iterable<string>
+}
+
 function parseCredentialsFile(content: string): Record<string, Record<string, string>> {
   const lines = content.split("\n")
   const sections: Record<string, Record<string, string>> = {}
@@ -75,7 +80,13 @@ export namespace Credentials {
   }
 
   export async function removeProfile(options: RemoveProfileOptions): Promise<void> {
-    const { awsDir, profileName } = options
+    await removeProfiles({ awsDir: options.awsDir, profileNames: [options.profileName] })
+  }
+
+  export async function removeProfiles(options: RemoveProfilesOptions): Promise<void> {
+    const { awsDir } = options
+    const profileNames = new Set(options.profileNames)
+    if (profileNames.size === 0) return
     const credentialsPath = path.join(awsDir, "credentials")
 
     let content = ""
@@ -87,11 +98,14 @@ export namespace Credentials {
 
     const sections = parseCredentialsFile(content)
 
-    if (!sections[profileName]) {
-      return
+    let changed = false
+    for (const profileName of profileNames) {
+      if (Object.hasOwn(sections, profileName)) {
+        delete sections[profileName]
+        changed = true
+      }
     }
-
-    delete sections[profileName]
+    if (!changed) return
 
     if (Object.keys(sections).length === 0) {
       await fs.writeFile(credentialsPath, "")

@@ -79,6 +79,11 @@ Available operations: `snapshot`, `selectSession` (optional force refresh),
 `collapseAccountGroup`, `assumeRole`, `consoleUrl`, `clearCredential`, `signOut`,
 and `setAppearance`.
 
+The five account layout operations are also available under `workflow.layout`.
+They return the persisted `AccountLayout` without rebuilding a snapshot. The
+top-level variants still return snapshots. At the SDK level, `accountLayout.updateAndGet`
+returns the persisted layout, while `accountLayout.update` still returns `Promise<void>`.
+
 Snapshots include sessions and their authentication status, cached accounts with
 role/region/profile preferences and their pin and group, the session's collapsed
 groups, active credential metadata, last selection/session,
@@ -435,6 +440,11 @@ const profiles = await awsesh.credentials.listProfiles()
 ## Active Credentials
 
 Track active credential sessions.
+
+`clearSessionCredentials(sessionName, true)` and `clearAllCredentials(true)` remove
+matching tracked profiles, including expired entries, in one AWS credentials
+file read and at most one write. A write failure propagates before tracking is
+cleared. The file update is not a cross-process transaction.
 
 ### `activeCredentials.list()`
 
