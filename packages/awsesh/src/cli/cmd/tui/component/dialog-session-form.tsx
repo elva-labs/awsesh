@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, onMount } from "solid-js"
 import type { InputRenderable } from "@opentui/core"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { useTheme } from "../context/theme"
 import { useAwsesh } from "../context/awsesh"
 import { useAWS } from "../context/aws"
@@ -23,6 +23,8 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
   const aws = useAWS()
   const toast = useToast()
   const { theme } = useTheme()
+  const dimensions = useTerminalDimensions()
+  const compact = () => dimensions().height < 22
 
   const isEdit = props.mode === "edit"
   const initialSession = props.session
@@ -160,7 +162,7 @@ export function DialogSessionForm(props: DialogSessionFormProps) {
 
   return (
     <DialogBase title={isEdit ? "Edit SSO Session" : "Add SSO Session"}>
-      <box flexDirection="column" gap={1} paddingBottom={1}>
+      <box flexDirection="column" gap={compact() ? 0 : 1} paddingBottom={compact() ? 0 : 1}>
         <FormField
           label="Session Name"
           value={name()}
