@@ -33,8 +33,8 @@ export function Dialog(
       width={dimensions().width}
       height={dimensions().height}
       alignItems="center"
+      justifyContent="center"
       position="absolute"
-      paddingTop={dimensions().height / 4}
       left={0}
       top={0}
       backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
@@ -46,14 +46,14 @@ export function Dialog(
         }}
         width={props.size === "large" ? 80 : 60}
         maxWidth={Math.max(1, dimensions().width - 2)}
-        maxHeight={Math.max(1, dimensions().height - Math.floor(dimensions().height / 4))}
+        maxHeight={dimensions().height}
         backgroundColor={theme.background}
         padding={1}
       >
         <scrollbox
           id="dialog-content"
           contentOptions={{ minHeight: 0 }}
-          maxHeight={Math.max(1, dimensions().height - Math.floor(dimensions().height / 4) - 2)}
+          maxHeight={Math.max(1, dimensions().height - 2)}
           scrollbarOptions={{ visible: false }}
         >
           {props.children}
