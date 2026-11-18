@@ -16,7 +16,50 @@ permissions:
   contents: read
 
 jobs:
+  release-version:
+    if: >-
+      (github.event_name == 'pull_request' && github.base_ref == 'main' && startsWith(github.head_ref, 'release/v')) ||
+      (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): prepare v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      verified: ${{ steps.version.outputs.verified }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+      - name: Verify version-only change and previously tested base
+        id: version
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          RELEASE_BRANCH: ${{ github.head_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          probe=$(mktemp -d)
+          mkdir -p "$probe/scripts" "$probe/script/src"
+          if git show "$BASE:packages/scripts/check-release-version.ts" > "$probe/scripts/check-release-version.ts" &&
+             git show "$BASE:packages/script/src/version.ts" > "$probe/script/src/version.ts" &&
+             version=$(cd "$probe" && GIT_DIR="$GITHUB_WORKSPACE/.git" bun scripts/check-release-version.ts "$BASE" "$GITHUB_SHA" "$RELEASE_BRANCH") &&
+             [[ -n "$version" ]] &&
+             run=$(gh run list --workflow ci.yml --branch main --event push --commit "$BASE" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty') &&
+             [[ -n "$run" ]] &&
+             jobs=$(gh run view "$run" --json jobs) &&
+             jq -e '[.jobs[] | select(.conclusion == "success") | .name] | contains(["ci", "desktop", "desktop-windows"])' <<< "$jobs" >/dev/null; then
+            echo "Verified version-only change to $version on fully tested base $BASE"
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Full CI is required"
+          fi
+
   ci:
+    needs: release-version
+    if: ${{ !cancelled() && needs.release-version.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -42,6 +85,8 @@ jobs:
         run: bun run build:sdk
 
   desktop:
+    needs: release-version
+    if: ${{ !cancelled() && needs.release-version.outputs.verified != 'true' }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
@@ -125,6 +170,8 @@ jobs:
           '
 
   desktop-windows:
+    needs: release-version
+    if: ${{ !cancelled() && needs.release-version.outputs.verified != 'true' }}
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6

@@ -5,7 +5,7 @@ import { Script } from "@awsesh/script"
 import path from "node:path"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { artifacts, desktopArchive, desktopWindowsArchive, digest, downloadArtifacts, getRelease, repository, requireRepository, root, sdkArchive,
+import { artifacts, digest, downloadArtifacts, getRelease, repository, requireRepository, root,
   validateArtifacts, validateTag } from "./release"
 
 requireRepository()
@@ -25,6 +25,14 @@ if (release && (!release.draft || release.assets.some((asset) => asset.name === 
 
 const directory = path.join(root, "dist", candidate.tag)
 await $`mkdir -p ${directory}`
+for (const name of artifacts.filter((name) => name !== "release.json")) {
+  await Bun.write(path.join(directory, name), Bun.file(path.join(root, "dist", "release-build", name)))
+}
+await Bun.write(path.join(directory, "release.json"), JSON.stringify({ ...candidate, version: Script.version, channel: Script.channel }, null, 2) + "\n")
+const checksums = await Promise.all(artifacts.map(async (name) => `${await digest(path.join(directory, name))}  ${name}\n`))
+await Bun.write(path.join(directory, "SHA256SUMS"), checksums.join(""))
+await validateArtifacts(directory, candidate.tag, candidate.commit)
+
 if (!release) {
   const notes = process.env.RELEASE_NOTES
   if (!notes?.trim()) throw new Error("Release Drafter notes are required")
@@ -33,24 +41,6 @@ if (!release) {
   const flags = Script.preview ? ["--prerelease"] : []
   await $`gh release create ${candidate.tag} --repo ${repository} --verify-tag --target ${candidate.commit} --draft --title ${candidate.tag} --notes-file ${file} ${flags}`
 }
-
-await $`bun run packages/desktop/script/release.ts`
-await import("../awsesh/script/publish.ts")
-await import("../core/script/build.ts")
-process.chdir(root)
-await $`npm pack --ignore-scripts --pack-destination ${directory}`.cwd(path.join(root, "packages/core/dist"))
-if (!await Bun.file(path.join(directory, sdkArchive)).exists()) throw new Error("SDK package archive was not created")
-await Bun.write(path.join(directory, desktopArchive), Bun.file(path.join(root, "packages/desktop/dist", desktopArchive)))
-const windowsArchive = path.join(root, "packages/desktop/dist", desktopWindowsArchive)
-if (!await Bun.file(windowsArchive).exists()) throw new Error("The Windows desktop package is missing; run the desktop-windows release job first")
-await Bun.write(path.join(directory, desktopWindowsArchive), Bun.file(windowsArchive))
-for (const name of artifacts.filter((name) => name !== sdkArchive && name !== desktopArchive && name !== desktopWindowsArchive && name !== "release.json")) {
-  await Bun.write(path.join(directory, name), Bun.file(path.join(root, "packages/awsesh/dist", name)))
-}
-await Bun.write(path.join(directory, "release.json"), JSON.stringify({ ...candidate, version: Script.version, channel: Script.channel }, null, 2) + "\n")
-const checksums = await Promise.all(artifacts.map(async (name) => `${await digest(path.join(directory, name))}  ${name}\n`))
-await Bun.write(path.join(directory, "SHA256SUMS"), checksums.join(""))
-await validateArtifacts(directory, candidate.tag, candidate.commit)
 
 const current = await getRelease(candidate.tag)
 if (!current?.draft || current.commit !== candidate.commit) throw new Error("Candidate changed during staging")
