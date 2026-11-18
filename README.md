@@ -339,9 +339,14 @@ git push -u origin "release/v$version"
 gh pr create --base main --fill
 ```
 
+Version-only PRs use a fast check when the exact `main` base passed full CI.
+Other changes still run the full suite.
+
 **2. Merge after review and CI, then tag the resulting commit**
 
 The merged commit is read from the version PR, including rebase merges.
+If the release needs a later reviewed `main` commit, use that exact commit only
+after its CI passes and confirm it still carries the prepared version.
 
 ```sh
 git fetch origin main
@@ -352,8 +357,9 @@ git push origin "v$version"
 
 **3. Wait for staging to pass, review the candidate, then publish**
 
-Pushing the tag stages a draft release. Publishing uses those verified artifacts;
-it does not rebuild them.
+Pushing the tag builds the Windows and macOS/CLI/SDK artifacts in parallel,
+then verifies and stages them as a draft release. Publishing uses those
+verified artifacts; it does not rebuild them.
 
 ```sh
 gh workflow run release.yml --ref "v$version" -f operation=publish -f tag="v$version"

@@ -28,9 +28,12 @@ env:
   GH_TOKEN: ${{ github.token }}
 
 jobs:
-  desktop-windows:
+  release-source:
     if: github.repository == 'elva-labs/awsesh' && (github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.operation == 'stage'))
-    runs-on: windows-2025
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      frozen: ${{ steps.source.outputs.frozen }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -39,12 +42,29 @@ jobs:
           persist-credentials: false
 
       - name: Select approved tagged source
-        shell: bash
+        id: source
         run: |
           [[ "$AWSESH_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]
           commit=$(git rev-parse --verify "refs/tags/$AWSESH_TAG^{commit}")
           git merge-base --is-ancestor "$commit" origin/main
-          git checkout --detach "$commit"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            [[ "$(git rev-parse "$GITHUB_SHA^{commit}")" == "$commit" ]]
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          if release=$(gh release view "$AWSESH_TAG" --json isDraft,assets) &&
+             jq -e '.isDraft == false or any(.assets[]; .name == "SHA256SUMS")' <<< "$release" >/dev/null; then
+            echo "frozen=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  desktop-windows:
+    needs: release-source
+    if: needs.release-source.outputs.frozen != 'true'
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -67,29 +87,18 @@ jobs:
           name: awsesh-desktop-win32-x64
           path: packages/desktop/dist/awsesh-desktop-win32-x64.zip
           retention-days: 1
+          overwrite: true
 
-  stage:
-    if: github.repository == 'elva-labs/awsesh' && (github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.operation == 'stage'))
-    needs: desktop-windows
+  artifacts-macos:
+    needs: release-source
+    if: needs.release-source.outputs.frozen != 'true'
     runs-on: macos-15
-    permissions:
-      contents: write
-      pull-requests: read
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ needs.release-source.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Select approved tagged source
-        id: source
-        run: |
-          [[ "$AWSESH_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]
-          commit=$(git rev-parse --verify "refs/tags/$AWSESH_TAG^{commit}")
-          git merge-base --is-ancestor "$commit" origin/main
-          git checkout --detach "$commit"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -115,30 +124,75 @@ jobs:
       - name: Test
         run: bun run test
 
-      - name: Freeze notes at the tagged commit
-        id: notes
-        uses: release-drafter/release-drafter@72967cdc98ddd3160f1fc3dff619de365e137dd0
-        with:
-          dry-run: true
-          commitish: ${{ steps.source.outputs.commit }}
-          tag: ${{ env.AWSESH_TAG }}
-
-      - name: Download Windows package
-        uses: actions/download-artifact@v4
-        with:
-          name: awsesh-desktop-win32-x64
-          path: packages/desktop/dist
-
-      - name: Stage and verify candidate artifacts
-        run: bun run packages/scripts/publish-start.ts --skip-install
+      - name: Build CLI, SDK and signed macOS artifacts
+        run: bun run packages/scripts/build-release-artifacts.ts --skip-install
         env:
-          RELEASE_NOTES: ${{ steps.notes.outputs.body }}
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
           NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-build
+          path: dist/release-build/*
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  stage:
+    needs: [release-source, desktop-windows, artifacts-macos]
+    if: >-
+      !cancelled() && needs.release-source.result == 'success' &&
+      (needs.release-source.outputs.frozen == 'true' ||
+      (needs.desktop-windows.result == 'success' && needs.artifacts-macos.result == 'success'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Freeze notes at the tagged commit
+        id: notes
+        if: needs.release-source.outputs.frozen != 'true'
+        uses: release-drafter/release-drafter@72967cdc98ddd3160f1fc3dff619de365e137dd0
+        with:
+          dry-run: true
+          commitish: ${{ needs.release-source.outputs.commit }}
+          tag: ${{ env.AWSESH_TAG }}
+
+      - name: Download Windows package
+        if: needs.release-source.outputs.frozen != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: awsesh-desktop-win32-x64
+          path: dist/release-build
+
+      - name: Download CLI, SDK and macOS artifacts
+        if: needs.release-source.outputs.frozen != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-build
+          path: dist/release-build
+
+      - name: Stage and verify candidate artifacts
+        run: bun run packages/scripts/publish-start.ts
+        env:
+          RELEASE_NOTES: ${{ steps.notes.outputs.body }}
 
   publish:
     if: github.repository == 'elva-labs/awsesh' && github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && github.ref_name == inputs.tag && inputs.operation == 'publish'
