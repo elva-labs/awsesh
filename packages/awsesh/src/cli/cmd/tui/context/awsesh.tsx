@@ -2,6 +2,7 @@ import { createAwsesh } from "@awsesh/core"
 import { Global } from "@/global"
 import { useConfig } from "./config"
 import { WSL } from "@/util/wsl"
+import { credentialProcess } from "@/util/credential-process"
 import { createSimpleContext } from "./helper"
 
 export const { use: useAwsesh, provider: AwseshProvider } = createSimpleContext({
@@ -18,6 +19,7 @@ export const { use: useAwsesh, provider: AwseshProvider } = createSimpleContext(
         const dir = await WSL.resolveAwsDir()
         return dir ?? Global.Path.aws
       },
+      credentialProcess: () => credentialProcess(config.data.useWslCredentials),
     })
   },
 })

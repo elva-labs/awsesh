@@ -101,6 +101,23 @@ export namespace Credentials {
     await fs.writeFile(credentialsPath, serializeCredentialsFile(sections))
   }
 
+  /** Removes the named sections that hold temporary keys (with a session token); long-lived keys are left alone. */
+  export async function removeTemporary(awsDir: string, profileNames: string[]): Promise<string[]> {
+    const credentialsPath = path.join(awsDir, "credentials")
+    let content = ""
+    try {
+      content = await fs.readFile(credentialsPath, "utf-8")
+    } catch {
+      return []
+    }
+    const sections = parseCredentialsFile(content)
+    const removed = profileNames.filter((name) => Object.hasOwn(sections, name) && sections[name].aws_session_token)
+    if (removed.length === 0) return []
+    for (const name of removed) delete sections[name]
+    await fs.writeFile(credentialsPath, Object.keys(sections).length === 0 ? "" : serializeCredentialsFile(sections))
+    return removed
+  }
+
   export async function listProfiles(awsDir: string): Promise<string[]> {
     const credentialsPath = path.join(awsDir, "credentials")
 

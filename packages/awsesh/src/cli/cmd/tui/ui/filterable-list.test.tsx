@@ -325,6 +325,14 @@ test("account rows do not display favorite stars", async () => {
   expect(row).not.toContain("☆")
 })
 
+test("account rows show their tag and can be found by it", async () => {
+  const list = await renderList([item("alpha"), { ...item("beta"), tag: "aws:beta-admin" }])
+  expect(list.frame().split("\n").find((line) => line.includes("beta"))).toContain("aws:beta-admin")
+
+  await list.filter("aws:beta")
+  expect(await list.selectedId()).toBe("beta")
+})
+
 test("expanding from a favorite account never opens an unrelated section", async () => {
   const list = await renderList([
     { ...item("alpha"), category: "★ Favorites", categoryId: "favorites", favorite: true },

@@ -19,6 +19,7 @@ use gpui_component::{
 use std::{borrow::Cow, rc::Rc};
 
 const HEADER_HEIGHT: f32 = 38.;
+const KEY_ICON: &str = "icons/key-round.svg";
 
 #[derive(Clone)]
 struct SidebarResize;
@@ -216,6 +217,12 @@ impl AssetSource for Assets {
                 "../assets/star-filled.svg"
             ))));
         }
+        if path == KEY_ICON {
+            // Lucide key-round
+            return Ok(Some(Cow::Borrowed(
+                br#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>"#,
+            )));
+        }
         gpui_component_assets::Assets.load(path)
     }
 
@@ -226,6 +233,9 @@ impl AssetSource for Assets {
         }
         if "icons/star-filled.svg".starts_with(path) {
             assets.push("icons/star-filled.svg".into());
+        }
+        if KEY_ICON.starts_with(path) {
+            assets.push(KEY_ICON.into());
         }
         Ok(assets)
     }
@@ -1204,6 +1214,17 @@ impl Sesh {
         let disabled = self.modal();
         let account_row = self.screen == Screen::Accounts;
         let pinned = account_row && self.data.accounts[index].pinned;
+        let mut managed: Vec<String> = if account_row {
+            self.data.accounts[index]
+                .managed_profiles
+                .values()
+                .cloned()
+                .collect()
+        } else {
+            vec![]
+        };
+        managed.sort();
+        let managed_count = managed.len();
         let section = self.section(index);
         // Dragging a selected row carries the whole multi-selection along.
         let moving = if marked {
@@ -1339,6 +1360,33 @@ impl Sesh {
                                     }),
                             ),
                     )
+                    .when(!managed.is_empty(), |row| {
+                        let label = SharedString::from(format!(
+                            "{}: {}",
+                            if managed.len() == 1 {
+                                "AWS profile"
+                            } else {
+                                "AWS profiles"
+                            },
+                            managed.join(", ")
+                        ));
+                        row.child(
+                            div()
+                                .id(("account-managed", position))
+                                .debug_selector(|| format!("managed-{position}"))
+                                .flex_shrink_0()
+                                .child(
+                                    Icon::default()
+                                        .path(KEY_ICON)
+                                        .size(px(14.))
+                                        .text_color(colors.profile),
+                                )
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(label.clone())
+                                        .build(window, cx)
+                                }),
+                        )
+                    })
                     .when(account_row, |row| {
                         row.child(
                             div()
@@ -1418,8 +1466,12 @@ impl Sesh {
                     }
                     let count = this.targets(cx).len();
                     let commands: Vec<(SharedString, Command, bool)> = if marked && count > 1 {
-                        let pinned = this.targets(cx).iter().all(|account| account.pinned);
-                        vec![
+                        let targets = this.targets(cx);
+                        let pinned = targets.iter().all(|account| account.pinned);
+                        let managed = targets
+                            .iter()
+                            .any(|account| !account.managed_profiles.is_empty());
+                        let mut commands = vec![
                             (
                                 if pinned {
                                     format!("Remove {count} from favorites")
@@ -1436,6 +1488,11 @@ impl Sesh {
                                 false,
                             ),
                             (
+                                format!("Add {count} as AWS profiles").into(),
+                                Command::AddProfiles,
+                                false,
+                            ),
+                            (
                                 format!("Copy {count} account IDs").into(),
                                 Command::CopyAccount,
                                 false,
@@ -1446,7 +1503,18 @@ impl Sesh {
                                 false,
                             ),
                             ("Clear selection".into(), Command::ClearSelection, false),
-                        ]
+                        ];
+                        if managed {
+                            commands.insert(
+                                3,
+                                (
+                                    format!("Remove AWS profiles from {count}…").into(),
+                                    Command::RemoveProfiles,
+                                    false,
+                                ),
+                            );
+                        }
+                        commands
                     } else if account_row {
                         vec![
                             ("Set credentials", Command::SetCredentials, cached),
@@ -1461,10 +1529,23 @@ impl Sesh {
                                 false,
                             ),
                             ("Move to group", Command::GroupMenu, false),
+                            ("Add as AWS profile", Command::AddProfiles, false),
+                            (
+                                if managed_count > 1 {
+                                    "Remove AWS profiles…"
+                                } else {
+                                    "Remove AWS profile…"
+                                },
+                                Command::RemoveProfiles,
+                                false,
+                            ),
                             ("Copy account ID", Command::CopyAccount, false),
                             ("Copy account name", Command::CopyName, false),
                         ]
                         .into_iter()
+                        .filter(|(_, command, _)| {
+                            managed_count > 0 || !matches!(command, Command::RemoveProfiles)
+                        })
                         .map(|(label, command, unavailable)| (label.into(), command, unavailable))
                         .collect()
                     } else {
@@ -1934,6 +2015,9 @@ impl Sesh {
         let count = targets.len();
         let pinned = targets.iter().all(|account| account.pinned);
         let grouped = targets.iter().any(|account| account.group.is_some());
+        let managed = targets
+            .iter()
+            .any(|account| !account.managed_profiles.is_empty());
         let accounts = targets.iter().map(|account| {
             let place = if account.pinned {
                 "Favorites"
@@ -1975,6 +2059,15 @@ impl Sesh {
                                 .child(account.account_id.clone()),
                         ),
                 )
+                .when(!account.managed_profiles.is_empty(), |row| {
+                    row.child(
+                        Icon::default()
+                            .path(KEY_ICON)
+                            .size(px(12.))
+                            .flex_shrink_0()
+                            .text_color(colors.profile),
+                    )
+                })
                 .child(
                     div()
                         .flex_shrink_0()
@@ -2046,6 +2139,28 @@ impl Sesh {
                         )
                     })
                     .child(
+                        self.button(
+                            "bulk-add-profiles",
+                            "Add as AWS profiles",
+                            Command::AddProfiles,
+                            cx,
+                        )
+                        .icon(Icon::default().path(KEY_ICON))
+                        .w_full()
+                        .tooltip("Adds each account’s preferred role to ~/.aws/config"),
+                    )
+                    .when(managed, |actions| {
+                        actions.child(
+                            self.button(
+                                "bulk-remove-profiles",
+                                "Remove AWS profiles…",
+                                Command::RemoveProfiles,
+                                cx,
+                            )
+                            .w_full(),
+                        )
+                    })
+                    .child(
                         div()
                             .flex()
                             .gap_2()
@@ -2074,6 +2189,117 @@ impl Sesh {
                 self.button("bulk-clear", "Clear selection", Command::ClearSelection, cx)
                     .ghost()
                     .w_full(),
+            )
+            .into_any_element()
+    }
+
+    /// The inspected role's managed AWS profile, which unlike the CLI profile above is kept in
+    /// ~/.aws/config and refreshes its keys from the SSO sign-in.
+    fn managed_profile(
+        &self,
+        account: &crate::Account,
+        role: &str,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let colors = self.colors(cx);
+        let managed = account.managed_profiles.get(role);
+        let region = managed
+            .and_then(|name| {
+                self.data
+                    .managed_profiles
+                    .iter()
+                    .find(|profile| profile.name == *name)
+            })
+            .and_then(|profile| profile.region.clone());
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child("Managed AWS profile"),
+            )
+            .child(match managed {
+                Some(name) => div()
+                    .debug_selector(|| "managed-profile".into())
+                    .min_h(px(44.))
+                    .pl_3()
+                    .pr_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(colors.profile.opacity(0.5))
+                    .bg(colors.profile.opacity(0.08))
+                    .child(
+                        Icon::default()
+                            .path(KEY_ICON)
+                            .size(px(16.))
+                            .flex_shrink_0()
+                            .text_color(colors.profile),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_family(platform::mono_font())
+                                    .text_size(px(13.))
+                                    .child(name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(11.))
+                                    .text_color(colors.muted)
+                                    .child(match region {
+                                        Some(region) => format!("Auto-refreshing · {region}"),
+                                        None => "Auto-refreshing".into(),
+                                    }),
+                            ),
+                    )
+                    .child(
+                        self.button("remove-managed-profile", "", Command::ToggleProfile, cx)
+                            .ghost()
+                            .size(px(28.))
+                            .p_0()
+                            .rounded(px(6.))
+                            .cursor_pointer()
+                            .child(
+                                Icon::new(IconName::Close)
+                                    .size(px(14.))
+                                    .text_color(colors.muted),
+                            )
+                            .tooltip("Remove from ~/.aws/config…"),
+                    )
+                    .into_any_element(),
+                None => self
+                    .button(
+                        "add-managed-profile",
+                        "Add as AWS profile",
+                        Command::ToggleProfile,
+                        cx,
+                    )
+                    .icon(Icon::default().path(KEY_ICON))
+                    .w_full()
+                    .disabled(self.modal() || !account.roles.iter().any(|value| value == role))
+                    .into_any_element(),
+            })
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(colors.muted)
+                    .child(if managed.is_some() {
+                        "Terraform, IDEs and the AWS CLI get fresh keys for this role from your SSO sign-in."
+                    } else {
+                        "Lets Terraform, IDEs and the AWS CLI use this role with keys that refresh from your SSO sign-in. Named after the CLI profile when set."
+                    }),
             )
             .into_any_element()
     }
@@ -2417,6 +2643,11 @@ impl Sesh {
                             .disabled(self.modal() || role.is_none()),
                     ),
             );
+        if let Some(role) = role.as_ref().filter(|role| {
+            account.roles.contains(role) || account.managed_profiles.contains_key(*role)
+        }) {
+            panel = panel.child(self.managed_profile(account, role, cx));
+        }
         if let Some(active) = active {
             panel = panel.child(self.expiry(&active.expiration, cx));
         }

@@ -15,6 +15,7 @@ export interface KeybindsConfig {
   browser_open: string[]
   profile_set: string[]
   profile_clear: string[]
+  profile_manage: string[]
   region_set: string[]
   role_list: string[]
   account_favorite: string[]
@@ -81,6 +82,7 @@ const defaultKeybinds: KeybindsConfig = {
   browser_open: ["o"],
   profile_set: ["p"],
   profile_clear: ["<leader>+C"],
+  profile_manage: ["m"],
   region_set: ["<leader>+r"],
   role_list: ["r"],
   account_favorite: ["f"],

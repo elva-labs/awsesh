@@ -166,6 +166,10 @@ awsesh accounts
 | `awsesh accounts` | List cached AWS accounts |
 | `awsesh credentials` | List credentials in ~/.aws/credentials |
 | `awsesh session <sso> <account> [role]` | Select credentials directly |
+| `awsesh profiles list` | List managed AWS profiles |
+| `awsesh profiles add <name> <sso> <account> <role>` | Add a profile that refreshes from your SSO login |
+| `awsesh profiles remove <name..>` | Remove managed profiles |
+| `awsesh profiles sync` | Rewrite managed profiles in ~/.aws/config |
 | `awsesh auth <sso>` | Authenticate with SSO |
 | `awsesh migrate` | Migrate from old awsesh config |
 | `awsesh config` | Open config directory |
@@ -184,6 +188,26 @@ Options:
   -v, --version           Show version
   -h, --help              Show help
 ```
+
+### Managed Profiles
+
+Sign in once, then use as many named profiles as you need from any tool. awsesh writes each profile to
+`~/.aws/config` with a `credential_process` that fetches fresh role credentials from your cached SSO login,
+so nothing needs refreshing by hand until the SSO login itself expires.
+
+```sh
+awsesh profiles add dev-admin my-org Dev AdministratorAccess
+awsesh profiles add prod-ro my-org Prod ReadOnlyAccess --region eu-north-1
+
+aws --profile prod-ro s3 ls
+AWS_PROFILE=dev-admin terraform plan
+```
+
+Profiles can also be marked in the TUI (`m` on an account) and the desktop app (select accounts, then "Add as AWS
+profiles"). Their names default to `<account name>_<account ID>_<role>`, e.g.
+`elva-dev_698863021360_AWSAdministratorAccess`, so a person or an agent can tell which account a profile is for. Definitions live in
+`~/.config/awsesh/profiles.json`; edit it by hand and run `awsesh profiles sync` to apply. awsesh only touches the
+sections it marks as managed, and refuses names that already belong to a profile you wrote yourself.
 
 ### Shell Integration
 

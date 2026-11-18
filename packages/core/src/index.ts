@@ -2,13 +2,16 @@ export * from "./types"
 export { AWSClient } from "./client"
 export { Credentials } from "./credentials"
 export { Sessions } from "./sessions"
+export { Profiles, MANAGED_MARKER } from "./profiles"
 export { Storage } from "./storage"
 export { createWorkflow } from "./workflow"
 
+import fs from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { AWSClient } from "./client"
 import { Credentials } from "./credentials"
 import { Sessions } from "./sessions"
+import { Profiles } from "./profiles"
 import { Storage } from "./storage"
 import { legacySessionKey, readJsonFile, sessionStorageKey } from "./filesystem"
 import type {
@@ -25,6 +28,10 @@ import type {
   LastSetCredential,
   SetCredentialOptions,
   SetCredentialResult,
+  Account,
+  ManagedProfile,
+  ProcessCredentials,
+  ProfileSyncResult,
 } from "./types"
 
 interface TokenCacheStored {
@@ -36,6 +43,15 @@ interface TokenCacheStored {
 function hashUrl(url: string): string {
   return createHash("sha256").update(url).digest("hex").slice(0, 16)
 }
+
+interface CachedKeys {
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken: string
+  expiration: string
+}
+
+const REFRESH_MARGIN_MS = 5 * 60 * 1000
 
 function own<T>(record: Record<string, T> | undefined, key: string): T | undefined {
   return record && Object.hasOwn(record, key) ? record[key] : undefined
@@ -58,6 +74,87 @@ export function createAwsesh(options: AwseshOptions) {
     if (cache || legacy === undefined) return cache
     const session = await readJsonFile<SSOSession>(`${configDir}/sessions/${legacy}.json`).catch(() => undefined)
     return session?.name === name ? storage.read<AccountCache>(`accounts/${legacy}`) : undefined
+  }
+
+
+  async function unmanagedNames(names: string[]): Promise<string[]> {
+    let config = ""
+    try {
+      config = await fs.readFile(`${await getAwsDir()}/config`, "utf-8")
+    } catch {}
+    return Profiles.apply(config, names.map((name) => ({ name, command: "" }))).conflicts
+  }
+
+  async function credentialCommand() {
+    return typeof options.credentialProcess === "function" ? await options.credentialProcess() : options.credentialProcess
+  }
+
+  async function forgetProfileKeys(prefix: string) {
+    for (const key of await storage.list(prefix)) await storage.remove(`${prefix}/${key}`)
+  }
+
+  async function validToken(startUrl: string): Promise<TokenCache | undefined> {
+    const data = await storage.read<TokenCacheStored>(`token/${hashUrl(startUrl)}`)
+    if (!data) return undefined
+    const expiresAt = new Date(data.expiresAt)
+    if (expiresAt <= new Date()) return undefined
+    return { token: data.token, expiresAt, startUrl: data.startUrl }
+  }
+
+  async function findAccount(session: SSOSession, account: string): Promise<Account | undefined> {
+    const match = (accounts: Account[]) => accounts.find((value) => value.accountId === account)
+      ?? accounts.find((value) => value.name === account)
+      ?? accounts.find((value) => value.name.toLowerCase() === account.toLowerCase())
+    const cached = match((await accountCache(session.name))?.accounts ?? [])
+    if (cached) return cached
+    const token = await validToken(session.startUrl)
+    if (!token) return undefined
+    return match(await sso.listAccounts(session, token.token))
+  }
+
+  async function loginToken(session: SSOSession): Promise<string> {
+    const token = await validToken(session.startUrl)
+    if (!token) throw new Error(`The SSO login for ${session.name} has expired. Run: sesh auth ${session.name}`)
+    return token.token
+  }
+
+  async function validateProfile(profile: ManagedProfile) {
+    Profiles.validateName(profile.name)
+    if (!await sessions.exists(profile.session)) throw new Error(`SSO session not found: ${profile.session}`)
+    if (!profile.account.trim() || !profile.role.trim()) throw new Error("A profile needs an account and a role")
+    if (profile.region !== undefined && !/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(profile.region)) throw new Error("Invalid AWS region")
+  }
+
+
+  const sso = {
+    startLogin: (session: SSOSession) => {
+      const client = new AWSClient(session.ssoRegion)
+      return client.startSSOLogin(session.startUrl)
+    },
+    pollForToken: (session: SSOSession, loginInfo: SSOLoginInfo) => {
+      const client = new AWSClient(session.ssoRegion)
+      return client.pollForToken(loginInfo)
+    },
+    listAccounts: (session: SSOSession, token: string) => {
+      const client = new AWSClient(session.ssoRegion)
+      return client.listAccounts(token)
+    },
+    listRoles: (session: SSOSession, token: string, accountId: string) => {
+      const client = new AWSClient(session.ssoRegion)
+      return client.listAccountRoles(token, accountId)
+    },
+    getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) => {
+      const client = new AWSClient(session.ssoRegion)
+      return client.getRoleCredentials(token, accountId, roleName)
+    },
+    getDashboardUrl: (session: SSOSession) => {
+      const client = new AWSClient(session.ssoRegion)
+      return client.getDashboardURL(session.startUrl)
+    },
+    getAccountUrl: (session: SSOSession, accountId: string, _token: string, roleName: string) => {
+      const client = new AWSClient(session.ssoRegion)
+      return client.getAccountURL(accountId, session.startUrl, roleName)
+    },
   }
 
   return {
@@ -90,6 +187,10 @@ export function createAwsesh(options: AwseshOptions) {
         if (active) await storage.write("credentials/active", active.map((value) => value.sessionName === originalName ? { ...value, sessionName: session.name } : value))
         const previous = await storage.read<LastSetCredential>("credentials/last-set")
         if (previous?.sessionName === originalName) await storage.write("credentials/last-set", { ...previous, sessionName: session.name })
+        const profiles = await Profiles.read(configDir)
+        if (profiles.some((value) => value.session === originalName)) {
+          await Profiles.write(configDir, profiles.map((value) => value.session === originalName ? { ...value, session: session.name } : value))
+        }
         await sessions.remove(originalName)
         await storage.remove(`accounts/${sessionStorageKey(originalName)}`)
       },
@@ -98,52 +199,10 @@ export function createAwsesh(options: AwseshOptions) {
       count: () => sessions.count(),
     },
 
-    sso: {
-      startLogin: (session: SSOSession) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.startSSOLogin(session.startUrl)
-      },
-      pollForToken: (session: SSOSession, loginInfo: SSOLoginInfo) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.pollForToken(loginInfo)
-      },
-      listAccounts: (session: SSOSession, token: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.listAccounts(token)
-      },
-      listRoles: (session: SSOSession, token: string, accountId: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.listAccountRoles(token, accountId)
-      },
-      getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.getRoleCredentials(token, accountId, roleName)
-      },
-      getDashboardUrl: (session: SSOSession) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.getDashboardURL(session.startUrl)
-      },
-      getAccountUrl: (session: SSOSession, accountId: string, _token: string, roleName: string) => {
-        const client = new AWSClient(session.ssoRegion)
-        return client.getAccountURL(accountId, session.startUrl, roleName)
-      },
-    },
+    sso,
 
     tokens: {
-      get: async (startUrl: string): Promise<TokenCache | undefined> => {
-        const hash = hashUrl(startUrl)
-        const data = await storage.read<TokenCacheStored>(`token/${hash}`)
-        if (!data) return undefined
-
-        const expiresAt = new Date(data.expiresAt)
-        if (expiresAt <= new Date()) return undefined
-
-        return {
-          token: data.token,
-          expiresAt,
-          startUrl: data.startUrl,
-        }
-      },
+      get: validToken,
       getWithExpired: async (startUrl: string): Promise<TokenCache | undefined> => {
         const hash = hashUrl(startUrl)
         const data = await storage.read<TokenCacheStored>(`token/${hash}`)
@@ -308,6 +367,97 @@ export function createAwsesh(options: AwseshOptions) {
       },
     },
 
+    /**
+     * Profiles awsesh keeps in ~/.aws/config. Each runs `credential_process` against the cached SSO login,
+     * so after one sign-in every tool that uses the profile gets fresh keys on its own.
+     * Definitions live in `<configDir>/profiles.json`; call `sync()` after changing them.
+     */
+    profiles: {
+      list: () => Profiles.read(configDir),
+      get: async (name: string) => (await Profiles.read(configDir)).find((value) => value.name === name),
+      /** Adds or replaces profiles by name */
+      save: async (values: ManagedProfile[]): Promise<void> => {
+        if (values.length > 0 && !await credentialCommand()) throw new Error("This client cannot serve AWS profiles")
+        const names = new Set<string>()
+        for (const value of values) {
+          await validateProfile(value)
+          if (names.has(value.name)) throw new Error(`Duplicate profile name: ${value.name}`)
+          names.add(value.name)
+        }
+        const conflicts = await unmanagedNames(values.map((value) => value.name))
+        if (conflicts.length > 0) {
+          throw new Error(`The AWS config already has [profile ${conflicts[0]}], which awsesh does not manage. Pick another name.`)
+        }
+        const existing = (await Profiles.read(configDir)).filter((value) => !names.has(value.name))
+        await Profiles.write(configDir, [...existing, ...values])
+      },
+      /** Names that ~/.aws/config already uses for a profile awsesh does not manage */
+      unmanaged: (names: string[]) => unmanagedNames(names),
+      remove: async (names: string[]): Promise<void> => {
+        const existing = await Profiles.read(configDir)
+        await Profiles.write(configDir, existing.filter((value) => !names.includes(value.name)))
+      },
+      /** Writes the managed profiles to ~/.aws/config, removing ones no longer defined. */
+      sync: async (): Promise<ProfileSyncResult> => {
+        const definitions = await Profiles.read(configDir)
+        const command = await credentialCommand()
+        if (!command && definitions.length > 0) throw new Error("This client cannot serve AWS profiles")
+        const dir = await getAwsDir()
+        const target = `${dir}/config`
+        let content = ""
+        try {
+          content = await fs.readFile(target, "utf-8")
+        } catch {}
+        const result = Profiles.apply(content, definitions.map((value) => ({
+          name: value.name,
+          command: Profiles.quoteCommand([...(command ?? []), value.name]),
+          region: value.region,
+        })))
+        if (result.content !== content) {
+          await fs.mkdir(dir, { recursive: true })
+          await fs.writeFile(target, result.content)
+        }
+        const cleared = await Credentials.removeTemporary(dir, result.written)
+        if (cleared.length > 0) {
+          await storage.update<ActiveCredential[]>("credentials/active", (existing) =>
+            Array.isArray(existing) ? existing.filter((c) => !cleared.includes(c.profileName)) : [])
+        }
+        return { written: result.written, removed: result.removed, conflicts: result.conflicts, cleared }
+      },
+      /** credential_process output for a managed profile. Never prompts; fails when the SSO login has expired. */
+      credentials: async (name: string): Promise<ProcessCredentials> => {
+        const profile = (await Profiles.read(configDir)).find((value) => value.name === name)
+        if (!profile) throw new Error(`No awsesh profile named ${name}`)
+        const session = await sessions.load(profile.session)
+        if (!session) throw new Error(`SSO session not found: ${profile.session}`)
+        const account = await findAccount(session, profile.account)
+        if (!account) {
+          await loginToken(session)
+          throw new Error(`No account ${profile.account} in ${session.name}`)
+        }
+        const key = `profile-keys/${sessionStorageKey(session.name)}/${createHash("sha256").update(`${account.accountId}\0${profile.role}`).digest("hex")}`
+        const cached = await storage.read<CachedKeys>(key)
+        let keys = cached && Date.parse(cached.expiration) - Date.now() > REFRESH_MARGIN_MS ? cached : undefined
+        if (!keys) {
+          const fresh = await sso.getCredentials(session, await loginToken(session), account.accountId, profile.role)
+          keys = {
+            accessKeyId: fresh.accessKeyId,
+            secretAccessKey: fresh.secretAccessKey,
+            sessionToken: fresh.sessionToken,
+            expiration: fresh.expiration.toISOString(),
+          }
+          await storage.write<CachedKeys>(key, keys)
+        }
+        return {
+          Version: 1,
+          AccessKeyId: keys.accessKeyId,
+          SecretAccessKey: keys.secretAccessKey,
+          SessionToken: keys.sessionToken,
+          Expiration: keys.expiration,
+        }
+      },
+    },
+
     /** @internal Low-level primitive. Prefer `setCredential()` for most use cases. */
     credentials: {
       write: async (profileName: string, creds: RoleCredentials, region?: string) => {
@@ -408,13 +558,23 @@ export function createAwsesh(options: AwseshOptions) {
       const profileName = customProfileName || configuredProfile || "default"
       const isDefault = !customProfileName && !configuredProfile
 
+      // A managed profile already serves fresh keys through credential_process; static keys would shadow it and go stale
+      const managedProfile = (await Profiles.read(configDir)).find((value) => value.name === profileName)
+      if (managedProfile) {
+        const sameRole = managedProfile.session === sessionName && managedProfile.role === roleName
+          && (managedProfile.account === accountId || managedProfile.account === accountName)
+        if (!sameRole) throw new Error(`${profileName} is a managed profile for ${managedProfile.session}/${managedProfile.account}/${managedProfile.role}`)
+      }
+
       // 1. Write to ~/.aws/credentials
-      await Credentials.write({
-        awsDir: await getAwsDir(),
-        profileName,
-        credentials,
-        region,
-      })
+      if (!managedProfile) {
+        await Credentials.write({
+          awsDir: await getAwsDir(),
+          profileName,
+          credentials,
+          region,
+        })
+      }
 
       // 2. Track active credential
       await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
@@ -508,6 +668,8 @@ export function createAwsesh(options: AwseshOptions) {
         }
       }
 
+      await forgetProfileKeys(`profile-keys/${sessionStorageKey(sessionName)}`)
+
       // 2. Remove from active credentials tracking
       await storage.update<ActiveCredential[]>("credentials/active", (existing) => {
         if (!existing || !Array.isArray(existing)) return []
@@ -533,6 +695,8 @@ export function createAwsesh(options: AwseshOptions) {
           await Credentials.removeProfile({ awsDir: await getAwsDir(), profileName: cred.profileName })
         }
       }
+
+      await forgetProfileKeys("profile-keys")
 
       // 2. Clear active credentials tracking
       await storage.write<ActiveCredential[]>("credentials/active", [])

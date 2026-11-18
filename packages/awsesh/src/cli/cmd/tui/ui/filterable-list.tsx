@@ -38,6 +38,7 @@ export interface FilterableListItem<T = any> {
   value: T
   description?: string
   subtitle?: string
+  tag?: string
   footer?: string | JSX.Element
   category?: string
   categoryId?: string
@@ -68,7 +69,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     const items = props.items.filter((x) => !x.disabled)
     if (!needle) return items
     const needleNoSpaces = needle.replace(/\s+/g, "")
-    return fuzzysort.go(needleNoSpaces, items, { keys: ["title", "category", "description", "subtitle"].map(k => (item: FilterableListItem<T>) => (item[k as keyof FilterableListItem<T>] ?? "").toString().toLowerCase().replace(/\s+/g, "")) }).map((x) => x.obj)
+    return fuzzysort.go(needleNoSpaces, items, { keys: ["title", "category", "description", "subtitle", "tag"].map(k => (item: FilterableListItem<T>) => (item[k as keyof FilterableListItem<T>] ?? "").toString().toLowerCase().replace(/\s+/g, "")) }).map((x) => x.obj)
   })
 
   const grouped = createMemo(() => {
@@ -513,6 +514,11 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                               </span>
                             </Show>
                           </text>
+                          <Show when={item.tag}>
+                            <text flexShrink={0} fg={active() ? theme.background : theme.info} wrapMode="none">
+                              {item.tag}
+                            </text>
+                          </Show>
                           <Show when={item.indicator !== undefined}>
                             <text
                               flexShrink={0}

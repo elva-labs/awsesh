@@ -1,6 +1,7 @@
 import { setTimeout } from "node:timers/promises"
 import type { Awsesh } from "./index"
-import type { SSOLoginInfo, SSOSession } from "./types"
+import { Profiles } from "./profiles"
+import type { ManagedProfile, SSOLoginInfo, SSOSession } from "./types"
 
 /** Presentation-independent operations for interactive clients. Never returns credentials or tokens. */
 export function createWorkflow(awsesh: Awsesh) {
@@ -45,6 +46,7 @@ export function createWorkflow(awsesh: Awsesh) {
     const profiles = selected ? await awsesh.lastProfiles.getAll(selected.name) : {}
     const layout = selected ? await awsesh.accountLayout.get(selected.name) : undefined
     const previous = await awsesh.lastSetCredential.get()
+    const managed = (await awsesh.profiles.list()).filter((value) => value.session === selected?.name)
     return {
       sessions: await Promise.all(sessions.map(async (value) => ({
         ...value,
@@ -61,7 +63,11 @@ export function createWorkflow(awsesh: Awsesh) {
           ?? credentials.findLast((credential) => credential.sessionName === selected?.name && credential.accountId === value.accountId)?.profileName,
         pinned: layout?.pinned.includes(value.accountId) ?? false,
         group: layout?.groups[value.accountId],
+        managedProfiles: Object.fromEntries(managed
+          .filter((profile) => profile.account === value.accountId || profile.account === value.name)
+          .map((profile) => [profile.role, profile.name])),
       }))),
+      managedProfiles: managed,
       collapsedGroups: layout?.collapsed ?? [],
       credentials,
       lastSelected: await awsesh.lastSelected.get(),
@@ -161,6 +167,54 @@ export function createWorkflow(awsesh: Awsesh) {
       if (profile) await awsesh.profileNames.save(name, value.name, role, profile)
       if (!profile) await awsesh.profileNames.remove(name, value.name, role)
       return snapshot(name)
+    },
+    /** Marks account roles as managed profiles in ~/.aws/config and syncs them. A profile name defaults to the role's CLI profile name, else account-role. */
+    async addProfiles(name: string, items: { accountId: string; role: string; profile?: string }[]) {
+      const value = await session(name)
+      const existing = await awsesh.profiles.list()
+      const taken = new Map(existing.map((profile) => [profile.name, profile]))
+      const profiles: ManagedProfile[] = []
+      // A bulk add keeps the items that work and reports the rest, instead of failing the whole selection
+      const skipped: { accountId: string; role: string; reason: string }[] = []
+      for (const item of items) {
+        try {
+          const selected = await account(name, item.accountId)
+          if (!selected.roles.includes(item.role)) throw new Error(`Role ${item.role} is not available for ${selected.name}`)
+          const profile = item.profile
+            || existing.find((value) => value.session === name && value.account === selected.accountId && value.role === item.role)?.name
+            || await awsesh.profileNames.get(name, selected.name, item.role)
+            || Profiles.suggestName(selected.name, selected.accountId, item.role)
+          Profiles.validateName(profile)
+          const other = taken.get(profile)
+          if (other && !(other.session === name && other.account === selected.accountId && other.role === item.role)) {
+            throw new Error(`Profile ${profile} is already used for ${other.session}/${other.account}/${other.role}`)
+          }
+          if ((await awsesh.profiles.unmanaged([profile])).length > 0) {
+            throw new Error(`The AWS config already has [profile ${profile}], which awsesh does not manage`)
+          }
+          const managed: ManagedProfile = {
+            name: profile,
+            session: name,
+            account: selected.accountId,
+            role: item.role,
+            region: await awsesh.preferredRegions.get(name, selected.accountId) ?? value.defaultRegion,
+          }
+          taken.set(profile, managed)
+          profiles.push(managed)
+        } catch (error) {
+          skipped.push({ accountId: item.accountId, role: item.role, reason: error instanceof Error ? error.message : String(error) })
+        }
+      }
+      if (profiles.length === 0 && skipped.length > 0) throw new Error(skipped.map((item) => item.reason).join("; "))
+      await awsesh.profiles.save(profiles)
+      return { sync: await awsesh.profiles.sync(), snapshot: await snapshot(name), skipped }
+    },
+    async removeProfiles(names: string[], name?: string) {
+      await awsesh.profiles.remove(names)
+      return { sync: await awsesh.profiles.sync(), snapshot: await snapshot(name) }
+    },
+    async syncProfiles(name?: string) {
+      return { sync: await awsesh.profiles.sync(), snapshot: await snapshot(name) }
     },
     async pinAccount(name: string, accountId: string, pinned: boolean) {
       await session(name)

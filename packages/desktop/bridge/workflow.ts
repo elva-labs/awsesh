@@ -5,11 +5,19 @@ import { createAwsesh, createWorkflow } from "@awsesh/core"
 export const configDir = path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), ".config"), "awsesh")
 export const dataDir = path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "awsesh")
 
-const workflow = createWorkflow(createAwsesh({
+// The AWS tools run this helper for managed profiles' credentials (see index.ts)
+const compiled = /^(\/\$bunfs\/|[A-Za-z]:[\\/]~BUN[\\/])/.test(Bun.main)
+
+export const awsesh = createAwsesh({
   configDir,
   dataDir,
   awsDir: path.join(homedir(), ".aws"),
-}))
+  credentialProcess: compiled
+    ? [process.execPath, "profiles", "creds"]
+    : [process.execPath, "run", path.resolve(import.meta.dir, "index.ts"), "profiles", "creds"],
+})
+
+const workflow = createWorkflow(awsesh)
 
 function string(value: unknown): string {
   if (typeof value !== "string") throw new Error("Expected a string argument")
@@ -18,6 +26,20 @@ function string(value: unknown): string {
 
 function optional(value: unknown): string | undefined {
   return value === undefined || value === null ? undefined : string(value)
+}
+
+function profileItems(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("Expected a list of account roles")
+  return value.map((item: unknown) => {
+    if (typeof item !== "object" || item === null) throw new Error("Expected an account role")
+    const record = item as Record<string, unknown>
+    return { accountId: string(record.accountId), role: string(record.role), profile: optional(record.profile) }
+  })
+}
+
+function names(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("Expected a list of profile names")
+  return value.map(string)
 }
 
 export async function dispatchWorkflow(operation: string, args: Record<string, unknown>) {
@@ -49,6 +71,9 @@ export async function dispatchWorkflow(operation: string, args: Record<string, u
     case "clearCredential": return workflow.clearCredential(string(account), string(role), "profile" in args ? string(args.profile) : "", name)
     case "clearAllCredentials": return workflow.clearAllCredentials(name)
     case "signOut": return workflow.signOut(string(name))
+    case "addProfiles": return workflow.addProfiles(string(name), profileItems(args.items))
+    case "removeProfiles": return workflow.removeProfiles(names(args.profiles), name)
+    case "syncProfiles": return workflow.syncProfiles(name)
     default: throw new Error("Unknown SDK operation")
   }
 }

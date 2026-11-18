@@ -153,6 +153,37 @@ describe("CLI", () => {
     });
   });
 
+  describe("profiles", () => {
+    test("adds a profile to the AWS config and serves it through credential_process", async () => {
+      const env = testEnv("profiles");
+      const configDir = path.join(env.XDG_CONFIG_HOME, "awsesh");
+      await fs.mkdir(path.join(configDir, "sessions"), { recursive: true });
+      const { createAwsesh } = await import("@awsesh/core");
+      const core = createAwsesh({ configDir, dataDir: path.join(env.XDG_DATA_HOME, "awsesh"), awsDir: path.join(homeDir, ".aws") });
+      await core.sessions.save({ name: "corp", startUrl: "https://corp.awsapps.com/start", ssoRegion: "eu-north-1", defaultRegion: "eu-west-1" });
+      await core.accounts.save("corp", { accounts: [{ accountId: "111111111111", name: "Dev", roles: ["Admin"], rolesLoaded: true }], lastUpdated: Date.now() });
+
+      const added = await runCli(["profiles", "add", "dev-admin", "corp", "Dev", "Admin"], env);
+      expect(added.exitCode).toBe(0);
+      expect(added.stdout).toContain("Added dev-admin");
+      const config = await fs.readFile(path.join(homeDir, ".aws", "config"), "utf-8");
+      expect(config).toContain("[profile dev-admin]");
+      expect(config).toMatch(/credential_process = .+ profiles creds dev-admin\nregion = eu-west-1/);
+
+      const listed = await runCli(["profiles", "list", "--json"], env);
+      expect(JSON.parse(listed.stdout)).toEqual([{ name: "dev-admin", session: "corp", account: "111111111111", role: "Admin", region: "eu-west-1" }]);
+
+      const creds = await runCli(["profiles", "creds", "dev-admin"], env);
+      expect(creds.exitCode).toBe(1);
+      expect(creds.stdout).toBe("");
+      expect(creds.stderr).toContain("sesh auth corp");
+
+      const removed = await runCli(["profiles", "remove", "dev-admin"], env);
+      expect(removed.exitCode).toBe(0);
+      expect(await fs.readFile(path.join(homeDir, ".aws", "config"), "utf-8")).not.toContain("dev-admin");
+    });
+  });
+
   describe("help", () => {
     test("shows help with --help", async () => {
       const { stdout, exitCode } = await runCli(["--help"], testEnv("help"));

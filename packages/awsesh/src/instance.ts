@@ -2,6 +2,7 @@ import { createAwsesh, type Awsesh } from "@awsesh/core"
 import { Global } from "@/global"
 import { Config } from "@/config/config"
 import { WSL } from "@/util/wsl"
+import { credentialProcess } from "@/util/credential-process"
 
 let instance: Awsesh | undefined
 
@@ -12,6 +13,7 @@ export function getAwsesh(): Awsesh {
       dataDir: Global.Path.data,
       awsDir: Global.Path.aws,
       resolveAwsDir: wslAwareAwsDir,
+      credentialProcess: () => credentialProcess(),
     })
   }
   return instance
