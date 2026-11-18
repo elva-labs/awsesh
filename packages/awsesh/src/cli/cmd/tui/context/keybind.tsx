@@ -1,4 +1,4 @@
-import { createMemo } from "solid-js"
+import { createMemo, onCleanup } from "solid-js"
 import { useConfig, type KeybindsConfig } from "./config"
 import { Keybind } from "../util/keybind"
 import type { ParsedKey, Renderable } from "@opentui/core"
@@ -24,14 +24,21 @@ export const { use: useKeybind, provider: KeybindProvider } = createSimpleContex
     const renderer = useRenderer()
 
     let focus: Renderable | null
-    let timeout: NodeJS.Timeout
+    let timeout: NodeJS.Timeout | undefined
+
+    function clearLeaderTimeout() {
+      clearTimeout(timeout)
+      timeout = undefined
+    }
+
+    onCleanup(clearLeaderTimeout)
 
     function leader(active: boolean) {
+      clearLeaderTimeout()
       if (active) {
         setStore("leader", true)
         focus = renderer.currentFocusedRenderable
         focus?.blur()
-        if (timeout) clearTimeout(timeout)
         timeout = setTimeout(() => {
           if (!store.leader) return
           leader(false)

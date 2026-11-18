@@ -1,4 +1,5 @@
-import { createSignal } from "solid-js"
+import { setTimeout as delay } from "node:timers/promises"
+import { createSignal, onCleanup } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { useAwsesh } from "./awsesh"
 import { Global } from "@/global"
@@ -12,6 +13,8 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
   name: "AWS",
   init: () => {
     const awsesh = useAwsesh()
+    const rolePreload = new AbortController()
+    onCleanup(() => rolePreload.abort())
 
     const [sessions, setSessions] = createSignal<SSOSession[]>([])
     const [accounts, setAccounts] = createSignal<Account[]>([])
@@ -150,14 +153,18 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       },
 
       async preloadRoles(session: SSOSession, accountsList: Account[]): Promise<void> {
+        const { signal } = rolePreload
+        if (signal.aborted) return
         const token = await awsesh.tokens.get(session.startUrl)
         if (!token) return
 
         for (const account of accountsList) {
+          if (signal.aborted) return
           if (account.rolesLoaded) continue
 
           try {
-            const roles = await awsesh.sso.listRoles(session, token.token, account.accountId)
+            const roles = await awsesh.sso.listRoles(session, token.token, account.accountId, signal)
+            if (signal.aborted) return
             
             setAccounts((current) =>
               current.map((a) =>
@@ -169,10 +176,11 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
             await awsesh.accounts.save(session.name, { accounts: accounts(), lastUpdated: Date.now() })
           } catch (e) {
+            if (signal.aborted) return
             log.error("Failed to pre-load roles", { error: e, accountName: account.name, accountId: account.accountId })
           }
 
-          await new Promise((resolve) => setTimeout(resolve, 100))
+          await delay(100, undefined, { signal }).catch(() => {})
         }
       },
 

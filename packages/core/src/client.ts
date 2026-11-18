@@ -113,13 +113,14 @@ export class AWSClient {
     return accounts
   }
 
-  async listAccountRoles(accessToken: string, accountId: string): Promise<string[]> {
+  async listAccountRoles(accessToken: string, accountId: string, signal?: AbortSignal): Promise<string[]> {
     const roles: string[] = []
     let nextToken: string | undefined
 
     do {
       const response = await this.ssoClient.send(
-        new ListAccountRolesCommand({ accessToken, accountId, nextToken })
+        new ListAccountRolesCommand({ accessToken, accountId, nextToken }),
+        { abortSignal: signal }
       )
 
       for (const role of response.roleList ?? []) {

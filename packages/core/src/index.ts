@@ -128,7 +128,8 @@ export function createAwsesh(options: AwseshOptions) {
       startLogin: (session: SSOSession) => clientForRegion(session.ssoRegion).startSSOLogin(session.startUrl),
       pollForToken: (session: SSOSession, loginInfo: SSOLoginInfo) => clientForRegion(session.ssoRegion).pollForToken(loginInfo),
       listAccounts: (session: SSOSession, token: string) => clientForRegion(session.ssoRegion).listAccounts(token),
-      listRoles: (session: SSOSession, token: string, accountId: string) => clientForRegion(session.ssoRegion).listAccountRoles(token, accountId),
+      listRoles: (session: SSOSession, token: string, accountId: string, signal?: AbortSignal) =>
+        clientForRegion(session.ssoRegion).listAccountRoles(token, accountId, signal),
       getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) =>
         clientForRegion(session.ssoRegion).getRoleCredentials(token, accountId, roleName),
       getDashboardUrl: (session: SSOSession) => clientForRegion(session.ssoRegion).getDashboardURL(session.startUrl),
