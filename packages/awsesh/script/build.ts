@@ -12,7 +12,6 @@ const dir = path.resolve(dirname, "..")
 
 process.chdir(dir)
 
-import pkg from "../package.json"
 import { Script } from "@awsesh/script"
 
 const singleFlag = process.argv.includes("--single")
@@ -36,7 +35,7 @@ await $`rm -rf dist`
 const binaries: Record<string, string> = {}
 
 if (!skipInstall) {
-  await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
+  await $`bun install --frozen-lockfile --os="*" --cpu="*" --libc="*"`
 }
 
 for (const item of targets) {
@@ -46,7 +45,6 @@ for (const item of targets) {
   await $`mkdir -p dist/${name}/bin`
 
   const result = await Bun.build({
-    conditions: ["browser"],
     tsconfig: "./tsconfig.json",
     plugins: [solidPlugin],
     sourcemap: "external",

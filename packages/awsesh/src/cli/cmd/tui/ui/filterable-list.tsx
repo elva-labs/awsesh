@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createSelector, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/solid"
 import { useTheme } from "../context/theme"
@@ -6,7 +6,7 @@ import { useKeybind } from "../context/keybind"
 import { useCommand } from "../context/command"
 import { useConfig } from "../context/config"
 import { useDialog } from "./dialog"
-import { TextAttributes, RGBA, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
+import { TextAttributes, RGBA, type BoxRenderable, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { Locale } from "../util/locale"
 import * as fuzzysort from "fuzzysort"
 
@@ -46,6 +46,10 @@ export interface FilterableListItem<T = any> {
   indicator?: IndicatorState
 }
 
+const transparent = RGBA.fromInts(0, 0, 0, 0)
+const normalizeSearch = (text: string) => text.toLowerCase().replace(/\s+/g, "")
+const prepareSearch = (text?: string) => text ? fuzzysort.prepare(normalizeSearch(text)) : undefined
+
 export function FilterableList<T>(props: FilterableListProps<T>) {
   type Entry = { kind: "item"; id: string; item: FilterableListItem<T> } | { kind: "category"; id: string; category: string }
   const { theme } = useTheme()
@@ -62,36 +66,52 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
 
   let input: InputRenderable
   let scroll: ScrollBoxRenderable
+  const rows = new Map<string, BoxRenderable>()
 
+  const enabled = createMemo(() => props.items.filter((item) => !item.disabled))
+  const searchIndex = createMemo(() => enabled().map((item) => ({
+    item,
+    title: prepareSearch(item.title),
+    category: prepareSearch(item.category),
+    description: prepareSearch(item.description),
+    subtitle: prepareSearch(item.subtitle),
+  })))
+  const searching = createMemo(() => Boolean(store.filter.trim()))
   const filtered = createMemo(() => {
-    const needle = store.filter.trim().toLowerCase()
-    const items = props.items.filter((x) => !x.disabled)
-    if (!needle) return items
-    const needleNoSpaces = needle.replace(/\s+/g, "")
-    return fuzzysort.go(needleNoSpaces, items, { keys: ["title", "category", "description", "subtitle"].map(k => (item: FilterableListItem<T>) => (item[k as keyof FilterableListItem<T>] ?? "").toString().toLowerCase().replace(/\s+/g, "")) }).map((x) => x.obj)
+    if (!searching()) return enabled()
+    return fuzzysort.go(normalizeSearch(store.filter), searchIndex(), {
+      keys: ["title", "category", "description", "subtitle"],
+    }).map((match) => match.obj.item)
   })
 
   const grouped = createMemo(() => {
     const result = new Map<string, FilterableListItem<T>[]>()
     for (const item of filtered()) {
       const category = item.categoryId ?? item.category ?? ""
-      const list = result.get(category) ?? []
-      list.push(item)
-      result.set(category, list)
+      const list = result.get(category)
+      if (list) list.push(item)
+      else result.set(category, [item])
     }
-    return Array.from(result.entries())
+    return result
   })
+  const categories = createMemo(() => [...grouped().keys()])
 
-  const collapsed = (category: string) => !store.filter.trim() && props.collapsedCategories?.includes(category) === true
-  const flat = createMemo(() => grouped().flatMap(([category, items]) => {
+  const collapsedCategories = createMemo(() => new Set(props.collapsedCategories))
+  const collapsed = (category: string) => !searching() && collapsedCategories().has(category)
+  const flat = createMemo(() => {
     const entries: Entry[] = []
-    if (props.onCategoryToggle && items[0]?.category) entries.push({ kind: "category", id: `category:${category}`, category })
-    if (!collapsed(category)) entries.push(...items.map((item): Entry => ({ kind: "item", id: `item:${item.id}`, item })))
+    for (const [category, items] of grouped()) {
+      if (props.onCategoryToggle && items[0]?.category) entries.push({ kind: "category", id: `category:${category}`, category })
+      if (!collapsed(category)) {
+        for (const item of items) entries.push({ kind: "item", id: `item:${item.id}`, item })
+      }
+    }
     return entries
-  }))
+  })
+  const indices = createMemo(() => new Map(flat().map((entry, index) => [entry.id, index])))
 
   function toggleCategory(category: string, collapse: boolean) {
-    const item = grouped().find(([id]) => id === category)?.[1][0]
+    const item = grouped().get(category)?.[0]
     if (!item?.category || !props.onCategoryToggle || store.filter.trim()) return
     props.onCategoryToggle(category, collapse)
   }
@@ -105,10 +125,11 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
       const rowHeight = item.kind === "category" ? 1 : item.item.subtitle ? 3 : 2
       return acc + rowHeight
     }, 0)
-    return Math.min(itemHeight + grouped().length * 2, Math.floor(dimensions().height) - baseHeight)
+    return Math.min(itemHeight + grouped().size * 2, Math.floor(dimensions().height) - baseHeight)
   })
 
   const selectedEntry = createMemo(() => flat()[store.selected])
+  const isSelected = createSelector(() => selectedEntry()?.id)
   const selected = createMemo(() => {
     const entry = selectedEntry()
     return entry?.kind === "item" ? entry.item : undefined
@@ -128,8 +149,8 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
           clearTimeout(defaultTimer)
           defaultTimer = null
         }
-        const idx = items.findIndex((entry) => entry.kind === "item" && entry.item.id === initialId)
-        if (idx !== -1) {
+        const idx = indices().get(`item:${initialId}`)
+        if (idx !== undefined) {
           initialIdApplied = true
           initialNotified = true
           moveTo(idx)
@@ -173,9 +194,9 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
       select(Math.min(store.selected, items.length - 1))
       return
     }
-    const idx = items.findIndex((x) => x.id === selectedId)
+    const idx = indices().get(selectedId)
     if (idx === store.selected) return
-    if (idx === -1) select(Math.min(store.selected, items.length - 1))
+    if (idx === undefined) select(Math.min(store.selected, items.length - 1))
     else setStore("selected", idx)
     renderer.once("frame", () => scrollToIndex(store.selected))
   }))
@@ -231,16 +252,14 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
     const item = flat()[next]
     if (!scroll || scroll.isDestroyed || !item) return
 
-    const children = scroll.getChildren()
-    const rowId = (entry: Entry) => entry.kind === "category" ? entry.id : entry.item.id
-    const target = children.find((child) => child.id === rowId(item))
+    const target = rows.get(item.id)
     if (!target) return
 
     const y = target.y - scroll.y
 
     if (includeNeighbors) {
       const nextItem = flat()[next + 1]
-      const nextTarget = nextItem ? children.find((child) => child.id === rowId(nextItem)) : null
+      const nextTarget = nextItem && rows.get(nextItem.id)
       if (nextTarget) {
         const nextY = nextTarget.y - scroll.y
         if (nextY + nextTarget.height > scroll.height) {
@@ -250,7 +269,7 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
       }
 
       const prevItem = flat()[next - 1]
-      const prevTarget = prevItem ? children.find((child) => child.id === rowId(prevItem)) : null
+      const prevTarget = prevItem && rows.get(prevItem.id)
       if (prevTarget) {
         const prevY = prevTarget.y - scroll.y
         if (prevY < 0) {
@@ -317,8 +336,8 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
       if (keybind.match("nav_left", evt)) {
         const entry = selectedEntry()
         const category = entry?.kind === "category" ? entry.category : selected()?.categoryId ?? selected()?.category
-        const index = flat().findIndex((entry) => entry.kind === "category" && entry.category === category)
-        if (index !== -1) moveTo(index)
+        const index = indices().get(`category:${category}`)
+        if (index !== undefined) moveTo(index)
         if (category) toggleCategory(category, true)
         evt.preventDefault()
         return
@@ -412,45 +431,54 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
         </box>
       </Show>
 
-      <Show when={grouped().length === 0}>
+      <Show when={grouped().size === 0}>
         <box paddingLeft={1} paddingTop={2} paddingBottom={2}>
           <text fg={theme.textMuted}>{props.emptyMessage ?? "No items found"}</text>
         </box>
       </Show>
 
-      <Show when={grouped().length > 0}>
+      <Show when={grouped().size > 0}>
         <scrollbox
           scrollbarOptions={{ visible: false }}
           flexGrow={1}
           overflow="hidden"
           ref={(r: ScrollBoxRenderable) => (scroll = r)}
         >
-          <For each={grouped()}>
-              {([category, items], index) => (
+          <For each={categories()}>
+              {(category, index) => {
+                const items = () => grouped().get(category) ?? []
+                const id = `category:${category}`
+                const active = () => isSelected(id)
+                return (
                 <>
-                  <Show when={items[0]?.category}>
-                    <box id={`category:${category}`} marginTop={index() > 0 ? 1 : 0} paddingLeft={1} paddingRight={1} flexDirection="row"
-                      backgroundColor={selectedEntry()?.id === `category:${category}` ? theme.primary : undefined}
+                  <Show when={items()[0]?.category}>
+                    <box id={id} marginTop={index() > 0 ? 1 : 0} paddingLeft={1} paddingRight={1} flexDirection="row"
+                      ref={(row) => {
+                        rows.set(id, row)
+                        onCleanup(() => rows.delete(id))
+                      }}
+                      backgroundColor={active() ? theme.primary : undefined}
                       onMouseMove={() => {
-                        const index = flat().findIndex((entry) => entry.kind === "category" && entry.category === category)
-                        if (index !== -1 && index !== store.selected) moveTo(index, config.data.mouseEdgeScroll)
+                        const index = indices().get(id)
+                        if (index !== undefined && index !== store.selected) moveTo(index, config.data.mouseEdgeScroll)
                       }}
                       onMouseUp={() => {
                         if (renderer.getSelection()?.getSelectedText()) return
-                        const index = flat().findIndex((entry) => entry.kind === "category" && entry.category === category)
-                        if (index !== -1) moveTo(index)
+                        const index = indices().get(id)
+                        if (index !== undefined) moveTo(index)
                         toggleCategory(category, !collapsed(category))
                       }}>
-                      <text fg={selectedEntry()?.id === `category:${category}` ? theme.background : items[0]?.favorite ? theme.warning : theme.accent} attributes={TextAttributes.BOLD} flexGrow={1}>
-                        {props.onCategoryToggle ? `${collapsed(category) ? "▸" : "▾"} ` : ""}{items[0]?.category}
+                      <text fg={active() ? theme.background : items()[0]?.favorite ? theme.warning : theme.accent} attributes={TextAttributes.BOLD} flexGrow={1}>
+                        {props.onCategoryToggle ? `${collapsed(category) ? "▸" : "▾"} ` : ""}{items()[0]?.category}
                       </text>
-                      <Show when={props.onCategoryToggle}><text fg={selectedEntry()?.id === `category:${category}` ? theme.background : theme.textMuted}>{items.length}</text></Show>
+                      <Show when={props.onCategoryToggle}><text fg={active() ? theme.background : theme.textMuted}>{items().length}</text></Show>
                     </box>
                   </Show>
                   <Show when={!collapsed(category)}>
-                  <For each={items}>
-                  {(item, itemIndex) => {
-                    const active = createMemo(() => item.id === selected()?.id)
+                   <For each={items()}>
+                   {(item, itemIndex) => {
+                     const id = `item:${item.id}`
+                     const active = () => isSelected(id)
                     const current = createMemo(() => {
                       if (props.current === undefined) return false
                       return item.value === props.current
@@ -474,17 +502,21 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                           />
                         </Show>
                         <box
-                          id={item.id}
+                           id={item.id}
+                           ref={(row) => {
+                             rows.set(id, row)
+                             onCleanup(() => rows.delete(id))
+                           }}
                           flexDirection="column"
                           onMouseUp={() => {
                             if (renderer.getSelection()?.getSelectedText()) return
                             if (!item.disabled) props.onSelect?.(item)
                           }}
                           onMouseMove={() => {
-                            const idx = flat().findIndex((entry) => entry.kind === "item" && entry.item.id === item.id)
-                            if (idx !== -1 && idx !== store.selected) moveTo(idx, config.data.mouseEdgeScroll)
+                             const idx = indices().get(id)
+                             if (idx !== undefined && idx !== store.selected) moveTo(idx, config.data.mouseEdgeScroll)
                           }}
-                          backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
+                           backgroundColor={active() ? theme.primary : transparent}
                           paddingLeft={1}
                           paddingRight={1}
                         >
@@ -553,7 +585,8 @@ export function FilterableList<T>(props: FilterableListProps<T>) {
                   </For>
                   </Show>
                 </>
-              )}
+                )
+              }}
             </For>
         </scrollbox>
       </Show>

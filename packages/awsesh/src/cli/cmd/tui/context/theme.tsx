@@ -1,7 +1,7 @@
-import { RGBA, type TerminalColors } from "@opentui/core"
+import { CliRenderEvents, RGBA, type TerminalColors } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
 import { bundledThemes, loadThemes, mapThemeColors, resolveTheme, type ThemeColors } from "@awsesh/themes"
-import { createEffect, createMemo } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Config, type ThemeMode } from "@/config/config"
 import { Global } from "@/global"
@@ -159,10 +159,13 @@ function generateMutedTextColor(bg: RGBA, isDark: boolean): RGBA {
 
 export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   name: "Theme",
-  init: (props: { mode: "dark" | "light" }) => {
+  init: () => {
     const config = useConfig()
     const renderer = useRenderer()
-    const autoDetectedMode = props.mode
+    const [autoDetectedMode, setAutoDetectedMode] = createSignal(renderer.themeMode ?? "dark")
+    const handleThemeMode = (mode: "dark" | "light") => { setAutoDetectedMode(mode) }
+    renderer.on(CliRenderEvents.THEME_MODE, handleThemeMode)
+    onCleanup(() => { renderer.off(CliRenderEvents.THEME_MODE, handleThemeMode) })
     const [store, setStore] = createStore<{
       themes: Record<string, unknown>
       terminal: TerminalColors | undefined
@@ -189,10 +192,14 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         })
     })
 
-    const effectiveMode = createMemo(() => store.modePreference === "system" ? autoDetectedMode : store.modePreference)
+    const effectiveMode = createMemo(() => store.modePreference === "system" ? autoDetectedMode() : store.modePreference)
 
     renderer.getPalette({ size: 16 })
       .then((colors) => {
+        if (!renderer.themeMode && colors.defaultBackground) {
+          const { r, g, b } = RGBA.fromHex(colors.defaultBackground)
+          setAutoDetectedMode(0.299 * r + 0.587 * g + 0.114 * b > 0.5 ? "light" : "dark")
+        }
         if (colors.palette[0]) setStore("terminal", colors)
         if (!colors.palette[0] && store.active === "system") setStore("active", "opencode")
       })

@@ -10,9 +10,9 @@
     "sesh": "./src/index.ts"
   },
   "scripts": {
-    "dev": "AWSESH_DEV=1 bun run --conditions=browser src/index.ts",
-    "dev:watch": "AWSESH_DEV=1 bun --watch --conditions=browser src/index.ts",
-    "start": "bun run --conditions=browser src/index.ts",
+    "dev": "AWSESH_DEV=1 bun run src/index.ts",
+    "dev:watch": "AWSESH_DEV=1 bun --watch src/index.ts",
+    "start": "bun run src/index.ts",
     "build": "bun run ./script/build.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -20,20 +20,20 @@
     "@awsesh/core": "workspace:*",
     "@awsesh/script": "workspace:*",
     "@awsesh/themes": "workspace:*",
-    "@clack/prompts": "^0.11.0",
-    "@opentui/core": "0.5.9",
-    "@opentui/solid": "0.5.9",
-    "fuzzysort": "^3.1.0",
-    "open": "10.1.2",
-    "remeda": "^2.32.0",
-    "solid-js": "1.9.12",
+    "@clack/prompts": "^1.9.0",
+    "@opentui/core": "0.9.2",
+    "@opentui/solid": "0.9.2",
+    "fuzzysort": "^4.0.2",
+    "open": "11.0.4",
+    "remeda": "^2.62.1",
+    "solid-js": "1.9.19",
     "xdg-basedir": "5.1.0",
-    "yargs": "18.0.0"
+    "yargs": "18.2.0"
   },
   "devDependencies": {
-    "@types/yargs": "17.0.33",
-    "@types/bun": "1.4.2",
-    "@tsconfig/bun": "1.0.9",
-    "typescript": "5.8.2"
+    "@types/yargs": "17.0.35",
+    "@types/bun": "1.4.4",
+    "@tsconfig/bun": "1.0.12",
+    "typescript": "5.9.3"
   }
 }
