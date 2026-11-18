@@ -45,7 +45,7 @@ function init() {
 
       setTimeout(() => {
         setStore("toasts", (toasts) => toasts.filter((t) => t.id !== toast.id))
-      }, toast.duration)
+      }, toast.duration).unref()
     },
     error(err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
