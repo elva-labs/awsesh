@@ -3,6 +3,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { isWslAvailable, readWorkspace, wslCommand, WslHelper, WslWorkspace } from "./wsl"
+import { sessionStorageKey } from "../../core/src/filesystem"
 
 async function temporary() {
   return mkdtemp(path.join(tmpdir(), "sesh-workspace-"))
@@ -114,6 +115,9 @@ describe("helper transport", () => {
 const linuxHelper = path.resolve(import.meta.dir, "../dist/Sesh/awsesh-sdk-linux-x64")
 const hasWsl = await isWslAvailable()
 const hasWslHelper = await Bun.file(linuxHelper).exists() && hasWsl
+if (process.env.AWSESH_REQUIRE_WSL === "1" && !hasWslHelper) {
+  throw new Error("WSL integration checks require a working default distribution and the packaged Linux helper")
+}
 
 test.skipIf(!hasWsl)("restarts a stopped WSL helper without replaying mutations or changing workspace", async () => {
   const root = await temporary()
@@ -267,15 +271,14 @@ trap 'rm -rf "$root"' EXIT
 export HOME="$root" XDG_CONFIG_HOME="$root/config" XDG_DATA_HOME="$root/data" XDG_CACHE_HOME="$root/cache"
 export AWS_EC2_METADATA_DISABLED=true AWS_ENDPOINT_URL=http://127.0.0.1:1
 helper=$(wslpath -u "$1")
-mkdir -p "$XDG_DATA_HOME/awsesh/storage/accounts"
-printf '%s' '{"accounts":[{"accountId":"123456789012","name":"Example","roles":["Admin"],"rolesLoaded":true}],"lastUpdated":0}' > "$XDG_DATA_HOME/awsesh/storage/accounts/shared.json"
+mkdir -p "$XDG_DATA_HOME/awsesh/storage/accounts/by-name"
+printf '%s' '{"accounts":[{"accountId":"123456789012","name":"Example","roles":["Admin"],"rolesLoaded":true}],"lastUpdated":0}' > "$XDG_DATA_HOME/awsesh/storage/accounts/${sessionStorageKey("shared")}.json"
 printf '%s\\n' \
   '{"operation":"snapshot"}' \
   '{"operation":"saveSession","args":{"name":"shared","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","creating":true}}' \
   '{"operation":"selectSession","args":{"name":"shared"}}' \
   '{"operation":"setRegion","args":{"name":"shared","accountId":"123456789012","region":"us-east-1"}}' \
   '{"operation":"setProfile","args":{"name":"shared","accountId":"123456789012","role":"Admin","profile":"shared-admin"}}' | "$helper"
-test -f "$XDG_CONFIG_HOME/awsesh/sessions/shared.json"
 printf '%s\\n' '{"operation":"snapshot","args":{"name":"shared"}}' | "$helper"`
   const child = Bun.spawn(["wsl", "--exec", "sh", "-c", script, "sesh-test", linuxHelper], { stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
@@ -283,7 +286,7 @@ printf '%s\\n' '{"operation":"snapshot","args":{"name":"shared"}}' | "$helper"`
   expect(code).toBe(0)
   const responses = stdout.trim().split("\n").map(line => JSON.parse(line))
   expect(responses).toHaveLength(6)
-  expect(responses.some(response => response.error)).toBe(false)
+  expect(responses.filter(response => response.error)).toEqual([])
   expect(responses[0].result.sessions).toEqual([])
   const snapshot = responses[5].result
   expect(snapshot.sessions.map((session: { name: string }) => session.name)).toEqual(["shared"])

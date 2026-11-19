@@ -1,9 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, path::PathBuf};
 
-use gpui::{Bounds, Pixels, Window, point, px, size};
-use serde::{Deserialize, Serialize};
-
-/// Window geometry persisted between launches, in logical pixels.
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct WindowState {
     pub x: f32,
@@ -14,49 +11,75 @@ pub struct WindowState {
     pub maximized: bool,
 }
 
-impl WindowState {
-    pub fn bounds(self) -> Bounds<Pixels> {
-        Bounds {
-            origin: point(px(self.x), px(self.y)),
-            size: size(px(self.width), px(self.height)),
-        }
-    }
-}
-
 thread_local! {
     static CURRENT: RefCell<Option<WindowState>> = const { RefCell::new(None) };
 }
 
-/// Mirrors the SDK's config directory (`$XDG_CONFIG_HOME/awsesh`, else
-/// `~/.config/awsesh`) so window state lives beside `desktop.json`.
-fn directory() -> Option<PathBuf> {
-    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
-        Some(value) => PathBuf::from(value),
-        None => {
-            let home = if cfg!(target_os = "windows") {
-                std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
-            } else {
-                std::env::var_os("HOME")
-            }?;
-            PathBuf::from(home).join(".config")
-        }
-    };
-    Some(base.join("awsesh"))
-}
-
 fn path() -> Option<PathBuf> {
-    directory().map(|directory| directory.join("window.json"))
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .or_else(|| std::env::var_os("HOME"))
+                .map(|home| PathBuf::from(home).join(".config"))
+        })?;
+    Some(base.join("awsesh/window.json"))
 }
 
 pub fn load() -> Option<WindowState> {
-    let text = std::fs::read_to_string(path()?).ok()?;
-    serde_json::from_str(&text).ok()
+    let state: WindowState = serde_json::from_str(&std::fs::read_to_string(path()?).ok()?).ok()?;
+    [state.x, state.y, state.width, state.height]
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(state)
 }
 
-fn write(state: WindowState) {
-    let Some(file) = path() else {
+pub fn restore_visible(window: &rune::WindowHandle) {
+    let Some(placement) = window.placement() else {
         return;
     };
+    let Some(((x, y), (width, height))) = placement.display else {
+        return;
+    };
+    let (left, top) = placement.position;
+    let intersects = i64::from(left) < i64::from(x) + i64::from(width)
+        && i64::from(top) < i64::from(y) + i64::from(height)
+        && i64::from(left) + i64::from(placement.content_size.0) > i64::from(x)
+        && i64::from(top) + i64::from(placement.content_size.1) > i64::from(y);
+    if !intersects {
+        window.center();
+    }
+}
+
+pub fn save(window: &rune::WindowHandle) {
+    let Some(placement) = window.placement() else {
+        return;
+    };
+    if placement.full_screen || placement.minimized {
+        return;
+    }
+    let next = if placement.maximized {
+        CURRENT.with(|current| {
+            current.borrow().or_else(load).map(|state| WindowState {
+                maximized: true,
+                ..state
+            })
+        })
+    } else {
+        Some(WindowState {
+            x: placement.position.0 as f32,
+            y: placement.position.1 as f32,
+            width: (f64::from(placement.content_size.0) / placement.scale) as f32,
+            height: (f64::from(placement.content_size.1) / placement.scale) as f32,
+            maximized: false,
+        })
+    };
+    let Some(state) = next else { return };
+    if CURRENT.with(|current| *current.borrow() == Some(state)) {
+        return;
+    }
+    let Some(file) = path() else { return };
     if let Some(parent) = file.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -64,38 +87,7 @@ fn write(state: WindowState) {
         return;
     };
     let temporary = file.with_extension("json.tmp");
-    if std::fs::write(&temporary, contents).is_ok() {
-        let _ = std::fs::rename(&temporary, &file);
-    }
-}
-
-/// Records the window's geometry. The windowed bounds are kept while maximized
-/// so restoring later returns to the previous size.
-pub fn note(window: &Window) {
-    let maximized = window.is_maximized();
-    CURRENT.with(|cell| {
-        let mut current = cell.borrow_mut();
-        if maximized {
-            if let Some(state) = current.as_mut() {
-                state.maximized = true;
-            }
-            return;
-        }
-        let bounds = window.bounds();
-        *current = Some(WindowState {
-            x: bounds.origin.x.into(),
-            y: bounds.origin.y.into(),
-            width: bounds.size.width.into(),
-            height: bounds.size.height.into(),
-            maximized: false,
-        });
-    });
-}
-
-/// Writes the last known geometry to disk.
-pub fn persist() {
-    let state = CURRENT.with(|cell| *cell.borrow());
-    if let Some(state) = state {
-        write(state);
+    if std::fs::write(&temporary, contents).is_ok() && std::fs::rename(temporary, file).is_ok() {
+        CURRENT.with(|current| *current.borrow_mut() = Some(state));
     }
 }

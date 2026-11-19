@@ -199,6 +199,9 @@ jobs:
       - name: Test Rust application
         run: cargo test --manifest-path packages/desktop/Cargo.toml --locked --target x86_64-pc-windows-msvc
 
+      - name: Test Windows bridge and packaging
+        run: bun test packages/desktop/bridge packages/desktop/script
+
       - name: Build portable package
         run: bun run build:desktop
 
@@ -208,3 +211,27 @@ jobs:
           name: awsesh-desktop-win32-x64
           path: packages/desktop/dist/awsesh-desktop-win32-x64.zip
           retention-days: 7
+
+  desktop-wsl:
+    needs: desktop-windows
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: awsesh-desktop-win32-x64
+          path: packages/desktop/dist
+
+      - name: Extract Windows package
+        run: Expand-Archive -Path packages/desktop/dist/awsesh-desktop-win32-x64.zip -DestinationPath packages/desktop/dist
+
+      - uses: ./.github/actions/verify-wsl
