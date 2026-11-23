@@ -167,6 +167,7 @@ jobs:
 
   desktop-wsl:
     needs: desktop-windows
+    if: ${{ !cancelled() && needs.desktop-windows.result == 'success' }}
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6
