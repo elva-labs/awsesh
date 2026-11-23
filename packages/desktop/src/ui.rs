@@ -325,6 +325,10 @@ fn dropdown_trigger(
         .children(show_chevron.then(|| icon(k.glyph.chevron_down, 14.).color(c.muted)))
 }
 
+fn account_row_metrics(compact: bool) -> (f32, f32) {
+    if compact { (48., 3.) } else { (74., 6.) }
+}
+
 fn disabled_button(
     key: &str,
     title: &str,
@@ -681,6 +685,8 @@ fn section_target(key: &str) -> Option<String> {
 }
 
 fn account_row(s: &Sesh, position: usize, index: usize, c: &crate::theme::Colors) -> El {
+    let compact = s.appearance.compact_accounts;
+    let (height, _) = account_row_metrics(compact);
     let account = &s.data.accounts[index];
     let selected = s.selected == Some(position) || s.marked.contains(&account.account_id);
     let account_id = account.account_id.clone();
@@ -695,7 +701,7 @@ fn account_row(s: &Sesh, position: usize, index: usize, c: &crate::theme::Colors
         .is_some_and(|drag| drag.active && drag.ids.contains(&account_id));
     row()
         .key(key)
-        .h(74.)
+        .h(height)
         .w_full()
         .px(12.)
         .gap(12.)
@@ -713,7 +719,7 @@ fn account_row(s: &Sesh, position: usize, index: usize, c: &crate::theme::Colors
         .focusable(true)
         .focus_ring(2., -2., c.accent)
         .opacity(if dragging { 0.3 } else { 1. })
-        .child(icon(&BUILDING, 22.).color(if selected {
+        .child(icon(&BUILDING, if compact { 18. } else { 22. }).color(if selected {
             c.accent
         } else if s.authenticated() {
             c.success
@@ -724,7 +730,7 @@ fn account_row(s: &Sesh, position: usize, index: usize, c: &crate::theme::Colors
             col()
                 .grow(1.)
                 .min_w(0.)
-                .gap(7.)
+                .gap(if compact { 2. } else { 7. })
                 .child(label(
                     &title,
                     if selected {
@@ -944,6 +950,7 @@ fn apply_drop(s: &mut Sesh, ids: &[String], target: Option<String>) {
 
 fn account_list(s: &Sesh, c: &crate::theme::Colors) -> El {
     let entries = s.entries();
+    let (height, gap) = account_row_metrics(s.appearance.compact_accounts);
     let mut content = col().key("account-rows").w_full().gap(6.);
     let mut sections: Vec<AccountSection> = vec![];
     let mut position = 0;
@@ -1036,14 +1043,14 @@ fn account_list(s: &Sesh, c: &crate::theme::Colors) -> El {
         let rows = col()
             .key(format!("rows-{section}"))
             .w_full()
-            .gap(6.)
+            .gap(gap)
             .growth(rune::GrowthSpec {
                 spring: rune::Spring::NONE,
                 ..Default::default()
             })
             .virtual_rows(
                 accounts.len(),
-                80.,
+                height + gap,
                 move |s: &Sesh, index| {
                     Cow::Owned(Sesh::account_row_key(
                         &s.data.accounts[keys[index].1].account_id,
@@ -1712,6 +1719,13 @@ fn settings(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -
             "Show organization sidebar",
             s.appearance.sidebar_visible,
             Command::ToggleSidebar,
+            c,
+        ))
+        .child(switch(
+            "compact-accounts-switch",
+            "Compact account list",
+            s.appearance.compact_accounts,
+            Command::CompactAccounts(!s.appearance.compact_accounts),
             c,
         ));
     let mut content = col()

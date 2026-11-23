@@ -148,7 +148,9 @@ helper runs through `sh -lc`, so the Linux login environment's `XDG_CONFIG_HOME`
 and `XDG_DATA_HOME` overrides apply. Exports only made in an interactive shell
 are not necessarily available to the helper.
 
-Desktop appearance, shortcuts, themes and window geometry stay on Windows. The
+Desktop appearance, shortcuts, themes and window geometry stay on Windows.
+**Settings > Appearance > Compact account list** fits more accounts on screen while
+still showing the account ID and last-used profile. The
 workspace selector is stored separately in Windows
 `~/.config/awsesh/workspace.json` (or under `XDG_CONFIG_HOME`):
 

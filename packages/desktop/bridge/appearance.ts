@@ -2,7 +2,7 @@ import path from "node:path"
 import { mkdir, rename, writeFile } from "node:fs/promises"
 import { bundledThemes, loadThemes, resolveTheme, type AppearanceMode } from "@awsesh/themes"
 
-function preferences(value: unknown): { theme: string; mode: AppearanceMode; translucency: number; dithering: boolean; sidebarVisible: boolean; sidebarWidth: number; shortcuts: Record<string, string> } {
+function preferences(value: unknown): { theme: string; mode: AppearanceMode; translucency: number; dithering: boolean; sidebarVisible: boolean; sidebarWidth: number; compactAccounts: boolean; shortcuts: Record<string, string> } {
   if (typeof value !== "object" || value === null || !("theme" in value) || !("mode" in value)) {
     throw new Error("Appearance preferences must contain theme and mode")
   }
@@ -15,6 +15,7 @@ function preferences(value: unknown): { theme: string; mode: AppearanceMode; tra
   const dithering = "dithering" in value ? value.dithering : false
   const sidebarVisible = "sidebarVisible" in value ? value.sidebarVisible : true
   const sidebarWidth = "sidebarWidth" in value ? value.sidebarWidth : 216
+  const compactAccounts = "compactAccounts" in value ? value.compactAccounts : false
   const shortcuts = "shortcuts" in value ? value.shortcuts : {}
   if (typeof shortcuts !== "object" || shortcuts === null || Array.isArray(shortcuts)) {
     throw new Error("Shortcuts must be an object")
@@ -29,6 +30,7 @@ function preferences(value: unknown): { theme: string; mode: AppearanceMode; tra
   if (legacy && typeof value.translucent !== "boolean") throw new Error("Translucent mode must be a boolean")
   if (typeof dithering !== "boolean") throw new Error("Dithering must be a boolean")
   if (typeof sidebarVisible !== "boolean") throw new Error("Sidebar visibility must be a boolean")
+  if (typeof compactAccounts !== "boolean") throw new Error("Compact accounts must be a boolean")
   if (typeof sidebarWidth !== "number" || !Number.isFinite(sidebarWidth) || sidebarWidth < 192 || sidebarWidth > 400) {
     throw new Error("Sidebar width must be between 192 and 400")
   }
@@ -42,6 +44,7 @@ function preferences(value: unknown): { theme: string; mode: AppearanceMode; tra
     dithering,
     sidebarVisible,
     sidebarWidth,
+    compactAccounts,
     shortcuts: bindings,
   }
 }
@@ -76,6 +79,7 @@ export async function configureAppearance(configDir: string, dataDir: string, se
       dithering: "dithering" in selection ? selection.dithering : current.dithering,
       sidebarVisible: "sidebarVisible" in selection ? selection.sidebarVisible : current.sidebarVisible,
       sidebarWidth: "sidebarWidth" in selection ? selection.sidebarWidth : current.sidebarWidth,
+      compactAccounts: "compactAccounts" in selection ? selection.compactAccounts : current.compactAccounts,
       shortcuts: "shortcuts" in selection ? selection.shortcuts : current.shortcuts,
     }
   }

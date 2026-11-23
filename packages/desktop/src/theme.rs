@@ -59,6 +59,8 @@ pub struct Appearance {
     pub sidebar_visible: bool,
     pub sidebar_width: f32,
     #[serde(default)]
+    pub compact_accounts: bool,
+    #[serde(default)]
     pub shortcuts: std::collections::BTreeMap<String, String>,
     pub themes: Vec<String>,
     pub palettes: Option<Palettes>,
@@ -74,6 +76,7 @@ impl Default for Appearance {
             dithering: false,
             sidebar_visible: true,
             sidebar_width: 216.,
+            compact_accounts: false,
             shortcuts: Default::default(),
             themes: vec!["system".into()],
             palettes: None,

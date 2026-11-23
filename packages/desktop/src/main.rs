@@ -52,6 +52,7 @@ enum Command {
     Dithering(bool),
     ToggleSidebar,
     SidebarWidth(f32),
+    CompactAccounts(bool),
     UseWslWorkspace(bool),
     ClearShortcut(&'static str),
     ResetShortcuts,
@@ -502,6 +503,9 @@ impl Sesh {
                         }
                         if pending.contains_key("sidebarWidth") {
                             appearance.sidebar_width = self.appearance.sidebar_width;
+                        }
+                        if pending.contains_key("compactAccounts") {
+                            appearance.compact_accounts = self.appearance.compact_accounts;
                         }
                         if pending.contains_key("translucency") {
                             appearance.translucency = self.appearance.translucency;
@@ -1460,6 +1464,10 @@ impl Sesh {
             Command::SidebarWidth(width) => {
                 self.appearance.sidebar_width = width.clamp(192., 400.);
                 self.save_appearance("sidebarWidth", json!(self.appearance.sidebar_width), tx);
+            }
+            Command::CompactAccounts(compact) => {
+                self.appearance.compact_accounts = compact;
+                self.save_appearance("compactAccounts", json!(compact), tx);
             }
             Command::UseWslWorkspace(enabled) => {
                 if !self.busy() && self.preferences.is_empty() && !self.modal() {
@@ -2852,6 +2860,12 @@ mod tests {
                 .map(|account| account.account_id.as_str()),
             Some("000000000000")
         );
+        assert_eq!(runtime.presented(&first).unwrap().0[3], 74.);
+        runtime.update(|state, tx| state.dispatch(Command::CompactAccounts(true), tx));
+        runtime.frame(1. / 60.);
+        assert_eq!(runtime.presented(&first).unwrap().0[3], 48.);
+        assert_eq!(runtime.state.selected, Some(1));
+        assert_eq!(runtime.state.appearance_pending["compactAccounts"], json!(true));
         runtime.update(|_, tx| tx.scroll_into_view(last.clone()));
         for _ in 0..90 {
             runtime.frame(1. / 60.);

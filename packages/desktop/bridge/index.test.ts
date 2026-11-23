@@ -33,6 +33,9 @@ test("native workspace protocol and desktop preferences remain local", async () 
       { operation: "snapshot" },
       { operation: "saveSession", args: { ...session, name: "Renamed / 東京", originalName: session.name } },
       { operation: "snapshot", args: { name: session.name } },
+      { operation: "setAppearance", args: { compactAccounts: true } },
+      { operation: "setAppearance", args: { compactAccounts: "true" } },
+      { operation: "getAppearance" },
     ]
     child.stdin.write(requests.map(request => JSON.stringify(request)).join("\n") + "\n")
     child.stdin.end()
@@ -46,12 +49,15 @@ test("native workspace protocol and desktop preferences remain local", async () 
     expect(responses[3].result.enabled).toBe(false)
     expect(responses[3].result.snapshot.sessions[0].name).toBe(session.name)
     expect(responses[4].result.mode).toBe("dark")
+    expect(responses[4].result.compactAccounts).toBe(false)
     expect(responses[5].error).toContain("boolean")
     expect(responses[6].result.sessions[0].name).toBe(session.name)
     expect(responses[7].result.sessions.map((value: { name: string }) => value.name)).toEqual(["Renamed / 東京"])
     expect(responses[8].error).toContain("not found")
+    expect(responses[10].error).toContain("Compact accounts must be a boolean")
+    expect(responses[11].result).toMatchObject({ mode: "dark", compactAccounts: true })
     expect((await Sessions.create({ dir: path.join(config, "sessions") }).load("Renamed / 東京"))?.name).toBe("Renamed / 東京")
-    expect((await Bun.file(path.join(config, "desktop.json")).json()).mode).toBe("dark")
+    expect(await Bun.file(path.join(config, "desktop.json")).json()).toMatchObject({ mode: "dark", compactAccounts: true })
     expect((await Bun.file(path.join(config, "workspace.json")).json()).useWslWorkspace).toBe(false)
     expect(await Bun.file(path.join(data, "storage", "preference", "desktop-appearance.json")).exists()).toBe(false)
   } finally {
