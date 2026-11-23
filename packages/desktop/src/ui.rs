@@ -339,7 +339,11 @@ fn dropdown_trigger(
         .fill(c.element)
         .border(1., c.border)
         .children(leading.map(|glyph| icon(glyph, 16.).color(c.muted)))
-        .child(label(title, if muted { c.muted } else { c.text }).grow(1.).min_w(0.))
+        .child(
+            label(title, if muted { c.muted } else { c.text })
+                .grow(1.)
+                .min_w(0.),
+        )
         .children(show_chevron.then(|| icon(k.glyph.chevron_down, 14.).color(c.muted)))
 }
 
@@ -574,7 +578,12 @@ fn toolbar(s: &Sesh, cx: &Cx<Sesh>, c: &crate::theme::Colors) -> El {
         .child(status)
 }
 
-fn sidebar_item(key: impl Into<String>, title: &str, selected: bool, c: &crate::theme::Colors) -> El {
+fn sidebar_item(
+    key: impl Into<String>,
+    title: &str,
+    selected: bool,
+    c: &crate::theme::Colors,
+) -> El {
     row()
         .key(key)
         .w_full()
@@ -583,7 +592,11 @@ fn sidebar_item(key: impl Into<String>, title: &str, selected: bool, c: &crate::
         .gap(8.)
         .center_y()
         .radius(6.)
-        .fill(if selected { c.element } else { Color::TRANSPARENT })
+        .fill(if selected {
+            c.element
+        } else {
+            Color::TRANSPARENT
+        })
         .hover(c.text.alpha(0.05))
         .focusable(true)
         .role("button")
@@ -660,10 +673,15 @@ fn sidebar(s: &Sesh, c: &crate::theme::Colors) -> El {
     .child(label("Credentials", c.text).grow(1.).min_w(0.))
     .child(small(count.to_string(), c.muted))
     .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::Credentials, tx));
-    let settings = sidebar_item("settings-navigation", "Settings", s.screen == Screen::Settings, c)
-        .child(icon(&SETTINGS, 17.).color(c.muted))
-        .child(label("Settings", c.text))
-        .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::Settings, tx));
+    let settings = sidebar_item(
+        "settings-navigation",
+        "Settings",
+        s.screen == Screen::Settings,
+        c,
+    )
+    .child(icon(&SETTINGS, 17.).color(c.muted))
+    .child(label("Settings", c.text))
+    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::Settings, tx));
     col()
         .key("sidebar")
         .w(width)
@@ -680,7 +698,11 @@ fn sidebar(s: &Sesh, c: &crate::theme::Colors) -> El {
                 .child(organizations),
         )
         .child(
-            col().w_full().gap(4.).px(10.).py(8.)
+            col()
+                .w_full()
+                .gap(4.)
+                .px(10.)
+                .py(8.)
                 .child(credentials)
                 .child(settings),
         )
@@ -737,13 +759,15 @@ fn account_row(s: &Sesh, position: usize, index: usize, c: &crate::theme::Colors
         .focusable(true)
         .focus_ring(2., -2., c.accent)
         .opacity(if dragging { 0.3 } else { 1. })
-        .child(icon(&BUILDING, if compact { 18. } else { 22. }).color(if selected {
-            c.accent
-        } else if s.authenticated() {
-            c.success
-        } else {
-            c.muted
-        }))
+        .child(
+            icon(&BUILDING, if compact { 18. } else { 22. }).color(if selected {
+                c.accent
+            } else if s.authenticated() {
+                c.success
+            } else {
+                c.muted
+            }),
+        )
         .child(
             col()
                 .grow(1.)
@@ -1299,7 +1323,13 @@ fn workspace(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> El {
         })
 }
 
-fn group_picker(s: &Sesh, bulk: bool, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -> El {
+fn group_picker(
+    s: &Sesh,
+    bulk: bool,
+    k: &Kit,
+    layers: &mut Vec<El>,
+    c: &crate::theme::Colors,
+) -> El {
     let targets = s.targets();
     let current = shared_group(&targets).flatten();
     let mut options = select::options(s.groups());
@@ -1355,7 +1385,10 @@ fn bulk_account_actions(
 ) -> El {
     let action = |key, title, command, glyph| {
         button_with_icon(key, title, command, Some(glyph), c)
-            .w(0.).grow(1.).min_w(0.).justify_start()
+            .w(0.)
+            .grow(1.)
+            .min_w(0.)
+            .justify_start()
     };
     let favorite_button = |key, title, pinned, glyph| {
         let control = action(key, title, Command::Pin(pinned), glyph);
@@ -1383,30 +1416,56 @@ fn bulk_account_actions(
                         .grow(1.)
                         .min_w(0.),
                 )
-                .child(
-                    icon_button("bulk-clear", "Clear selection", &CLOSE, Command::ClearSelection, c),
-                ),
+                .child(icon_button(
+                    "bulk-clear",
+                    "Clear selection",
+                    &CLOSE,
+                    Command::ClearSelection,
+                    c,
+                )),
         )
         .child(
-            col().gap(7.)
+            col()
+                .gap(7.)
                 .child(small("Organize", c.muted))
                 .child(group_picker(s, true, k, layers, c))
                 .child(
-                    row().gap(8.)
+                    row()
+                        .gap(8.)
                         .child(favorite_button("bulk-pin", "Favorite", true, &STAR))
-                        .child(favorite_button("bulk-unpin", "Unfavorite", false, &STAR_OFF)),
+                        .child(favorite_button(
+                            "bulk-unpin",
+                            "Unfavorite",
+                            false,
+                            &STAR_OFF,
+                        )),
                 ),
         )
         .child(
-            col().gap(7.)
+            col()
+                .gap(7.)
                 .child(small("Copy", c.muted))
                 .child(
-                    row().gap(8.)
-                        .child(action("bulk-copy-ids", "Copy IDs", Command::CopyAccount, k.glyph.copy))
-                        .child(action("bulk-copy-names", "Copy names", Command::CopyName, k.glyph.copy)),
+                    row()
+                        .gap(8.)
+                        .child(action(
+                            "bulk-copy-ids",
+                            "Copy IDs",
+                            Command::CopyAccount,
+                            k.glyph.copy,
+                        ))
+                        .child(action(
+                            "bulk-copy-names",
+                            "Copy names",
+                            Command::CopyName,
+                            k.glyph.copy,
+                        )),
                 )
                 .children(s.bulk_copy_notice.as_ref().map(|(message, _)| {
-                    small(message, c.muted).key("bulk-copy-notice").role("status").label(message)
+                    small(message, c.muted)
+                        .key("bulk-copy-notice")
+                        .role("status")
+                        .label(message)
                 })),
         )
 }
@@ -1555,7 +1614,8 @@ fn inspector(
         } else {
             s.role.as_deref().unwrap_or("Select a role")
         };
-        let mut trigger = dropdown_trigger(role_label, None, choose_role, loading_roles, k, c).w_full();
+        let mut trigger =
+            dropdown_trigger(role_label, None, choose_role, loading_roles, k, c).w_full();
         if loading_roles {
             trigger = trigger.role("status").label(role_label);
         } else if choose_role {

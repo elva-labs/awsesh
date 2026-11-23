@@ -1711,7 +1711,11 @@ fn setup(state: &mut Sesh, waker: Waker) {
 fn poll(state: &mut Sesh, clock: f64, tx: &mut Tx) -> bool {
     state.clock = clock;
     let mut changed = false;
-    if state.bulk_copy_notice.as_ref().is_some_and(|(_, until)| clock >= *until) {
+    if state
+        .bulk_copy_notice
+        .as_ref()
+        .is_some_and(|(_, until)| clock >= *until)
+    {
         state.bulk_copy_notice = None;
         changed = true;
     }
@@ -2670,7 +2674,8 @@ mod tests {
         let mut state = Sesh::default();
         let (sender, requests) = mpsc::channel();
         state.sender = Some(sender);
-        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        let mut runtime =
+            rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
         runtime.frame(0.);
         runtime.update(|state, tx| {
             state.dispatch(Command::NewSession, tx);
@@ -2682,7 +2687,10 @@ mod tests {
         runtime.frame(1. / 60.);
         let form = runtime.state.form.as_ref().unwrap();
         assert_eq!(form.fields[1].1.text, "example-org");
-        let input = runtime.presented(&format!("form-{}-field-1", form.id)).unwrap().0;
+        let input = runtime
+            .presented(&format!("form-{}-field-1", form.id))
+            .unwrap()
+            .0;
         let preview = runtime.presented("sso-url-preview").unwrap().0;
         assert!(preview[1] >= input[1] + input[3]);
         assert!(runtime.elements().iter().any(|element| {
@@ -2691,8 +2699,14 @@ mod tests {
         runtime.update(|state, tx| state.dispatch(Command::Confirm, tx));
         let request = requests.try_recv().unwrap();
         assert_eq!(request.operation, "saveSession");
-        assert_eq!(request.args["startUrl"], "https://example-org.awsapps.com/start");
-        assert_eq!(runtime.state.form.as_ref().unwrap().fields[1].1.text, "example-org");
+        assert_eq!(
+            request.args["startUrl"],
+            "https://example-org.awsapps.com/start"
+        );
+        assert_eq!(
+            runtime.state.form.as_ref().unwrap().fields[1].1.text,
+            "example-org"
+        );
     }
 
     #[test]
@@ -2702,7 +2716,8 @@ mod tests {
         let (sender, requests) = mpsc::channel();
         state.sender = Some(sender);
         let clipboard = rune::clipboard::memory();
-        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        let mut runtime =
+            rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
         runtime.use_clipboard(&clipboard);
         runtime.frame(0.);
         runtime.update(|state, tx| state.dispatch(Command::Login, tx));
@@ -2710,10 +2725,13 @@ mod tests {
         assert_eq!(request.operation, "startLogin");
         let url = "https://example.awsapps.com/verify?user_code=ABCD-EFGH";
         runtime.update(|state, tx| {
-            state.receive(Response {
-                request,
-                result: Ok(json!({"url": url, "code": "ABCD-EFGH"})),
-            }, tx);
+            state.receive(
+                Response {
+                    request,
+                    result: Ok(json!({"url": url, "code": "ABCD-EFGH"})),
+                },
+                tx,
+            );
         });
         assert_eq!(requests.try_recv().unwrap().operation, "pollLogin");
         runtime.frame(1. / 60.);
@@ -2753,7 +2771,8 @@ mod tests {
     fn inputs_and_closed_dropdowns_match_standard_button_height() {
         let mut state = Sesh::default();
         ui::preview_authenticated(&mut state);
-        let mut runtime = rune::Runtime::new(state, ui::view, (1200., 780.), rune::Env::new(false, 1.));
+        let mut runtime =
+            rune::Runtime::new(state, ui::view, (1200., 780.), rune::Env::new(false, 1.));
         runtime.frame(0.);
         let role = runtime.presented("role-trigger").unwrap().0;
         for key in ["region", "profile", "set-credentials"] {
@@ -2774,8 +2793,13 @@ mod tests {
     fn sidebar_highlights_only_the_current_destination() {
         let mut state = Sesh::default();
         ui::preview(&mut state);
-        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
-        let keys = ["session-Donedev", "credentials-navigation", "settings-navigation"];
+        let mut runtime =
+            rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        let keys = [
+            "session-Donedev",
+            "credentials-navigation",
+            "settings-navigation",
+        ];
         runtime.frame(0.);
         for (index, command) in [Command::Accounts, Command::Credentials, Command::Settings]
             .into_iter()
@@ -2785,7 +2809,10 @@ mod tests {
             runtime.frame(1. / 60.);
             let elements = runtime.elements();
             for (position, key) in keys.into_iter().enumerate() {
-                let item = elements.iter().find(|element| element.key.as_deref() == Some(key)).unwrap();
+                let item = elements
+                    .iter()
+                    .find(|element| element.key.as_deref() == Some(key))
+                    .unwrap();
                 assert_eq!(item.item_selected, position == index, "{key}");
             }
         }
@@ -2796,10 +2823,14 @@ mod tests {
         let mut state = Sesh::default();
         ui::preview_authenticated(&mut state);
         let selected = &state.data.accounts[..3];
-        let ids = selected.iter().map(|account| account.account_id.clone()).collect::<Vec<_>>();
+        let ids = selected
+            .iter()
+            .map(|account| account.account_id.clone())
+            .collect::<Vec<_>>();
         state.marked = ids.iter().cloned().collect();
         let clipboard = rune::clipboard::memory();
-        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        let mut runtime =
+            rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
         runtime.use_clipboard(&clipboard);
         runtime.frame(0.);
         let ids_bounds = runtime.presented("bulk-copy-ids").unwrap().0;
@@ -2821,12 +2852,23 @@ mod tests {
         click(&mut runtime, "bulk-unpin");
         assert!(runtime.state.requests.is_empty());
         click(&mut runtime, "bulk-pin");
-        assert_eq!(runtime.state.requests.iter().filter(|request| {
-            request.operation == "pinAccount" && request.args["pinned"] == json!(true)
-        }).count(), 3);
+        assert_eq!(
+            runtime
+                .state
+                .requests
+                .iter()
+                .filter(|request| {
+                    request.operation == "pinAccount" && request.args["pinned"] == json!(true)
+                })
+                .count(),
+            3
+        );
         click(&mut runtime, "bulk-copy-ids");
         let text = clipboard.text().unwrap();
-        assert_eq!(text.lines().collect::<BTreeSet<_>>(), ids.iter().map(String::as_str).collect());
+        assert_eq!(
+            text.lines().collect::<BTreeSet<_>>(),
+            ids.iter().map(String::as_str).collect()
+        );
         assert!(runtime.elements().iter().any(|element| {
             element.key.as_deref() == Some("bulk-copy-notice")
                 && element.label.as_deref() == Some("Copied 3 IDs")
@@ -2935,7 +2977,10 @@ mod tests {
         runtime.frame(1. / 60.);
         assert_eq!(runtime.presented(&first).unwrap().0[3], 48.);
         assert_eq!(runtime.state.selected, Some(1));
-        assert_eq!(runtime.state.appearance_pending["compactAccounts"], json!(true));
+        assert_eq!(
+            runtime.state.appearance_pending["compactAccounts"],
+            json!(true)
+        );
         runtime.update(|_, tx| tx.scroll_into_view(last.clone()));
         for _ in 0..90 {
             runtime.frame(1. / 60.);
