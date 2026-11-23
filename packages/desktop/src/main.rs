@@ -357,6 +357,14 @@ impl Sesh {
         self.active.is_some() || !self.requests.is_empty()
     }
 
+    fn roles_loading(&self, account_id: &str) -> bool {
+        self.active.iter().chain(&self.requests).any(|request| {
+            request.operation == "loadRoles"
+                && request.args["name"].as_str() == self.data.session.as_deref()
+                && request.args["accountId"].as_str() == Some(account_id)
+        })
+    }
+
     fn modal(&self) -> bool {
         self.form.is_some()
             || self.login.is_some()
@@ -998,12 +1006,16 @@ impl Sesh {
             }
             self.sync_inspector(account, reset);
             if load {
-                self.request(
-                    "loadRoles",
-                    json!({"name": self.data.session, "accountId": id}),
-                );
+                self.load_roles(&id);
             }
         }
+    }
+
+    fn load_roles(&mut self, account_id: &str) {
+        self.request(
+            "loadRoles",
+            json!({"name": self.data.session, "accountId": account_id}),
+        );
     }
 
     fn sync_inspector(&mut self, account: Account, reset: bool) {
@@ -1336,7 +1348,7 @@ impl Sesh {
             }
             Command::Refresh => self.request(if self.screen == Screen::Accounts && self.authenticated() { "selectSession" } else { "snapshot" },
                 json!({"name": name, "refresh": true})),
-            Command::LoadRoles => if self.account.is_some() && self.authenticated() { self.request("loadRoles", args); },
+            Command::LoadRoles => if self.authenticated() && let Some(id) = self.account.as_ref().map(|account| account.account_id.clone()) { self.load_roles(&id); },
             Command::SelectRole(role) => {
                 if !self.account.as_ref().is_some_and(|a| a.roles.contains(&role)) { return; }
                 self.flush_preferences();
@@ -2505,6 +2517,97 @@ mod tests {
                 Some(expected)
             );
         }
+    }
+
+    #[test]
+    fn selected_account_inspector_keeps_its_layout_while_roles_load() {
+        let mut state = Sesh::default();
+        ui::preview_authenticated(&mut state);
+        let (sender, requests) = mpsc::channel();
+        state.sender = Some(sender);
+        let mut runtime = rune::Runtime::new(
+            state,
+            ui::view,
+            (1200., 780.),
+            rune::Env {
+                system_dark: true,
+                scale: 1.,
+            },
+        );
+        runtime.frame(0.);
+        let fields = ["role-trigger", "region", "profile", "set-credentials"];
+        let ready = fields.map(|key| runtime.presented(key).expect(key).0);
+        let account_id = "258109618380";
+        let (x, y) = runtime
+            .find(&Sesh::account_row_key(account_id))
+            .expect("Galleri account row");
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        assert!(runtime.elements().iter().any(|element| {
+            element.key.as_deref() == Some("copy-account-name")
+                && element.label.as_deref() == Some("Copy Galleri")
+        }));
+        assert!(runtime.elements().iter().any(|element| {
+            element.role == "status" && element.label.as_deref() == Some("Loading roles…")
+        }));
+        assert_eq!(
+            fields.map(|key| runtime.presented(key).expect(key).0),
+            ready
+        );
+        let request = requests.try_recv().expect("Role request");
+        runtime.update(|state, tx| {
+            state.receive(
+                Response {
+                    request,
+                    result: Err("Could not load roles".into()),
+                },
+                tx,
+            );
+        });
+        runtime.frame(1. / 60.);
+        assert!(runtime.elements().iter().any(|element| {
+            element.role == "button" && element.label.as_deref() == Some("Retry loading roles")
+        }));
+        assert_eq!(
+            fields.map(|key| runtime.presented(key).expect(key).0),
+            ready
+        );
+        let (x, y) = runtime.find("role-trigger").expect("Retry role loading");
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        let retry = requests.try_recv().expect("Retry role request");
+        runtime.update(|state, tx| {
+            state.receive(
+                Response {
+                    request: retry,
+                    result: Ok(json!({
+                        "sessions": [{
+                            "name": "Donedev", "startUrl": "", "ssoRegion": "",
+                            "defaultRegion": "", "authenticated": true
+                        }],
+                        "session": "Donedev",
+                        "accounts": [{
+                            "accountId": account_id, "name": "Galleri",
+                            "roles": ["ReadOnlyAccess"], "rolesLoaded": true,
+                            "profiles": {}, "pinned": false
+                        }],
+                        "collapsedGroups": [], "credentials": []
+                    })),
+                },
+                tx,
+            );
+        });
+        runtime.frame(1. / 60.);
+        assert!(runtime.elements().iter().any(|element| {
+            element.text.as_deref() == Some("ReadOnlyAccess")
+                && element.path.contains("inspector-pane")
+        }));
+        assert_eq!(
+            fields.map(|key| runtime.presented(key).expect(key).0),
+            ready
+        );
     }
 
     #[test]

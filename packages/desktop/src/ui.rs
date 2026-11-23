@@ -1458,26 +1458,55 @@ fn inspector(
                         c,
                     )),
             );
+        let authenticated = s.authenticated();
+        let choose_role = authenticated && account.roles_loaded;
+        let loading_roles =
+            authenticated && !account.roles_loaded && s.roles_loading(&account.account_id);
+        let role_selected = account.roles_loaded && s.role.is_some();
+        let role_label = if !authenticated {
+            "Sign in to load roles"
+        } else if loading_roles {
+            "Loading roles…"
+        } else if !account.roles_loaded {
+            "Retry loading roles"
+        } else {
+            s.role.as_deref().unwrap_or("Select a role")
+        };
+        let mut trigger = row()
+            .w_full()
+            .h(44.)
+            .px(12.)
+            .center_y()
+            .gap(8.)
+            .radius(7.)
+            .fill(c.element)
+            .border(1., c.border)
+            .child(label(role_label, if loading_roles { c.muted } else { c.text }).grow(1.))
+            .children(choose_role.then(|| small("⌄", c.muted)));
+        if loading_roles {
+            trigger = trigger.role("status").label(role_label);
+        } else if !choose_role {
+            let command = if authenticated {
+                Command::LoadRoles
+            } else {
+                Command::Login
+            };
+            trigger = trigger
+                .role("button")
+                .label(role_label)
+                .focusable(true)
+                .focus_ring(2., 1., c.accent)
+                .hover(c.text.alpha(0.06))
+                .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx));
+        }
         let roles = select::options(&account.roles);
         let role = Combobox::new("role", &s.roles, &roles, |s: &mut Sesh| &mut s.roles)
             .label("Role")
             .placeholder("Select a role")
             .current(s.role.as_deref())
             .width(308.)
-            .trigger(
-                row()
-                    .w_full()
-                    .h(44.)
-                    .px(12.)
-                    .center_y()
-                    .gap(8.)
-                    .radius(7.)
-                    .fill(c.element)
-                    .border(1., c.border)
-                    .child(label(s.role.as_deref().unwrap_or("Select a role"), c.text).grow(1.))
-                    .child(small("⌄", c.muted)),
-            )
-            .disabled(!account.roles_loaded || !s.authenticated())
+            .trigger(trigger)
+            .disabled(!choose_role)
             .on_choose(|s: &mut Sesh, role, tx| s.dispatch(Command::SelectRole(role.into()), tx))
             .build(k, layers);
         let preferred = account.preferred_role == s.role && s.role.is_some();
@@ -1499,24 +1528,11 @@ fn inspector(
                             Command::PreferRole,
                             c,
                         )
-                        .disabled(s.role.is_none() || preferred || s.busy())
+                        .disabled(!role_selected || preferred || s.busy())
                         .opacity(if preferred { 1. } else { 0.75 }),
                     ),
             ),
         );
-        if !s.authenticated() {
-            panel = panel.child(
-                button("sign-in-roles", "Sign in to load roles", Command::Login, c).w_full(),
-            );
-        } else if !account.roles_loaded {
-            panel = panel.child(disabled_button(
-                "load-roles",
-                "Load roles",
-                Command::LoadRoles,
-                s.busy(),
-                c,
-            ));
-        }
         let region = TextInput::new(&s.region)
             .width(None)
             .text_style(BODY)
@@ -1534,7 +1550,7 @@ fn inspector(
             .placeholder("default")
             .label("CLI profile")
             .height(44.)
-            .disabled(s.role.is_none())
+            .disabled(!role_selected)
             .on_edit(|s: &mut Sesh| &mut s.profile)
             .on_change(|s: &mut Sesh, tx| s.schedule_preference("setProfile", tx))
             .on_submit(|s: &mut Sesh, _| s.flush_preferences())
@@ -1556,10 +1572,7 @@ fn inspector(
                             "set-credentials",
                             "Set credentials",
                             Command::SetCredentials,
-                            !s.authenticated()
-                                || s.role.is_none()
-                                || s.busy()
-                                || s.preferences_dirty(),
+                            !authenticated || !role_selected || s.busy() || s.preferences_dirty(),
                             c,
                         )
                         .fill(c.selection)
@@ -1569,11 +1582,11 @@ fn inspector(
                     )
                     .child(
                         button("open-console", "Console", Command::Console, c)
-                            .disabled(s.role.is_none() || s.busy())
+                            .disabled(!role_selected || s.busy())
                             .child(icon(&EXTERNAL, 14.).color(c.muted)),
                     ),
             )
-            .children((!s.authenticated()).then(|| {
+            .children((!authenticated).then(|| {
                 button(
                     "sign-in-organization",
                     "Sign in to this organization",
@@ -1591,6 +1604,8 @@ fn inspector(
         );
     }
     row()
+        .key("inspector-pane")
+        .instant_changes()
         .h_full()
         .child(el().w(1.).h_full().pt(HEADER).fill(c.border))
         .child(
