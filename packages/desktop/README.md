@@ -68,7 +68,9 @@ helper, and do not save window geometry. Other scenes include `settings`,
 script tooling requires `--features rune/tooling` when building or running.
 `--chrome` checks that app controls clear the native macOS buttons.
 Rune also accepts `--script`, `--video`, `--tree` and `--trace` for deterministic
-interaction and motion inspection.
+interaction and motion inspection. With `rune/tooling` enabled, use
+`--window-script FILE.json` instead of `--script` to replay input in a real
+window.
 
 ## Build
 

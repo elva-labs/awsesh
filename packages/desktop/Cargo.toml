@@ -16,8 +16,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphic
 
 [dependencies]
 anyhow = "1"
-rune = { git = "https://github.com/anomalyco/rune", rev = "0796df5fa269b85d4fc04786bbd37f7349eb6606", default-features = false, features = ["accessibility", "embedded-fonts", "metal-backend", "svg"] }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "0796df5fa269b85d4fc04786bbd37f7349eb6606" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf", default-features = false, features = ["accessibility", "embedded-fonts", "metal-backend", "svg"] }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf", default-features = false }
 chrono = "0.4"
 raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }
@@ -32,11 +32,11 @@ strip = true
 lto = "thin"
 
 [patch.crates-io]
-wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "0796df5fa269b85d4fc04786bbd37f7349eb6606" }
-winit = { git = "https://github.com/anomalyco/rune", rev = "0796df5fa269b85d4fc04786bbd37f7349eb6606" }
-parley_engine = { git = "https://github.com/anomalyco/rune", rev = "0796df5fa269b85d4fc04786bbd37f7349eb6606" }
-accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "0796df5fa269b85d4fc04786bbd37f7349eb6606" }
-accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "0796df5fa269b85d4fc04786bbd37f7349eb6606" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf" }
 
 [profile.dev]
 debug = "line-tables-only"

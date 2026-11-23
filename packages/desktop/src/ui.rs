@@ -2130,16 +2130,19 @@ fn context_menu(s: &Sesh, k: &Kit, layers: &mut Vec<El>) {
 }
 
 pub fn view(s: &Sesh, cx: &mut Cx<Sesh>) -> El {
-    let c = s.appearance.colors(cx.system_dark());
-    let k = s.appearance.kit(cx.system_dark());
+    let system_dark = cx.system_dark();
+    let dark = s.appearance.dark(system_dark);
+    let c = s.appearance.colors(system_dark);
+    let k = s.appearance.kit(system_dark);
     if let Some(window) = &s.window {
         platform::apply_window_appearance(
             window,
             &s.appearance.mode,
-            s.appearance.dark(cx.system_dark()),
+            dark,
             s.appearance.translucency > 0.,
         );
     }
+    cx.help_look(rune::HelpLook::system(dark).on_focus(true));
     cx.caption_color(c.text);
     cx.foreground(c.text);
     let mut layers = vec![];
