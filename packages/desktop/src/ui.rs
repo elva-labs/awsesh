@@ -53,6 +53,11 @@ static FOLDER: Icon = Icon {
     view: 24.,
     body: r#"<path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10H3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>"#,
 };
+static STAR_OFF: Icon = Icon {
+    name: "star-off",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 2-4 3.1 6.3 6.9 1-4.5 4.4m1.1 4.7.5 2.6-7.1-3.7-7.1 3.7 1.4-7.9L2 9.3l3.3-.5M3 3l18 18"/></g>"#,
+};
 static TERMINAL: Icon = Icon {
     name: "credentials",
     view: 24.,
@@ -264,6 +269,16 @@ fn button(
     command: Command,
     c: &crate::theme::Colors,
 ) -> El {
+    button_with_icon(key, title, command, None, c)
+}
+
+fn button_with_icon(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    command: Command,
+    leading: Option<&'static Icon>,
+    c: &crate::theme::Colors,
+) -> El {
     let title = title.into();
     row()
         .key(key)
@@ -279,6 +294,7 @@ fn button(
         .label(&title)
         .focusable(true)
         .focus_ring(2., 1., c.accent)
+        .children(leading.map(|glyph| icon(glyph, 16.).color(c.muted)))
         .child(label(title, c.text))
         .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx))
 }
@@ -308,6 +324,7 @@ fn icon_button(
 
 fn dropdown_trigger(
     title: &str,
+    leading: Option<&'static Icon>,
     show_chevron: bool,
     muted: bool,
     k: &Kit,
@@ -321,6 +338,7 @@ fn dropdown_trigger(
         .radius(6.)
         .fill(c.element)
         .border(1., c.border)
+        .children(leading.map(|glyph| icon(glyph, 16.).color(c.muted)))
         .child(label(title, if muted { c.muted } else { c.text }).grow(1.).min_w(0.))
         .children(show_chevron.then(|| icon(k.glyph.chevron_down, 14.).color(c.muted)))
 }
@@ -1281,7 +1299,7 @@ fn workspace(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> El {
         })
 }
 
-fn group_picker(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -> El {
+fn group_picker(s: &Sesh, bulk: bool, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -> El {
     let targets = s.targets();
     let current = shared_group(&targets).flatten();
     let mut options = select::options(s.groups());
@@ -1289,15 +1307,27 @@ fn group_picker(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Color
     if targets.iter().any(|account| account.group.is_some()) {
         options.push(ComboboxOption::new("__remove_group", "Remove from group"));
     }
-    let trigger = row()
-        .h(CONTROL_HEIGHT)
-        .gap(7.)
-        .center_y()
-        .radius(5.)
-        .px(4.)
-        .hover(c.text.alpha(0.05))
-        .child(icon(&FOLDER, 15.).color(c.muted))
-        .child(label(current.as_deref().unwrap_or("Add to group"), c.muted));
+    let title = current.as_deref().unwrap_or("Add to group");
+    let trigger = if bulk {
+        dropdown_trigger(title, Some(&FOLDER), true, false, k, c)
+            .w_full()
+            .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
+    } else {
+        row()
+            .h(CONTROL_HEIGHT)
+            .gap(7.)
+            .center_y()
+            .radius(5.)
+            .px(4.)
+            .hover(c.text.alpha(0.05))
+            .child(icon(&FOLDER, 15.).color(c.muted))
+            .child(label(title, c.muted))
+    }
+    .role("combobox")
+    .label("Account group")
+    .a11y_value(title)
+    .focusable(true)
+    .focus_ring(2., 1., c.accent);
     Combobox::new("group-picker", &s.groups, &options, |s: &mut Sesh| {
         &mut s.groups
     })
@@ -1313,6 +1343,72 @@ fn group_picker(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Color
         s.dispatch(command, tx);
     })
     .build(k, layers)
+}
+
+fn bulk_account_actions(
+    s: &Sesh,
+    targets: &[&crate::sdk::Account],
+    trailing: f32,
+    k: &Kit,
+    layers: &mut Vec<El>,
+    c: &crate::theme::Colors,
+) -> El {
+    let action = |key, title, command, glyph| {
+        button_with_icon(key, title, command, Some(glyph), c)
+            .w(0.).grow(1.).min_w(0.).justify_start()
+    };
+    let favorite_button = |key, title, pinned, glyph| {
+        let control = action(key, title, Command::Pin(pinned), glyph);
+        if targets.iter().all(|account| account.pinned == pinned) {
+            control.disabled(true).inert().opacity(0.4)
+        } else {
+            control
+        }
+    };
+
+    col()
+        .w_full()
+        .gap(16.)
+        .child(
+            row()
+                .h(HEADER)
+                .pr(trailing)
+                .gap(4.)
+                .center_y()
+                .child(
+                    text(format!("{} accounts selected", targets.len()))
+                        .font(LABEL)
+                        .color(c.text)
+                        .truncate()
+                        .grow(1.)
+                        .min_w(0.),
+                )
+                .child(
+                    icon_button("bulk-clear", "Clear selection", &CLOSE, Command::ClearSelection, c),
+                ),
+        )
+        .child(
+            col().gap(7.)
+                .child(small("Organize", c.muted))
+                .child(group_picker(s, true, k, layers, c))
+                .child(
+                    row().gap(8.)
+                        .child(favorite_button("bulk-pin", "Favorite", true, &STAR))
+                        .child(favorite_button("bulk-unpin", "Unfavorite", false, &STAR_OFF)),
+                ),
+        )
+        .child(
+            col().gap(7.)
+                .child(small("Copy", c.muted))
+                .child(
+                    row().gap(8.)
+                        .child(action("bulk-copy-ids", "Copy IDs", Command::CopyAccount, k.glyph.copy))
+                        .child(action("bulk-copy-names", "Copy names", Command::CopyName, k.glyph.copy)),
+                )
+                .children(s.bulk_copy_notice.as_ref().map(|(message, _)| {
+                    small(message, c.muted).key("bulk-copy-notice").role("status").label(message)
+                })),
+        )
 }
 
 fn inspector(
@@ -1419,38 +1515,12 @@ fn inspector(
                     .child(label("Select a credential profile", c.muted)),
             );
         }
-    } else if s.targets().len() > 1 {
+    } else if let targets = s.targets()
+        && targets.len() > 1
+    {
         panel = panel
             .key("bulk-inspector")
-            .child(
-                row().h(HEADER).center_y().child(
-                    text(format!("{} accounts selected", s.targets().len()))
-                        .font(LABEL)
-                        .color(c.text),
-                ),
-            )
-            .child(group_picker(s, k, layers, c))
-            .child(button("bulk-pin", "Add to favorites", Command::Pin(true), c).w_full())
-            .child(
-                button(
-                    "bulk-unpin",
-                    "Remove from favorites",
-                    Command::Pin(false),
-                    c,
-                )
-                .w_full(),
-            )
-            .child(button("bulk-copy-ids", "Copy account IDs", Command::CopyAccount, c).w_full())
-            .child(
-                button(
-                    "bulk-copy-names",
-                    "Copy account names",
-                    Command::CopyName,
-                    c,
-                )
-                .w_full(),
-            )
-            .child(button("bulk-clear", "Clear selection", Command::ClearSelection, c).w_full());
+            .child(bulk_account_actions(s, &targets, trailing, k, layers, c));
     } else if let Some(account) = &s.account {
         panel = panel
             .child(inspector_heading("copy-account-name", &account.name, c).pr(trailing))
@@ -1462,7 +1532,7 @@ fn inspector(
                         copy_value("copy-account-id", &account.account_id, SMALL.mono(), c)
                             .grow(1.),
                     )
-                    .child(group_picker(s, k, layers, c))
+                    .child(group_picker(s, false, k, layers, c))
                     .child(icon_button(
                         "inspector-favorite",
                         "Toggle favorite",
@@ -1485,7 +1555,7 @@ fn inspector(
         } else {
             s.role.as_deref().unwrap_or("Select a role")
         };
-        let mut trigger = dropdown_trigger(role_label, choose_role, loading_roles, k, c).w_full();
+        let mut trigger = dropdown_trigger(role_label, None, choose_role, loading_roles, k, c).w_full();
         if loading_roles {
             trigger = trigger.role("status").label(role_label);
         } else if choose_role {
@@ -1678,7 +1748,7 @@ fn settings(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -
             .label("Theme")
             .current(Some(&s.appearance.theme))
             .trigger(
-                dropdown_trigger(&s.appearance.theme, true, false, k, c)
+                dropdown_trigger(&s.appearance.theme, None, true, false, k, c)
                     .key("theme-dropdown")
                     .w(280.)
                     .role("combobox")

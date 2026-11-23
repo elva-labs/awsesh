@@ -260,6 +260,7 @@ struct Sesh {
     form: Option<Form>,
     login: Option<Login>,
     context_menu: Option<ContextMenu>,
+    bulk_copy_notice: Option<(String, f64)>,
     dragging: Option<AccountDrag>,
     suppress_account_press: bool,
     section_bounds: BTreeMap<String, [f32; 4]>,
@@ -313,6 +314,7 @@ impl Default for Sesh {
             form: None,
             login: None,
             context_menu: None,
+            bulk_copy_notice: None,
             dragging: None,
             suppress_account_press: false,
             section_bounds: BTreeMap::new(),
@@ -1480,12 +1482,24 @@ impl Sesh {
             }
             Command::ResetShortcuts => self.save_shortcuts(BTreeMap::new(), tx),
             Command::CopyAccount | Command::CopyName | Command::CopyProfile => {
+                let mut count = 0;
                 let text = if let Some(c) = self.credential() {
                     match command { Command::CopyName => c.account_name.clone(), Command::CopyProfile => c.profile_name.clone(), _ => c.account_id.clone() }
                 } else {
-                    self.targets().iter().map(|a| if matches!(command, Command::CopyName) { a.name.clone() } else { a.account_id.clone() }).collect::<Vec<_>>().join("\n")
+                    let targets = self.targets();
+                    count = targets.len();
+                    targets.iter().map(|a| if matches!(command, Command::CopyName) { a.name.as_str() } else { a.account_id.as_str() }).collect::<Vec<_>>().join("\n")
                 };
-                if !text.is_empty() { tx.copy(text); self.message = "Copied to clipboard".into(); }
+                if !text.is_empty() {
+                    tx.copy(text);
+                    if count > 1 && self.screen == Screen::Accounts {
+                        let kind = if matches!(command, Command::CopyName) { "names" } else { "IDs" };
+                        self.bulk_copy_notice = Some((format!("Copied {count} {kind}"), tx.clock() + 2.));
+                        tx.wake_after(Duration::from_secs(2));
+                    } else {
+                        self.message = "Copied to clipboard".into();
+                    }
+                }
             }
             Command::TogglePin => {
                 let targets = self.targets();
@@ -1497,6 +1511,7 @@ impl Sesh {
                 for args in requests { self.request("pinAccount", args); }
             },
             Command::ClearSelection => {
+                self.bulk_copy_notice = None;
                 self.marked.clear();
                 self.marked_credentials.clear();
                 self.selected = None;
@@ -1696,6 +1711,10 @@ fn setup(state: &mut Sesh, waker: Waker) {
 fn poll(state: &mut Sesh, clock: f64, tx: &mut Tx) -> bool {
     state.clock = clock;
     let mut changed = false;
+    if state.bulk_copy_notice.as_ref().is_some_and(|(_, until)| clock >= *until) {
+        state.bulk_copy_notice = None;
+        changed = true;
+    }
     while let Some(response) = state
         .receiver
         .as_ref()
@@ -2770,6 +2789,57 @@ mod tests {
                 assert_eq!(item.item_selected, position == index, "{key}");
             }
         }
+    }
+
+    #[test]
+    fn bulk_inspector_groups_actions_and_reports_clipboard_count() {
+        let mut state = Sesh::default();
+        ui::preview_authenticated(&mut state);
+        let selected = &state.data.accounts[..3];
+        let ids = selected.iter().map(|account| account.account_id.clone()).collect::<Vec<_>>();
+        state.marked = ids.iter().cloned().collect();
+        let clipboard = rune::clipboard::memory();
+        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        runtime.use_clipboard(&clipboard);
+        runtime.frame(0.);
+        let ids_bounds = runtime.presented("bulk-copy-ids").unwrap().0;
+        let names_bounds = runtime.presented("bulk-copy-names").unwrap().0;
+        assert_eq!(ids_bounds[1], names_bounds[1]);
+        assert!(ids_bounds[0] + ids_bounds[2] <= names_bounds[0]);
+        let click = |runtime: &mut rune::Runtime<Sesh>, key| {
+            let (x, y) = runtime.find(key).unwrap();
+            runtime.pointer_down(x, y);
+            runtime.pointer_up(x, y);
+            runtime.frame(1. / 60.);
+        };
+        let add = runtime.presented("bulk-pin").unwrap().0;
+        let remove = runtime.presented("bulk-unpin").unwrap().0;
+        assert_eq!(add[1], remove[1]);
+        assert_eq!((add[0], add[2]), (ids_bounds[0], ids_bounds[2]));
+        assert_eq!((remove[0], remove[2]), (names_bounds[0], names_bounds[2]));
+        assert!(add[2] > 100.);
+        click(&mut runtime, "bulk-unpin");
+        assert!(runtime.state.requests.is_empty());
+        click(&mut runtime, "bulk-pin");
+        assert_eq!(runtime.state.requests.iter().filter(|request| {
+            request.operation == "pinAccount" && request.args["pinned"] == json!(true)
+        }).count(), 3);
+        click(&mut runtime, "bulk-copy-ids");
+        let text = clipboard.text().unwrap();
+        assert_eq!(text.lines().collect::<BTreeSet<_>>(), ids.iter().map(String::as_str).collect());
+        assert!(runtime.elements().iter().any(|element| {
+            element.key.as_deref() == Some("bulk-copy-notice")
+                && element.label.as_deref() == Some("Copied 3 IDs")
+        }));
+        runtime.update(|s, tx| {
+            let until = s.bulk_copy_notice.as_ref().unwrap().1;
+            assert!(poll(s, until, tx));
+        });
+        runtime.frame(1. / 60.);
+        assert!(runtime.find("bulk-copy-notice").is_none());
+        click(&mut runtime, "bulk-clear");
+        assert!(runtime.state.marked.is_empty());
+        assert!(runtime.find("bulk-inspector").is_none());
     }
 
     #[test]
