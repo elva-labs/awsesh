@@ -2,11 +2,16 @@ use crate::{
     AccountDrag, Command, ContextMenu, Entry, Screen, Sesh, platform, select, shared_group,
 };
 use rune::{Color, Cx, El, Icon, Key, Phase, ScrollSpec, TextStyle, col, el, icon, row, text};
-use rune_kit::{Combobox, ComboboxOption, Kit, Menu, MenuItem, ShortcutRecorder, TextInput};
+use rune_kit::{
+    Button, ButtonVariant, Combobox, ComboboxOption, ControlSize, Kit, Menu, MenuItem,
+    ShortcutRecorder, TextInput,
+};
 use serde_json::json;
 use std::{borrow::Cow, rc::Rc};
 
 const HEADER: f32 = 40.;
+const CONTROL_HEIGHT: f32 = 36.;
+const CONTROL_HOVER_STRENGTH: f32 = 0.055;
 const BODY: TextStyle = TextStyle::new(14., 400.);
 const SMALL: TextStyle = TextStyle::new(12., 400.);
 const LABEL: TextStyle = TextStyle::new(14., 600.);
@@ -262,14 +267,14 @@ fn button(
     let title = title.into();
     row()
         .key(key)
-        .h(36.)
+        .h(CONTROL_HEIGHT)
         .px(12.)
         .gap(8.)
         .center()
         .radius(6.)
         .fill(c.element)
-        .hover(c.text.alpha(0.06))
-        .press(c.text.alpha(0.1))
+        .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
+        .press(Color::BLACK.alpha(0.08))
         .role("button")
         .label(&title)
         .focusable(true)
@@ -290,8 +295,8 @@ fn icon_button(
         .size(24., 26.)
         .center()
         .radius(5.)
-        .hover(c.text.alpha(0.06))
-        .press(c.text.alpha(0.12))
+        .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
+        .press(Color::BLACK.alpha(0.08))
         .focusable(true)
         .role("button")
         .label(title)
@@ -299,6 +304,25 @@ fn icon_button(
         .focus_ring(2., 1., c.accent)
         .child(icon(glyph, 16.).color(c.muted))
         .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx))
+}
+
+fn dropdown_trigger(
+    title: &str,
+    show_chevron: bool,
+    muted: bool,
+    k: &Kit,
+    c: &crate::theme::Colors,
+) -> El {
+    row()
+        .h(CONTROL_HEIGHT)
+        .px(12.)
+        .gap(8.)
+        .center_y()
+        .radius(6.)
+        .fill(c.element)
+        .border(1., c.border)
+        .child(label(title, if muted { c.muted } else { c.text }).grow(1.).min_w(0.))
+        .children(show_chevron.then(|| icon(k.glyph.chevron_down, 14.).color(c.muted)))
 }
 
 fn disabled_button(
@@ -528,6 +552,23 @@ fn toolbar(s: &Sesh, cx: &Cx<Sesh>, c: &crate::theme::Colors) -> El {
         .child(status)
 }
 
+fn sidebar_item(key: impl Into<String>, title: &str, selected: bool, c: &crate::theme::Colors) -> El {
+    row()
+        .key(key)
+        .w_full()
+        .h(36.)
+        .px(10.)
+        .gap(8.)
+        .center_y()
+        .radius(6.)
+        .fill(if selected { c.element } else { Color::TRANSPARENT })
+        .hover(c.text.alpha(0.05))
+        .focusable(true)
+        .role("button")
+        .label(title)
+        .focus_selected(selected)
+}
+
 fn sidebar(s: &Sesh, c: &crate::theme::Colors) -> El {
     let width = s.appearance.sidebar_width;
     let mut organizations = col().w_full().gap(4.).px(10.).pt(12.).child(
@@ -542,23 +583,7 @@ fn sidebar(s: &Sesh, c: &crate::theme::Colors) -> El {
         let items = session_actions(&name, session.authenticated);
         let selected = s.data.session.as_ref() == Some(&name) && s.screen == Screen::Accounts;
         organizations = organizations.child(
-            row()
-                .key(format!("session-{name}"))
-                .h(36.)
-                .px(10.)
-                .gap(8.)
-                .center_y()
-                .radius(6.)
-                .fill(if selected {
-                    c.element
-                } else {
-                    Color::TRANSPARENT
-                })
-                .hover(c.text.alpha(0.05))
-                .focusable(true)
-                .role("button")
-                .label(&name)
-                .focus_selected(selected)
+            sidebar_item(format!("session-{name}"), &name, selected, c)
                 .child(icon(&BUILDING, 17.).color(c.muted))
                 .child(
                     label(
@@ -597,36 +622,26 @@ fn sidebar(s: &Sesh, c: &crate::theme::Colors) -> El {
         );
     }
     organizations = organizations.child(
-        row()
-            .key("new-session")
-            .h(36.)
-            .px(10.)
-            .gap(8.)
-            .center_y()
-            .radius(6.)
-            .hover(c.text.alpha(0.05))
-            .focusable(true)
-            .role("button")
-            .label("Add SSO session")
-            .child(icon(&PLUS, 16.).color(c.text))
+        sidebar_item("new-session", "Add SSO session", false, c)
+            .child(icon(&PLUS, 17.).color(c.muted))
             .child(label("Add SSO session", c.text))
             .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::NewSession, tx)),
     );
-    let footer = |key, title: String, glyph: &'static Icon, command: Command| {
-        row()
-            .key(key)
-            .h(38.)
-            .px(20.)
-            .gap(8.)
-            .center_y()
-            .hover(c.text.alpha(0.05))
-            .focusable(true)
-            .role("button")
-            .label(&title)
-            .child(icon(glyph, 16.).color(c.text))
-            .child(label(title, c.text))
-            .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx))
-    };
+    let count = s.data.credentials.len();
+    let credentials = sidebar_item(
+        "credentials-navigation",
+        &format!("Credentials ({count})"),
+        s.screen == Screen::Credentials,
+        c,
+    )
+    .child(icon(&TERMINAL, 17.).color(c.muted))
+    .child(label("Credentials", c.text).grow(1.).min_w(0.))
+    .child(small(count.to_string(), c.muted))
+    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::Credentials, tx));
+    let settings = sidebar_item("settings-navigation", "Settings", s.screen == Screen::Settings, c)
+        .child(icon(&SETTINGS, 17.).color(c.muted))
+        .child(label("Settings", c.text))
+        .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::Settings, tx));
     col()
         .key("sidebar")
         .w(width)
@@ -642,20 +657,11 @@ fn sidebar(s: &Sesh, c: &crate::theme::Colors) -> El {
                 })
                 .child(organizations),
         )
-        .child(divider(c.border))
-        .child(footer(
-            "credentials-navigation",
-            format!("Credentials  {}", s.data.credentials.len()),
-            &TERMINAL,
-            Command::Credentials,
-        ))
-        .child(footer(
-            "settings-navigation",
-            "Settings".into(),
-            &SETTINGS,
-            Command::Settings,
-        ))
-        .child(el().h(8.))
+        .child(
+            col().w_full().gap(4.).px(10.).py(8.)
+                .child(credentials)
+                .child(settings),
+        )
 }
 
 fn section_key(group: &Option<String>) -> String {
@@ -1217,7 +1223,7 @@ fn workspace(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> El {
             "Search accounts"
         })
         .leading_icon(&SEARCH)
-        .height(44.)
+        .height(CONTROL_HEIGHT)
         .on_edit(|s: &mut Sesh| &mut s.search)
         .on_change(|s: &mut Sesh, tx| {
             s.flush_preferences();
@@ -1277,7 +1283,7 @@ fn group_picker(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Color
         options.push(ComboboxOption::new("__remove_group", "Remove from group"));
     }
     let trigger = row()
-        .h(28.)
+        .h(CONTROL_HEIGHT)
         .gap(7.)
         .center_y()
         .radius(5.)
@@ -1472,20 +1478,18 @@ fn inspector(
         } else {
             s.role.as_deref().unwrap_or("Select a role")
         };
-        let mut trigger = row()
-            .w_full()
-            .h(44.)
-            .px(12.)
-            .center_y()
-            .gap(8.)
-            .radius(7.)
-            .fill(c.element)
-            .border(1., c.border)
-            .child(label(role_label, if loading_roles { c.muted } else { c.text }).grow(1.))
-            .children(choose_role.then(|| small("⌄", c.muted)));
+        let mut trigger = dropdown_trigger(role_label, choose_role, loading_roles, k, c).w_full();
         if loading_roles {
             trigger = trigger.role("status").label(role_label);
-        } else if !choose_role {
+        } else if choose_role {
+            trigger = trigger
+                .role("combobox")
+                .label("Role")
+                .a11y_value(role_label)
+                .focusable(true)
+                .focus_ring(2., 1., c.accent)
+                .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH));
+        } else {
             let command = if authenticated {
                 Command::LoadRoles
             } else {
@@ -1496,7 +1500,7 @@ fn inspector(
                 .label(role_label)
                 .focusable(true)
                 .focus_ring(2., 1., c.accent)
-                .hover(c.text.alpha(0.06))
+                .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
                 .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx));
         }
         let roles = select::options(&account.roles);
@@ -1538,7 +1542,7 @@ fn inspector(
             .text_style(BODY)
             .placeholder("eu-north-1")
             .label("Region")
-            .height(44.)
+            .height(CONTROL_HEIGHT)
             .on_edit(|s: &mut Sesh| &mut s.region)
             .on_change(|s: &mut Sesh, tx| s.schedule_preference("setRegion", tx))
             .on_submit(|s: &mut Sesh, _| s.flush_preferences())
@@ -1549,13 +1553,20 @@ fn inspector(
             .text_style(BODY)
             .placeholder("default")
             .label("CLI profile")
-            .height(44.)
+            .height(CONTROL_HEIGHT)
             .disabled(!role_selected)
             .on_edit(|s: &mut Sesh| &mut s.profile)
             .on_change(|s: &mut Sesh, tx| s.schedule_preference("setProfile", tx))
             .on_submit(|s: &mut Sesh, _| s.flush_preferences())
             .build(k)
             .key("profile");
+        let dark = s.appearance.dark(cx.system_dark());
+        // Light surfaces can already be white, so leave room for a visible hover highlight.
+        let (console_fill, console_hover) = if dark {
+            (c.element, Color::WHITE.alpha(0.02))
+        } else {
+            (c.element.mix(c.text, 0.15), Color::WHITE.alpha(0.7))
+        };
         panel = panel
             .child(col().gap(10.).child(label("Region", c.text)).child(region))
             .child(
@@ -1582,6 +1593,8 @@ fn inspector(
                     )
                     .child(
                         button("open-console", "Console", Command::Console, c)
+                            .fill(console_fill)
+                            .hover(console_hover)
                             .disabled(!role_selected || s.busy())
                             .child(icon(&EXTERNAL, 14.).color(c.muted)),
                     ),
@@ -1657,6 +1670,17 @@ fn settings(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -
             )
             .label("Theme")
             .current(Some(&s.appearance.theme))
+            .trigger(
+                dropdown_trigger(&s.appearance.theme, true, false, k, c)
+                    .key("theme-dropdown")
+                    .w(280.)
+                    .role("combobox")
+                    .label("Theme")
+                    .a11y_value(&s.appearance.theme)
+                    .focusable(true)
+                    .focus_ring(2., 1., c.accent)
+                    .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH)),
+            )
             .on_choose(|s: &mut Sesh, theme, tx| s.dispatch(Command::Theme(theme.into()), tx))
             .build(k, layers),
         )
@@ -1893,34 +1917,45 @@ fn form(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> Option<El> {
             "renamed" => "New group name",
             _ => name,
         };
-        sheet = sheet.child(
-            col().gap(7.).child(label(title, c.text)).child(
-                TextInput::new(edit)
-                    .width(None)
-                    .text_style(BODY)
-                    .height(44.)
-                    .label(title)
-                    .placeholder(if name == "startUrl" {
-                        "Organization short name or full URL"
+        let mut field = col().gap(7.).child(label(title, c.text)).child(
+            TextInput::new(edit)
+                .width(None)
+                .text_style(BODY)
+                .height(CONTROL_HEIGHT)
+                .label(title)
+                .placeholder(if name == "startUrl" {
+                    "Organization short name or full URL"
+                } else {
+                    ""
+                })
+                .disabled(form.submission.is_some())
+                .on_edit(move |s: &mut Sesh| {
+                    if let Some(form) = &mut s.form
+                        && form.id == form_id
+                        && let Some((_, edit)) = form.fields.get_mut(index)
+                    {
+                        edit
                     } else {
-                        ""
-                    })
-                    .disabled(form.submission.is_some())
-                    .on_edit(move |s: &mut Sesh| {
-                        if let Some(form) = &mut s.form
-                            && form.id == form_id
-                            && let Some((_, edit)) = form.fields.get_mut(index)
-                        {
-                            edit
-                        } else {
-                            &mut s.inactive_edit
-                        }
-                    })
-                    .on_submit(|s: &mut Sesh, tx| s.dispatch(Command::Confirm, tx))
-                    .build(k)
-                    .key(format!("form-{}-field-{index}", form.id)),
-            ),
+                        &mut s.inactive_edit
+                    }
+                })
+                .on_submit(|s: &mut Sesh, tx| s.dispatch(Command::Confirm, tx))
+                .build(k)
+                .key(format!("form-{}-field-{index}", form.id)),
         );
+        if name == "startUrl" {
+            let resolved = crate::sso_start_url(&edit.text);
+            if resolved != edit.text.trim() {
+                field = field.child(
+                    text(format!("Resolves to: {resolved}"))
+                        .key("sso-url-preview")
+                        .font(SMALL)
+                        .color(c.muted)
+                        .wrap(),
+                );
+            }
+        }
+        sheet = sheet.child(field);
     }
     if s.error {
         sheet = sheet.child(
@@ -1968,7 +2003,7 @@ fn form(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> Option<El> {
     )
 }
 
-fn login(s: &Sesh, c: &crate::theme::Colors) -> Option<El> {
+fn login(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> Option<El> {
     let login = s.login.as_ref()?;
     Some(
         el().key("login-scrim")
@@ -1992,33 +2027,73 @@ fn login(s: &Sesh, c: &crate::theme::Colors) -> Option<El> {
                         }
                     })
                     .child(
-                        text(format!("Sign in to {}", login.name))
-                            .font(TITLE)
-                            .color(c.text)
-                            .wrap(),
+                        row()
+                            .gap(8.)
+                            .center_y()
+                            .child(
+                                text(format!("Sign in to {}", login.name))
+                                    .key("login-title")
+                                    .font(TITLE)
+                                    .color(c.text)
+                                    .wrap()
+                                    .grow(1.)
+                                    .min_w(0.),
+                            )
+                            .child(icon_button(
+                                "cancel-login",
+                                "Cancel sign-in",
+                                &CLOSE,
+                                Command::Cancel,
+                                c,
+                            )),
                     )
                     .child(
-                        text(
-                            "Complete authorization in your browser. If prompted, enter this code:",
-                        )
+                        text(if login.code.is_empty() {
+                            "Requesting a sign-in code…"
+                        } else {
+                            "Continue in your browser. To use a different browser or profile, copy the link. If prompted, enter this code:"
+                        })
                         .font(BODY)
                         .color(c.muted)
                         .wrap(),
                     )
                     .child(
-                        text(&login.code)
-                            .font(TextStyle::new(24., 600.).mono())
-                            .color(c.text)
-                            .selectable(true),
+                        row().w_full().center().child(
+                            text(&login.code)
+                                .key("login-code")
+                                .font(TextStyle::new(24., 600.).mono())
+                                .color(c.text)
+                                .selectable(true),
+                        ),
                     )
-                    .child(disabled_button(
-                        "open-login",
-                        "Open browser",
-                        Command::OpenLogin,
-                        login.url.is_empty(),
-                        c,
-                    ))
-                    .child(button("cancel-login", "Cancel sign-in", Command::Cancel, c)),
+                    .child(
+                        row()
+                            .gap(10.)
+                            .child(el().grow(1.))
+                            .child(
+                                Button::new(if login.link_copied {
+                                    "Link copied"
+                                } else {
+                                    "Copy link"
+                                })
+                                    .control_size(ControlSize::ExtraLarge)
+                                    .variant(ButtonVariant::Outline)
+                                    .disabled(login.url.is_empty())
+                                    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::CopyLoginLink, tx))
+                                    .build(k)
+                                    .key("copy-login-link"),
+                            )
+                            .child(
+                                Button::new("Open browser")
+                                    .control_size(ControlSize::ExtraLarge)
+                                    .help("Open in the system default browser")
+                                    .variant(ButtonVariant::Contrast)
+                                    .disabled(login.url.is_empty())
+                                    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::OpenLogin, tx))
+                                    .build(k)
+                                    .key("open-login"),
+                            ),
+                    ),
             ),
     )
 }
@@ -2061,7 +2136,7 @@ fn palette(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> Option<El> {
         .text_style(BODY)
         .placeholder("Search commands and organizations…")
         .label("Commands")
-        .height(44.)
+        .height(CONTROL_HEIGHT)
         .leading_icon(&SEARCH)
         .on_edit(|s: &mut Sesh| &mut s.command_search)
         .on_change(|s: &mut Sesh, tx| {
@@ -2298,7 +2373,7 @@ pub fn view(s: &Sesh, cx: &mut Cx<Sesh>) -> El {
         .child(toolbar(s, cx, &c));
     context_menu(s, &k, &mut layers);
     layers.extend(form(s, &k, &c));
-    layers.extend(login(s, &c));
+    layers.extend(login(s, &k, &c));
     layers.extend(palette(s, &k, &c));
     if let Some(drag) = &s.dragging
         && drag.active

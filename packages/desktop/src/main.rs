@@ -59,6 +59,7 @@ enum Command {
     Cancel,
     Login,
     OpenLogin,
+    CopyLoginLink,
     CopyAccount,
     CopyText(String),
     CopyProfile,
@@ -167,6 +168,7 @@ struct Login {
     name: String,
     url: String,
     code: String,
+    link_copied: bool,
 }
 
 #[derive(Clone)]
@@ -568,7 +570,9 @@ impl Sesh {
                         login.url = url.to_owned();
                         login.code = code.to_owned();
                         let (name, url) = (login.name.clone(), login.url.clone());
-                        self.open_url(&url, tx);
+                        if !url.is_empty() {
+                            self.open_url(&url, tx);
+                        }
                         self.request("pollLogin", json!({"name": name}));
                     } else {
                         let name = login.name.clone();
@@ -1285,9 +1289,15 @@ impl Sesh {
             tx.focus("account-list", false);
             return;
         }
-        if matches!(command, Command::OpenLogin) {
-            if let Some(url) = self.login.as_ref().map(|login| login.url.clone()) {
-                self.open_url(&url, tx);
+        if matches!(command, Command::OpenLogin | Command::CopyLoginLink) {
+            if let Some(login) = self.login.as_mut().filter(|login| !login.url.is_empty()) {
+                if matches!(command, Command::CopyLoginLink) {
+                    tx.copy(login.url.clone());
+                    login.link_copied = true;
+                } else {
+                    let url = login.url.clone();
+                    self.open_url(&url, tx);
+                }
             }
             return;
         }
@@ -1367,7 +1377,7 @@ impl Sesh {
                 else { self.message = "Choose a role before opening the AWS Console.".into(); },
             Command::Portal => if name.is_some() { self.request("consoleUrl", json!({"name": name})); },
             Command::Login => if let Some(name) = name {
-                self.login = Some(Login { name: name.clone(), url: String::new(), code: String::new() });
+                self.login = Some(Login { name: name.clone(), url: String::new(), code: String::new(), link_copied: false });
                 self.request("startLogin", json!({"name": name}));
             },
             Command::NewSession | Command::EditSession => {
@@ -1514,7 +1524,7 @@ impl Sesh {
             Command::RemoveGroup(group) => self.show_form("Remove group?",
                 "Its accounts move to Other accounts. Favorites stay in Favorites.", vec![],
                 "removeAccountGroup", json!({"name": name, "group": group}), tx),
-            Command::Cancel | Command::OpenLogin | Command::ItemAction(..) | Command::AccountAction(..) | Command::SessionAction(..) => {}
+            Command::Cancel | Command::OpenLogin | Command::CopyLoginLink | Command::ItemAction(..) | Command::AccountAction(..) | Command::SessionAction(..) => {}
         }
     }
 
@@ -1714,17 +1724,6 @@ fn poll(state: &mut Sesh, clock: f64, tx: &mut Tx) -> bool {
         state.refresh_due = clock + 30.;
         if !state.busy() && !state.modal() {
             state.request("snapshot", json!({"name": state.data.session}));
-        }
-    }
-    if let Some(form) = &mut state.form {
-        for (key, edit) in &mut form.fields {
-            if key == "startUrl" && !edit.focused {
-                let normalized = sso_start_url(&edit.text);
-                if normalized != edit.text {
-                    *edit = TextEdit::new(&normalized);
-                    changed = true;
-                }
-            }
         }
     }
     if clock >= state.geometry_due {
@@ -2634,7 +2633,134 @@ mod tests {
                 .presented(&format!("form-{id}-field-{index}"))
                 .expect("Session field")
                 .0;
-            assert!((bounds[3] - 44.).abs() < 0.1);
+            let button_height = runtime.presented("form-confirm").unwrap().0[3];
+            assert!((bounds[3] - button_height).abs() < 0.1);
+        }
+    }
+
+    #[test]
+    fn session_dialog_previews_the_resolved_url_without_replacing_the_input() {
+        let mut state = Sesh::default();
+        let (sender, requests) = mpsc::channel();
+        state.sender = Some(sender);
+        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        runtime.frame(0.);
+        runtime.update(|state, tx| {
+            state.dispatch(Command::NewSession, tx);
+            let form = state.form.as_mut().unwrap();
+            form.fields[0].1 = TextEdit::new("Example");
+            form.fields[1].1 = TextEdit::new("example-org");
+            poll(state, 1., tx);
+        });
+        runtime.frame(1. / 60.);
+        let form = runtime.state.form.as_ref().unwrap();
+        assert_eq!(form.fields[1].1.text, "example-org");
+        let input = runtime.presented(&format!("form-{}-field-1", form.id)).unwrap().0;
+        let preview = runtime.presented("sso-url-preview").unwrap().0;
+        assert!(preview[1] >= input[1] + input[3]);
+        assert!(runtime.elements().iter().any(|element| {
+            element.text.as_deref() == Some("Resolves to: https://example-org.awsapps.com/start")
+        }));
+        runtime.update(|state, tx| state.dispatch(Command::Confirm, tx));
+        let request = requests.try_recv().unwrap();
+        assert_eq!(request.operation, "saveSession");
+        assert_eq!(request.args["startUrl"], "https://example-org.awsapps.com/start");
+        assert_eq!(runtime.state.form.as_ref().unwrap().fields[1].1.text, "example-org");
+    }
+
+    #[test]
+    fn sign_in_centers_the_code_and_copies_the_complete_url_from_the_action_row() {
+        let mut state = Sesh::default();
+        ui::preview(&mut state);
+        let (sender, requests) = mpsc::channel();
+        state.sender = Some(sender);
+        let clipboard = rune::clipboard::memory();
+        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        runtime.use_clipboard(&clipboard);
+        runtime.frame(0.);
+        runtime.update(|state, tx| state.dispatch(Command::Login, tx));
+        let request = requests.try_recv().unwrap();
+        assert_eq!(request.operation, "startLogin");
+        let url = "https://example.awsapps.com/verify?user_code=ABCD-EFGH";
+        runtime.update(|state, tx| {
+            state.receive(Response {
+                request,
+                result: Ok(json!({"url": url, "code": "ABCD-EFGH"})),
+            }, tx);
+        });
+        assert_eq!(requests.try_recv().unwrap().operation, "pollLogin");
+        runtime.frame(1. / 60.);
+        assert_eq!(runtime.take_url_requests(), [url]);
+        let bounds = |key: &str| runtime.presented(key).unwrap().0;
+        let dialog = bounds("login-dialog");
+        let code = bounds("login-code");
+        assert!((code[0] + code[2] / 2. - dialog[0] - dialog[2] / 2.).abs() < 1.);
+        let cancel = bounds("cancel-login");
+        let copy = bounds("copy-login-link");
+        let open = bounds("open-login");
+        assert!(cancel[1] + cancel[3] <= code[1]);
+        assert!(cancel[0] > dialog[0] + dialog[2] / 2.);
+        assert_eq!(copy[1], open[1]);
+        assert_eq!([copy[3], open[3]], [36.; 2]);
+        assert!(copy[0] + copy[2] <= open[0]);
+        assert!(open[0] + open[2] <= dialog[0] + dialog[2]);
+        let (x, y) = runtime.find("copy-login-link").unwrap();
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        assert_eq!(clipboard.text().as_deref().map(String::as_str), Some(url));
+        assert!(runtime.state.login.as_ref().unwrap().link_copied);
+        let (x, y) = runtime.find("open-login").unwrap();
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        assert_eq!(runtime.take_url_requests(), [url]);
+        let (x, y) = runtime.find("cancel-login").unwrap();
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        assert!(runtime.state.login.is_none());
+    }
+
+    #[test]
+    fn inputs_and_closed_dropdowns_match_standard_button_height() {
+        let mut state = Sesh::default();
+        ui::preview_authenticated(&mut state);
+        let mut runtime = rune::Runtime::new(state, ui::view, (1200., 780.), rune::Env::new(false, 1.));
+        runtime.frame(0.);
+        let role = runtime.presented("role-trigger").unwrap().0;
+        for key in ["region", "profile", "set-credentials"] {
+            assert_eq!(role[3], runtime.presented(key).unwrap().0[3], "{key}");
+        }
+        runtime.update(|state, tx| state.dispatch(Command::Settings, tx));
+        runtime.frame(1. / 60.);
+        let theme = runtime.presented("theme-dropdown").unwrap().0;
+        assert_eq!(theme[3], runtime.presented("theme-directory").unwrap().0[3]);
+        let (x, y) = runtime.find("theme-dropdown").unwrap();
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        assert!(runtime.state.themes.is_open());
+    }
+
+    #[test]
+    fn sidebar_highlights_only_the_current_destination() {
+        let mut state = Sesh::default();
+        ui::preview(&mut state);
+        let mut runtime = rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        let keys = ["session-Donedev", "credentials-navigation", "settings-navigation"];
+        runtime.frame(0.);
+        for (index, command) in [Command::Accounts, Command::Credentials, Command::Settings]
+            .into_iter()
+            .enumerate()
+        {
+            runtime.update(|state, tx| state.dispatch(command, tx));
+            runtime.frame(1. / 60.);
+            let elements = runtime.elements();
+            for (position, key) in keys.into_iter().enumerate() {
+                let item = elements.iter().find(|element| element.key.as_deref() == Some(key)).unwrap();
+                assert_eq!(item.item_selected, position == index, "{key}");
+            }
         }
     }
 
