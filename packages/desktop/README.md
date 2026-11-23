@@ -1,7 +1,8 @@
 # Sesh desktop client
 
-Native Rust / Rune client for awsesh. A desktop workspace with an organization
-sidebar, searchable account list, account inspector and credential management.
+The native awsesh client is written in Rust and uses [Anomaly’s Rune](https://github.com/anomalyco/rune)
+for its interface. The workspace includes an organization sidebar, searchable
+account list, account inspector and credential management.
 
 ## Installation and support
 
