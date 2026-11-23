@@ -61,7 +61,8 @@ bun run build
 
 ## Desktop Application
 
-A native app for macOS and Windows. macOS installs through Homebrew; Windows
+The native macOS and Windows app is built with [Rune](https://github.com/anomalyco/rune).
+macOS installs through Homebrew; Windows
 installs through Scoop or an unsigned portable ZIP on the Releases page. See
 [packages/desktop/README.md](packages/desktop/README.md) for the package layout
 and build prerequisites.
@@ -369,8 +370,10 @@ gh workflow run release.yml --ref "v$version" -f operation=publish -f tag="v$ver
 
 ## Acknowledgments
 
-Huge thanks to the great team over at [Anomalyco](https://github.com/anomalyco) both for OpenTui and the structure of OpenCode from a few months ago.
-I shamelessly based the refactor on the structure of OpenCode at the time and it's been great for me.
+Thanks to [Anomaly](https://github.com/anomalyco) for [Rune](https://github.com/anomalyco/rune),
+which powers the desktop interface, and [OpenTUI](https://github.com/anomalyco/opentui),
+which powers the terminal interface. The structure of [OpenCode](https://github.com/anomalyco/opencode)
+also inspired the awsesh refactor.
 
 Thanks also to [Zeron](https://zeron.sh/), whose [open-source implementation](https://github.com/zeronsh/zeron) inspired the desktop app's look.
 
