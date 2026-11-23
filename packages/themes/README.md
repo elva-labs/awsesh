@@ -2,7 +2,7 @@
 
 `@awsesh/themes` contains the bundled catalog, custom-file discovery and validated
 color resolution. It is independent of the AWS SDK and both rendering libraries.
-The TUI creates OpenTUI colors; the desktop helper sends resolved hex palettes to GPUI.
+The TUI creates OpenTUI colors; the desktop helper sends resolved hex palettes to Rune.
 
 ## Install a custom theme
 

@@ -1,571 +1,417 @@
-use crate::{
-    Accounts, Console, Credentials, EditSession, NewSession, Palette, Preferences, Quit, Refresh,
-    Search, SetCredentials, TogglePin, ToggleSidebar,
-};
-use gpui::{
-    Action, App, KeyBinding, Keystroke, Menu, MenuItem, SystemMenuType, TitlebarOptions, Window,
-    WindowBackgroundAppearance, actions, point, px, rgb,
-};
-use gpui_component::{Theme, ThemeMode};
-use std::{collections::BTreeMap, rc::Rc};
+use crate::{Command, Sesh};
+use rune::{App, Chord, ChordKey, ChordMod, KeyEvent, MenuItem, Tx};
+use std::collections::BTreeMap;
 
-actions!(platform, [Hide, HideOthers, ShowAll, CloseWindow]);
-
-/// Reports a fatal startup error where no application window exists yet.
-/// Release Windows builds have no console, so the message must be a native dialog.
-pub fn fatal(message: &str) {
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
-        let text: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
-        let title: Vec<u16> = "Sesh".encode_utf16().chain(std::iter::once(0)).collect();
-        unsafe {
-            MessageBoxW(
-                std::ptr::null_mut(),
-                text.as_ptr(),
-                title.as_ptr(),
-                MB_OK | MB_ICONERROR,
-            );
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    eprintln!("{message}");
-}
-
-pub fn titlebar_options() -> TitlebarOptions {
-    TitlebarOptions {
-        title: Some("Sesh".into()),
-        appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),
-        traffic_light_position: cfg!(target_os = "macos").then(|| point(px(18.), px(14.))),
-    }
-}
-
-pub fn apply_window_background(translucent: bool, window: &Window) {
-    window.set_background_appearance(if translucent {
-        WindowBackgroundAppearance::Blurred
-    } else {
-        WindowBackgroundAppearance::Opaque
-    });
-    #[cfg(target_os = "macos")]
-    if translucent {
-        use objc2_app_kit::{
-            NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectView,
-        };
-        let Some(content) = native_window(window).and_then(|window| window.contentView()) else {
-            return;
-        };
-        for child in content.subviews() {
-            if child.class().name().to_bytes() != b"BlurredView" {
-                continue;
-            }
-            if let Some(effect) = child.downcast_ref::<NSVisualEffectView>() {
-                effect.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
-                effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
-            }
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn native_window(window: &Window) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
-    use objc2::runtime::AnyObject;
-    use objc2_app_kit::NSView;
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
-    let handle = HasWindowHandle::window_handle(window).ok()?;
-    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
-        return None;
-    };
-    let object = unsafe { handle.ns_view.cast::<AnyObject>().as_ref() };
-    object.downcast_ref::<NSView>()?.window()
-}
-
-pub fn start_window_move(window: &Window) {
-    #[cfg(target_os = "macos")]
-    {
-        use objc2::MainThreadMarker;
-        use objc2_app_kit::NSApplication;
-
-        let Some(thread) = MainThreadMarker::new() else {
-            return;
-        };
-        if let Some(native) = native_window(window)
-            && let Some(event) = NSApplication::sharedApplication(thread).currentEvent()
-        {
-            native.performWindowDragWithEvent(&event);
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            HTCAPTION, PostMessageW, WM_NCLBUTTONDOWN,
-        };
-
-        if let Some(hwnd) = win32_hwnd(window) {
-            unsafe {
-                ReleaseCapture();
-                PostMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION as usize, 0);
-            }
-        }
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    window.start_window_move();
-}
-
-#[cfg(target_os = "windows")]
-thread_local! {
-    static LAST_DRAG_CLICK: std::cell::RefCell<Option<(std::time::Instant, (f32, f32))>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Starts a window move, or toggles maximize when the press is the second of a
-/// double-click on the title bar.
-pub fn window_drag_or_toggle(window: &Window, x: f32, y: f32) {
-    #[cfg(target_os = "windows")]
-    {
-        use std::time::{Duration, Instant};
-
-        let now = Instant::now();
-        let double = LAST_DRAG_CLICK.with(|cell| {
-            let mut slot = cell.borrow_mut();
-            let double = slot.is_some_and(|(time, (last_x, last_y))| {
-                now.duration_since(time) < Duration::from_millis(400)
-                    && (last_x - x).abs() < 6.0
-                    && (last_y - y).abs() < 6.0
-            });
-            *slot = if double { None } else { Some((now, (x, y))) };
-            double
-        });
-        if double {
-            toggle_maximize(window);
-        } else {
-            start_window_move(window);
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (x, y);
-        start_window_move(window);
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn win32_hwnd(window: &Window) -> Option<*mut core::ffi::c_void> {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
-    HasWindowHandle::window_handle(window)
-        .ok()
-        .and_then(|handle| match handle.as_raw() {
-            RawWindowHandle::Win32(win32) => Some(win32.hwnd.get() as *mut core::ffi::c_void),
-            _ => None,
-        })
-}
-
-/// Maximizes the window.
-pub fn maximize(window: &Window) {
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{SW_MAXIMIZE, ShowWindowAsync};
-
-        if let Some(hwnd) = win32_hwnd(window) {
-            unsafe { ShowWindowAsync(hwnd, SW_MAXIMIZE) };
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    window.zoom_window();
-}
-
-pub fn toggle_maximize(window: &Window) {
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            IsZoomed, SW_MAXIMIZE, SW_RESTORE, ShowWindowAsync,
-        };
-
-        if let Some(hwnd) = win32_hwnd(window) {
-            let command = if unsafe { IsZoomed(hwnd) } != 0 {
-                SW_RESTORE
-            } else {
-                SW_MAXIMIZE
-            };
-            unsafe { ShowWindowAsync(hwnd, command) };
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    window.zoom_window();
-}
-
-pub fn configure_window(_window: &Window) {
-    #[cfg(target_os = "macos")]
-    {
-        use objc2::{
-            runtime::{AnyClass, AnyObject, ClassBuilder, Sel},
-            sel,
-        };
-        use objc2_app_kit::NSView;
-        use objc2_foundation::NSRect;
-
-        unsafe extern "C-unwind" fn titlebar_content(view: *mut NSView, _: Sel) -> NSRect {
-            unsafe { (*view).bounds() }
-        }
-
-        let Some(content) = native_window(_window).and_then(|window| window.contentView()) else {
-            return;
-        };
-        for view in content.subviews() {
-            if view.class().name().to_bytes() != b"GPUIView" {
-                continue;
-            }
-            let class = AnyClass::get(c"SeshContentView").or_else(|| {
-                let mut class = ClassBuilder::new(c"SeshContentView", view.class())?;
-                let implementation: unsafe extern "C-unwind" fn(*mut NSView, Sel) -> NSRect =
-                    titlebar_content;
-                unsafe {
-                    class.add_method(sel!(_opaqueRectForWindowMoveWhenInTitlebar), implementation);
-                }
-                Some(class.register())
-            });
-            if let Some(class) = class {
-                unsafe { AnyObject::set_class(&view, class) };
-            }
-        }
-    }
-}
-
-pub fn reduced_motion() -> bool {
-    #[cfg(target_os = "macos")]
-    return objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion();
-    #[cfg(not(target_os = "macos"))]
-    false
-}
-
-pub fn apply_appearance(appearance: &str, window: Option<&mut Window>, cx: &mut App) {
-    match appearance {
-        "light" => Theme::change(ThemeMode::Light, window, cx),
-        "dark" => Theme::change(ThemeMode::Dark, window, cx),
-        _ => Theme::sync_system_appearance(window, cx),
-    }
-    let theme = Theme::global_mut(cx);
-    theme.font_family = if cfg!(target_os = "macos") {
-        ".SystemUIFont"
-    } else if cfg!(target_os = "windows") {
-        "Segoe UI"
-    } else {
-        "DejaVu Sans"
-    }
-    .into();
-    theme.font_size = px(14.);
-    theme.primary = rgb(if theme.is_dark() { 0x316daf } else { 0x245ea8 }).into();
-    theme.primary_foreground = rgb(0xffffff).into();
-    let dark = theme.is_dark();
-    theme.background = rgb(if dark { 0x1c1e22 } else { 0xffffff }).into();
-    theme.sidebar = rgb(if dark { 0x24262b } else { 0xf3f4f6 }).into();
-    theme.border = rgb(if dark { 0x34373d } else { 0xe3e5e9 }).into();
-    theme.foreground = rgb(if dark { 0xe9ebef } else { 0x20242c }).into();
-    theme.muted_foreground = rgb(if dark { 0xa1a6b0 } else { 0x6d7480 }).into();
-    theme.list_active = rgb(if dark { 0x253e5d } else { 0xe8f0fc }).into();
-    theme.link = rgb(if dark { 0x83b9ff } else { 0x245ea8 }).into();
-    theme.success = rgb(if dark { 0x68c99e } else { 0x23825c }).into();
-    theme.warning = rgb(if dark { 0xe6b566 } else { 0xa66a16 }).into();
-    theme.magenta = rgb(if dark { 0xbda0ed } else { 0x8252b3 }).into();
-}
-
-pub fn shortcut(key: &str) -> String {
-    format!(
-        "{}-{key}",
-        if cfg!(target_os = "macos") {
-            "cmd"
-        } else {
-            "ctrl"
-        }
-    )
-}
-
-pub struct Shortcut {
+pub struct ShortcutDefinition {
     pub id: &'static str,
     pub label: &'static str,
-    pub default: String,
-    action: Box<dyn Action>,
+    pub default: &'static str,
 }
 
-impl Shortcut {
-    pub fn value<'a>(&'a self, overrides: &'a BTreeMap<String, String>) -> &'a str {
-        overrides
-            .get(self.id)
-            .map(String::as_str)
-            .unwrap_or(&self.default)
-    }
-}
-
-pub fn shortcuts() -> Vec<Shortcut> {
-    fn entry(
-        id: &'static str,
-        label: &'static str,
-        default: String,
-        action: impl Action,
-    ) -> Shortcut {
-        Shortcut {
-            id,
-            label,
-            default,
-            action: Box::new(action),
-        }
-    }
-    vec![
-        entry("search", "Search the current list", shortcut("f"), Search),
-        entry("commands", "Open command bar", shortcut("k"), Palette),
-        entry(
+pub fn shortcuts() -> Vec<ShortcutDefinition> {
+    [
+        ("search", "Search the current list", "mod+f"),
+        ("commands", "Open command bar", "mod+k"),
+        (
             "commands_alternative",
             "Open command bar (alternative)",
-            shortcut("p"),
-            Palette,
+            "mod+p",
         ),
-        entry(
-            "new_session",
-            "Add an SSO session",
-            shortcut("n"),
-            NewSession,
-        ),
-        entry(
-            "edit_session",
-            "Edit the current session",
-            shortcut("e"),
-            EditSession,
-        ),
-        entry(
-            "set_credentials",
-            "Set credentials explicitly",
-            shortcut("enter"),
-            SetCredentials,
-        ),
-        entry("console", "Open AWS Console", shortcut("o"), Console),
-        entry(
-            "pin_account",
-            "Add or remove the selected account from favorites",
-            shortcut("d"),
-            TogglePin,
-        ),
-        entry("accounts", "Accounts", shortcut("1"), Accounts),
-        entry("credentials", "Credentials", shortcut("2"), Credentials),
-        entry(
-            "refresh",
-            "Refresh the current list",
-            shortcut("r"),
-            Refresh,
-        ),
-        entry("settings", "Settings", shortcut(","), Preferences),
-        entry(
-            "toggle_sidebar",
-            "Toggle sidebar",
-            shortcut("b"),
-            ToggleSidebar,
-        ),
+        ("new_session", "Add an SSO session", "mod+n"),
+        ("edit_session", "Edit the current session", "mod+e"),
+        ("set_credentials", "Set credentials explicitly", "mod+enter"),
+        ("console", "Open AWS Console", "mod+o"),
+        ("pin_account", "Toggle account favorites", "mod+d"),
+        ("accounts", "Accounts", "mod+1"),
+        ("credentials", "Credentials", "mod+2"),
+        ("refresh", "Refresh the current list", "mod+r"),
+        ("settings", "Settings", "mod+,"),
+        ("toggle_sidebar", "Toggle sidebar", "mod+b"),
     ]
+    .into_iter()
+    .map(|(id, label, default)| ShortcutDefinition { id, label, default })
+    .collect()
+}
+
+pub fn normalize_shortcut(value: &str) -> String {
+    let mut rest = value;
+    let mut modifiers = Vec::new();
+    loop {
+        let next = [
+            ("platform-", "mod"),
+            ("cmd-", "super"),
+            ("super-", "super"),
+            ("ctrl-", "ctrl"),
+            ("alt-", "alt"),
+            ("shift-", "shift"),
+        ]
+        .into_iter()
+        .find_map(|(prefix, modifier)| rest.strip_prefix(prefix).map(|tail| (modifier, tail)));
+        let Some((modifier, tail)) = next else { break };
+        modifiers.push(modifier);
+        rest = tail;
+    }
+    if modifiers.is_empty() {
+        return value.to_owned();
+    }
+    modifiers.push(match rest {
+        "-" => "minus",
+        "+" => "plus",
+        _ => rest,
+    });
+    modifiers.join("+")
+}
+
+pub fn shortcut_value(
+    definition: &ShortcutDefinition,
+    overrides: &BTreeMap<String, String>,
+) -> String {
+    overrides
+        .get(definition.id)
+        .cloned()
+        .unwrap_or_else(|| definition.default.into())
 }
 
 pub fn shortcut_label(id: &str, overrides: &BTreeMap<String, String>) -> String {
     shortcuts()
-        .into_iter()
-        .find(|shortcut| shortcut.id == id)
-        .filter(|shortcut| !shortcut.value(overrides).is_empty())
-        .and_then(|shortcut| Keystroke::parse(shortcut.value(overrides)).ok())
-        .map(|stroke| gpui_component::kbd::Kbd::format(&stroke))
+        .iter()
+        .find(|definition| definition.id == id)
+        .and_then(|definition| {
+            Chord::parse(&normalize_shortcut(&shortcut_value(definition, overrides))).ok()
+        })
+        .map(|chord| chord.label())
         .unwrap_or_else(|| "Unassigned".into())
 }
 
 pub fn validate_shortcuts(
     overrides: &BTreeMap<String, String>,
-    fixed: &[KeyBinding],
 ) -> anyhow::Result<BTreeMap<String, String>> {
     let definitions = shortcuts();
     let mut normalized = BTreeMap::new();
+    let reserved = [
+        "mod+q",
+        "mod+w",
+        "mod+m",
+        "mod+h",
+        "mod+alt+h",
+        "mod+a",
+        "mod+c",
+        "mod+x",
+        "mod+v",
+        "mod+z",
+        "mod+shift+z",
+        "ctrl+y",
+    ];
     for (id, value) in overrides {
         let definition = definitions
             .iter()
-            .find(|shortcut| shortcut.id == id)
+            .find(|definition| definition.id == id)
             .ok_or_else(|| anyhow::anyhow!("Unknown shortcut action: {id}"))?;
         if value.is_empty() {
             normalized.insert(id.clone(), String::new());
             continue;
         }
-        if value.len() > 64 || value.chars().any(char::is_whitespace) {
-            anyhow::bail!("Use a single key combination");
-        }
-        let stroke = Keystroke::parse(value)?;
-        let function = stroke
-            .key
-            .strip_prefix('f')
-            .and_then(|key| key.parse::<u8>().ok())
-            .is_some_and(|key| (1..=24).contains(&key));
-        if !((stroke.key.chars().count() == 1 && !stroke.key.chars().any(char::is_control))
-            || function
-            || matches!(
-                stroke.key.as_str(),
-                "enter"
-                    | "space"
-                    | "tab"
-                    | "escape"
-                    | "backspace"
-                    | "delete"
-                    | "left"
-                    | "right"
-                    | "up"
-                    | "down"
-                    | "home"
-                    | "end"
-                    | "pageup"
-                    | "pagedown"
-            ))
+        anyhow::ensure!(
+            value.len() <= 64
+                && !value
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control()),
+            "Use a single key combination"
+        );
+        let chord = Chord::parse(&normalize_shortcut(value))?;
+        anyhow::ensure!(
+            chord.has(ChordMod::Primary)
+                || chord.has(ChordMod::Ctrl)
+                || chord.has(ChordMod::Alt)
+                || chord.has(ChordMod::Super)
+                || matches!(chord.key(), ChordKey::Function(_)),
+            "Include Command, Control or Option/Alt, or use a function key"
+        );
+        anyhow::ensure!(
+            !reserved
+                .iter()
+                .filter_map(|value| Chord::parse(value).ok())
+                .any(|fixed| chord.same_keys(&fixed, rune::KeyPlatform::current())),
+            "This shortcut is reserved for text editing or window controls"
+        );
+        if Chord::parse(definition.default)
+            .is_ok_and(|default| chord.same_keys(&default, rune::KeyPlatform::current()))
         {
-            anyhow::bail!("Unsupported shortcut key");
-        }
-        if !(stroke.modifiers.control
-            || stroke.modifiers.platform
-            || stroke.modifiers.alt
-            || function)
-        {
-            anyhow::bail!("Include Command, Control or Option/Alt, or use a function key");
-        }
-        if stroke == Keystroke::parse(&definition.default)? {
             continue;
         }
-        if fixed.iter().any(|binding| {
-            binding.keystrokes().len() == 1 && binding.keystrokes()[0].inner() == &stroke
-        }) {
-            anyhow::bail!("This shortcut is reserved for text editing or window controls");
-        }
-        normalized.insert(id.clone(), stroke.unparse());
+        normalized.insert(id.clone(), chord.to_string());
     }
-    let mut assigned = BTreeMap::new();
-    for definition in definitions {
-        let value = definition.value(&normalized);
+    let mut assigned: Vec<(Chord, &str)> = vec![];
+    for definition in &definitions {
+        let value = shortcut_value(definition, &normalized);
         if value.is_empty() {
             continue;
         }
-        let stroke = Keystroke::parse(value)?;
-        if let Some(label) = assigned.insert(stroke.unparse(), definition.label) {
+        let chord = Chord::parse(&normalize_shortcut(&value))?;
+        if let Some((_, other)) = assigned
+            .iter()
+            .find(|(other, _)| chord.same_keys(other, rune::KeyPlatform::current()))
+        {
             anyhow::bail!(
-                "{} is assigned to both {label} and {}",
-                gpui_component::kbd::Kbd::format(&stroke),
+                "{} is assigned to both {other} and {}",
+                chord.label(),
                 definition.label
             );
         }
+        assigned.push((chord, definition.label));
     }
     Ok(normalized)
 }
 
-pub fn shortcut_bindings(overrides: &BTreeMap<String, String>) -> anyhow::Result<Vec<KeyBinding>> {
-    let context = Rc::new(gpui::KeyBindingContextPredicate::parse("Sesh")?);
-    let mut bindings = Vec::new();
-    for definition in shortcuts() {
-        let value = definition.value(overrides).to_owned();
-        if value.is_empty() {
-            continue;
-        }
-        bindings.push(KeyBinding::load(
-            &value,
-            definition.action,
-            Some(context.clone()),
-            false,
-            None,
-            &gpui::DummyKeyboardMapper,
-        )?);
-    }
-    Ok(bindings)
+pub fn shortcut_action(
+    event: &KeyEvent,
+    tx: &Tx,
+    overrides: &BTreeMap<String, String>,
+) -> Option<&'static str> {
+    shortcuts()
+        .into_iter()
+        .find(|definition| {
+            Chord::parse(&normalize_shortcut(&shortcut_value(definition, overrides)))
+                .is_ok_and(|chord| chord.matches_tx(event, tx))
+        })
+        .map(|definition| definition.id)
 }
 
-pub fn apply_shortcuts(
-    overrides: &BTreeMap<String, String>,
-    fixed: &[KeyBinding],
-    cx: &mut App,
-) -> anyhow::Result<()> {
-    let bindings = shortcut_bindings(overrides)?;
-    cx.clear_key_bindings();
-    cx.bind_keys(fixed.iter().cloned());
-    cx.bind_keys(bindings);
-    configure_menus(cx);
+pub fn command(id: &str) -> Option<Command> {
+    Some(match id {
+        "commands" | "commands_alternative" => Command::Palette,
+        "new_session" => Command::NewSession,
+        "edit_session" => Command::EditSession,
+        "set_credentials" => Command::SetCredentials,
+        "console" => Command::Console,
+        "pin_account" => Command::TogglePin,
+        "accounts" => Command::Accounts,
+        "credentials" => Command::Credentials,
+        "refresh" => Command::Refresh,
+        "settings" => Command::Settings,
+        "toggle_sidebar" => Command::ToggleSidebar,
+        _ => return None,
+    })
+}
+
+pub fn menu_items(overrides: &BTreeMap<String, String>) -> Vec<MenuItem<Sesh>> {
+    let mut items = vec![];
+    for (title, menu, id, action) in [
+        ("Settings…", "", "settings", Command::Settings),
+        (
+            "New SSO Session…",
+            "File",
+            "new_session",
+            Command::NewSession,
+        ),
+        (
+            "Edit SSO Session…",
+            "File",
+            "edit_session",
+            Command::EditSession,
+        ),
+        (
+            "Set Credentials",
+            "File",
+            "set_credentials",
+            Command::SetCredentials,
+        ),
+        ("Open AWS Console", "File", "console", Command::Console),
+        ("Accounts", "View", "accounts", Command::Accounts),
+        (
+            "Active Credentials",
+            "View",
+            "credentials",
+            Command::Credentials,
+        ),
+        (
+            "Toggle Sidebar",
+            "View",
+            "toggle_sidebar",
+            Command::ToggleSidebar,
+        ),
+        ("Refresh", "View", "refresh", Command::Refresh),
+        ("Commands…", "View", "commands", Command::Palette),
+    ] {
+        let handler: fn(&mut Sesh, &mut Tx) = match action {
+            Command::Settings => |s, tx| s.dispatch(Command::Settings, tx),
+            Command::NewSession => |s, tx| s.dispatch(Command::NewSession, tx),
+            Command::EditSession => |s, tx| s.dispatch(Command::EditSession, tx),
+            Command::SetCredentials => |s, tx| s.dispatch(Command::SetCredentials, tx),
+            Command::Console => |s, tx| s.dispatch(Command::Console, tx),
+            Command::Accounts => |s, tx| s.dispatch(Command::Accounts, tx),
+            Command::Credentials => |s, tx| s.dispatch(Command::Credentials, tx),
+            Command::ToggleSidebar => |s, tx| s.dispatch(Command::ToggleSidebar, tx),
+            Command::Refresh => |s, tx| s.dispatch(Command::Refresh, tx),
+            _ => |s, tx| s.dispatch(Command::Palette, tx),
+        };
+        let mut item = MenuItem::new(title, handler).keys_first();
+        if !menu.is_empty() {
+            item = item.menu(menu);
+        }
+        if let Some(definition) = shortcuts().iter().find(|definition| definition.id == id)
+            && let Ok(shortcut) =
+                normalize_shortcut(&shortcut_value(definition, overrides)).parse::<rune::Shortcut>()
+        {
+            item = item.key_equivalent(shortcut);
+        }
+        items.push(item);
+    }
+    let mut find = MenuItem::new("Find…", |_: &mut Sesh, tx| {
+        tx.focus("account-search", true)
+    })
+    .menu("View")
+    .keys_first();
+    if let Some(definition) = shortcuts()
+        .iter()
+        .find(|definition| definition.id == "search")
+        && let Ok(shortcut) =
+            normalize_shortcut(&shortcut_value(definition, overrides)).parse::<rune::Shortcut>()
+    {
+        find = find.key_equivalent(shortcut);
+    }
+    items.push(find);
+    items
+}
+
+pub fn menus(mut app: App<Sesh>) -> App<Sesh> {
+    if !cfg!(target_os = "macos") {
+        return app;
+    }
+    for item in menu_items(&BTreeMap::new()) {
+        app = app.menu_item(item);
+    }
+    app
+}
+
+pub fn reveal_directory(path: &str) -> anyhow::Result<()> {
+    let mut command = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(target_os = "windows") {
+        std::process::Command::new("explorer.exe")
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    command.arg(path).spawn()?;
     Ok(())
 }
 
-pub fn mono_font() -> &'static str {
-    if cfg!(target_os = "macos") {
-        return "Menlo";
+pub fn apply_window_appearance(
+    window: &rune::WindowHandle,
+    mode: &str,
+    dark: bool,
+    translucent: bool,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::runtime::AnyObject;
+        use objc2_app_kit::{
+            NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua,
+            NSAppearanceNameDarkAqua, NSView,
+        };
+        use raw_window_handle::RawWindowHandle;
+        thread_local! {
+            static APPEARANCE: std::cell::RefCell<Option<(usize, String)>> = const { std::cell::RefCell::new(None) };
+        }
+        let _ = window.with_raw_handle(|raw| {
+            let RawWindowHandle::AppKit(handle) = raw.as_raw() else {
+                return;
+            };
+            let identity = handle.ns_view.as_ptr().addr();
+            if APPEARANCE.with(|current| {
+                current
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|(id, applied)| *id == identity && applied == mode)
+            }) {
+                return;
+            }
+            // AppKit's borrowed NSView is valid for this callback on Rune's UI thread.
+            let object = unsafe { handle.ns_view.cast::<AnyObject>().as_ref() };
+            let Some(native) = object.downcast_ref::<NSView>().and_then(NSView::window) else {
+                return;
+            };
+            let appearance = match mode {
+                "dark" => NSAppearance::appearanceNamed(unsafe { NSAppearanceNameDarkAqua }),
+                "light" => NSAppearance::appearanceNamed(unsafe { NSAppearanceNameAqua }),
+                _ => None,
+            };
+            native.setAppearance(appearance.as_deref());
+            APPEARANCE.with(|current| *current.borrow_mut() = Some((identity, mode.to_owned())));
+        });
     }
-    if cfg!(target_os = "windows") {
-        return "Consolas";
+    #[cfg(windows)]
+    {
+        use raw_window_handle::RawWindowHandle;
+        use windows_sys::Win32::Graphics::Dwm::{
+            DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
+        };
+        use windows_sys::Win32::UI::Controls::MARGINS;
+        thread_local! {
+            static APPLIED: std::cell::Cell<Option<(isize, bool, bool)>> = const { std::cell::Cell::new(None) };
+        }
+        let _ = window.with_raw_handle(|raw| {
+            let RawWindowHandle::Win32(handle) = raw.as_raw() else {
+                return;
+            };
+            let configuration = (handle.hwnd.get(), dark, translucent);
+            if APPLIED.with(|current| current.get() == Some(configuration)) {
+                return;
+            }
+            let hwnd = handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+            let theme = i32::from(dark);
+            let backdrop: i32 = if translucent { 3 } else { 1 };
+            let margin = if translucent { -1 } else { 0 };
+            let margins = MARGINS {
+                cxLeftWidth: margin,
+                cxRightWidth: margin,
+                cyTopHeight: margin,
+                cyBottomHeight: margin,
+            };
+            // The HWND is borrowed from the live Rune window on its UI thread.
+            unsafe {
+                DwmSetWindowAttribute(hwnd, 20, std::ptr::from_ref(&theme).cast(), 4);
+                DwmSetWindowAttribute(hwnd, 38, std::ptr::from_ref(&backdrop).cast(), 4);
+                DwmExtendFrameIntoClientArea(hwnd, &margins);
+            }
+            APPLIED.with(|current| current.set(Some(configuration)));
+        });
     }
-    "monospace"
+    #[cfg(not(windows))]
+    let _ = (window, mode, dark, translucent);
 }
 
-pub fn configure(cx: &mut App) {
-    cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.bind_keys([KeyBinding::new(&shortcut("q"), Quit, None)]);
-    cx.bind_keys([KeyBinding::new(&shortcut("w"), CloseWindow, Some("Sesh"))]);
-    if cfg!(target_os = "macos") {
-        cx.on_action(|_: &Hide, cx| cx.hide());
-        cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
-        cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-        cx.bind_keys([
-            KeyBinding::new("cmd-h", Hide, None),
-            KeyBinding::new("alt-cmd-h", HideOthers, None),
-        ]);
+pub fn configure_window(window: &rune::WindowHandle) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::RawWindowHandle;
+        use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED, LoadImageW, SendMessageW, WM_SETICON,
+        };
+        let _ = window.with_raw_handle(|raw| {
+            let RawWindowHandle::Win32(handle) = raw.as_raw() else {
+                return;
+            };
+            let hwnd = handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+            // Resource 1 is embedded by build.rs; LR_SHARED leaves its lifetime with Windows.
+            unsafe {
+                let module = GetModuleHandleW(std::ptr::null());
+                let icon = LoadImageW(
+                    module,
+                    std::ptr::without_provenance(1),
+                    IMAGE_ICON,
+                    0,
+                    0,
+                    LR_DEFAULTSIZE | LR_SHARED,
+                );
+                if !icon.is_null() {
+                    SendMessageW(hwnd, WM_SETICON, 1, icon as isize);
+                    SendMessageW(hwnd, WM_SETICON, 0, icon as isize);
+                }
+            }
+        });
     }
-}
-
-fn configure_menus(cx: &mut App) {
-    if cfg!(target_os = "macos") {
-        cx.set_menus(vec![
-            Menu {
-                name: "Sesh".into(),
-                items: vec![
-                    MenuItem::action("Settings…", Preferences),
-                    MenuItem::separator(),
-                    MenuItem::os_submenu("Services", SystemMenuType::Services),
-                    MenuItem::separator(),
-                    MenuItem::action("Hide Sesh", Hide),
-                    MenuItem::action("Hide Others", HideOthers),
-                    MenuItem::action("Show All", ShowAll),
-                    MenuItem::separator(),
-                    MenuItem::action("Quit Sesh", Quit),
-                ],
-            },
-            Menu {
-                name: "File".into(),
-                items: vec![
-                    MenuItem::action("New SSO Session…", NewSession),
-                    MenuItem::action("Edit SSO Session…", EditSession),
-                    MenuItem::separator(),
-                    MenuItem::action("Set Credentials", SetCredentials),
-                    MenuItem::action("Open AWS Console", Console),
-                    MenuItem::separator(),
-                    MenuItem::action("Close Window", CloseWindow),
-                ],
-            },
-            Menu {
-                name: "Edit".into(),
-                items: vec![
-                    MenuItem::action("Undo", gpui_component::input::Undo),
-                    MenuItem::action("Redo", gpui_component::input::Redo),
-                    MenuItem::separator(),
-                    MenuItem::action("Cut", gpui_component::input::Cut),
-                    MenuItem::action("Copy", gpui_component::input::Copy),
-                    MenuItem::action("Paste", gpui_component::input::Paste),
-                    MenuItem::action("Select All", gpui_component::input::SelectAll),
-                ],
-            },
-            Menu {
-                name: "View".into(),
-                items: vec![
-                    MenuItem::action("Accounts", Accounts),
-                    MenuItem::action("Active Credentials", Credentials),
-                    MenuItem::action("Toggle Sidebar", ToggleSidebar),
-                    MenuItem::separator(),
-                    MenuItem::action("Find…", Search),
-                    MenuItem::action("Refresh", Refresh),
-                    MenuItem::action("Commands…", Palette),
-                ],
-            },
-        ]);
-    }
+    #[cfg(not(windows))]
+    let _ = window;
 }

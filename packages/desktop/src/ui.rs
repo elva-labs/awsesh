@@ -1,3324 +1,2649 @@
 use crate::{
-    Accounts, Back, Command, Console, Credentials, EditSession, Entry, NewSession, Next, Palette,
-    Preferences, Previous, Refresh, Screen, Search, Select, Sesh, SetCredentials, ToggleDithering,
-    TogglePin, ToggleSidebar, platform, select, shared_group, sso_start_url, theme,
+    AccountDrag, Command, ContextMenu, Entry, Screen, Sesh, platform, select, shared_group,
 };
-use gpui::{
-    AnyElement, AssetSource, Context, ElementId, Focusable, FontWeight, Hsla, Render, SharedString,
-    Window, anchored, canvas, deferred, div, img, prelude::*, px, relative, size, uniform_list,
+use rune::{Color, Cx, El, Icon, Key, Phase, ScrollSpec, TextStyle, col, el, icon, row, text};
+use rune_kit::{
+    Button, ButtonVariant, Combobox, ComboboxOption, ControlSize, Kit, Menu, MenuItem,
+    ShortcutRecorder, TextInput,
 };
-use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, InteractiveElementExt, Selectable, Sizable,
-    button::{Button, ButtonVariants},
-    checkbox::Checkbox,
-    input::Input,
-    select::Select as RoleSelect,
-    slider::Slider,
-    v_virtual_list,
-};
+use serde_json::json;
 use std::{borrow::Cow, rc::Rc};
 
-const HEADER_HEIGHT: f32 = 38.;
+const HEADER: f32 = 40.;
+const CONTROL_HEIGHT: f32 = 36.;
+const CONTROL_HOVER_STRENGTH: f32 = 0.055;
+const BODY: TextStyle = TextStyle::new(14., 400.);
+const SMALL: TextStyle = TextStyle::new(12., 400.);
+const LABEL: TextStyle = TextStyle::new(14., 600.);
+const TITLE: TextStyle = TextStyle::new(20., 600.);
 
-#[derive(Clone)]
-struct SidebarResize;
-
-impl Render for SidebarResize {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        gpui::Empty
-    }
+struct AccountSection {
+    group: Option<String>,
+    heading: Option<(usize, bool)>,
+    accounts: Vec<(usize, usize)>,
 }
 
-/// An account being dragged between list sections, drawn as a lifted copy of its row.
-#[derive(Clone)]
-struct AccountDrag {
-    position: usize,
-    /// The sections of every account being moved, including the grabbed row's.
-    sections: Vec<Option<String>>,
-    ids: Vec<String>,
-    title: SharedString,
-    detail: SharedString,
-    width: gpui::Pixels,
-    background: Hsla,
-    selection: Hsla,
-    border: Hsla,
-    text: Hsla,
-    muted: Hsla,
-    accent: Hsla,
+static BUILDING: Icon = Icon {
+    name: "organization",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="7" y="3" width="11" height="18" rx="2"/><path d="M7 10H4v11h17V10h-3M10 7h5m-5 4h5m-5 4h5m-5 4h5"/></g>"#,
+};
+static SIDEBAR: Icon = Icon {
+    name: "sidebar",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></g>"#,
+};
+static SEARCH: Icon = Icon {
+    name: "search",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/></g>"#,
+};
+static SETTINGS: Icon = Icon {
+    name: "settings",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m9 3 1-2h4l1 2 3 2 3 1v4l-2 2 1 3-1 3-3 1-2 3h-4l-2-3-3-1-1-3 1-3-2-2V6l3-1z"/><circle cx="12" cy="11" r="3"/></g>"#,
+};
+static STAR: Icon = Icon {
+    name: "favorite",
+    view: 24.,
+    body: r#"<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>"#,
+};
+static FOLDER: Icon = Icon {
+    name: "group",
+    view: 24.,
+    body: r#"<path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10H3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>"#,
+};
+static STAR_OFF: Icon = Icon {
+    name: "star-off",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 2-4 3.1 6.3 6.9 1-4.5 4.4m1.1 4.7.5 2.6-7.1-3.7-7.1 3.7 1.4-7.9L2 9.3l3.3-.5M3 3l18 18"/></g>"#,
+};
+static TERMINAL: Icon = Icon {
+    name: "credentials",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 3 3-3 3m6 0h4"/></g>"#,
+};
+static REFRESH: Icon = Icon {
+    name: "refresh",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 10a8 8 0 1 1 0 5M4 3v7h7"/></g>"#,
+};
+static PLUS: Icon = Icon {
+    name: "add",
+    view: 24.,
+    body: r#"<path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="1.7"/>"#,
+};
+static MORE: Icon = Icon {
+    name: "more",
+    view: 24.,
+    body: r#"<g fill="currentColor"><circle cx="4" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="20" cy="12" r="1.5"/></g>"#,
+};
+static EXTERNAL: Icon = Icon {
+    name: "external",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 3h8v8m0-8L11 13M9 5H3v16h16v-6"/></g>"#,
+};
+static SIGNED_OUT: Icon = Icon {
+    name: "signed-out",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></g>"#,
+};
+
+static CHECK: Icon = Icon {
+    name: "authenticated",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="m7 12 3 3 7-7"/></g>"#,
+};
+static REMOVE: Icon = Icon {
+    name: "remove",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></g>"#,
+};
+static CLEAR_ALL: Icon = Icon {
+    name: "clear-all",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 5h18M3 10h11M3 15h7m5 0 6 6m0-6-6 6"/></g>"#,
+};
+static SIGN_IN: Icon = Icon {
+    name: "sign-in",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3h7v18h-7M3 12h13m-5-5 5 5-5 5"/></g>"#,
+};
+static SIGN_OUT: Icon = Icon {
+    name: "sign-out",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 3H3v18h7m-1-9h12m-5-5 5 5-5 5"/></g>"#,
+};
+static CLOSE: Icon = Icon {
+    name: "clear-selection",
+    view: 24.,
+    body: r#"<path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.7"/>"#,
+};
+
+fn copy_value(key: &str, value: &str, style: TextStyle, c: &crate::theme::Colors) -> El {
+    let copied = value.to_owned();
+    row()
+        .key(key)
+        .min_w(0.)
+        .center_y()
+        .radius(4.)
+        .hover(c.text.alpha(0.05))
+        .role("button")
+        .label(format!("Copy {value}"))
+        .help(format!("Click to copy: {value}"))
+        .focusable(true)
+        .focus_ring(2., 1., c.accent)
+        .child(text(value).font(style).color(c.text).truncate())
+        .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(Command::CopyText(copied.clone()), tx))
 }
 
-impl Render for AccountDrag {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let count = self.ids.len();
-        div()
-            .debug_selector(|| "account-drag".into())
-            .relative()
-            .w(self.width)
-            .h(px(66.))
-            .font_family(cx.theme().font_family.clone())
-            // A multi-selection lifts out as a stack, with its size badged on top.
-            .when(count > 1, |stack| {
-                stack.child(
-                    div()
-                        .absolute()
-                        .top(px(6.))
-                        .left(px(6.))
-                        .size_full()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(self.border)
-                        .bg(self.background)
-                        .shadow_lg(),
-                )
-            })
-            .child(self.row())
-            .when(count > 1, |stack| {
-                stack.child(
-                    div()
-                        .absolute()
-                        .top(px(-8.))
-                        .right(px(-8.))
-                        .min_w(px(22.))
-                        .h(px(22.))
-                        .px_1p5()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .bg(self.accent)
-                        .text_color(self.background)
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(count.to_string()),
-                )
-            })
-    }
+fn detail_row(key: &str, title: &str, value: &str, c: &crate::theme::Colors) -> El {
+    row()
+        .w_full()
+        .min_h(28.)
+        .gap(12.)
+        .center_y()
+        .child(label(title, c.muted))
+        .child(el().grow(1.))
+        .child(copy_value(key, value, BODY, c).shrink())
 }
 
-impl AccountDrag {
-    fn moves_to(&self, target: &Option<String>) -> bool {
-        self.sections.iter().any(|section| section != target)
-    }
+fn inspector_heading(key: &str, title: &str, c: &crate::theme::Colors) -> El {
+    row()
+        .key("inspector-heading")
+        .h(HEADER)
+        .w_full()
+        .center_y()
+        .window_drag()
+        .child(copy_value(key, title, TextStyle::new(16., 600.), c).grow(1.))
+}
 
-    fn row(&self) -> gpui::Div {
-        div()
-            .absolute()
-            .size_full()
-            .rounded_md()
-            .border_1()
-            .border_color(self.border)
-            .bg(self.background)
-            .shadow_lg()
-            .text_size(px(14.))
-            .text_color(self.text)
-            .child(
-                div()
-                    .size_full()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .rounded_md()
-                    .bg(self.selection)
-                    .child(
-                        Icon::new(IconName::Building2)
-                            .size(px(18.))
-                            .flex_shrink_0()
-                            .text_color(self.accent),
+fn credential_toolbar(s: &Sesh, c: &crate::theme::Colors) -> El {
+    let count = s.selected_credentials().len();
+    row()
+        .key("credential-toolbar")
+        .grow(1.)
+        .min_w(0.)
+        .center_y()
+        .gap(8.)
+        .child(text("Active credentials").font(LABEL).color(c.text))
+        .children((count > 0).then(|| {
+            row()
+                .key("credential-selection")
+                .gap(4.)
+                .center_y()
+                .child(small(format!("{count} selected"), c.text))
+                .child(icon_button(
+                    "clear-credential-selection",
+                    "Clear selection",
+                    &CLOSE,
+                    Command::ClearSelection,
+                    c,
+                ))
+                .child(
+                    icon_button(
+                        "clear-selected-credentials",
+                        "Remove selected credentials",
+                        &REMOVE,
+                        Command::RemoveSelectedCredentials,
+                        c,
                     )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(self.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_family(platform::mono_font())
-                                    .text_size(px(11.))
-                                    .text_color(self.muted)
-                                    .child(self.detail.clone()),
-                            ),
-                    ),
-            )
-    }
-}
-
-/// Accept accounts from other sections, moving them into `target` when dropped.
-///
-/// While an account hovers anywhere over a section, each of its items draws its part of an
-/// outline around the whole section: the heading opens it and the `last` item closes it.
-fn drop_target<E: InteractiveElement + ParentElement + Styled + FluentBuilder>(
-    element: E,
-    target: Option<String>,
-    highlighted: bool,
-    last: bool,
-    heading: bool,
-    accent: Hsla,
-    cx: &Context<Sesh>,
-) -> E {
-    let accepted = target.clone();
-    let hovered = target.clone();
-    element
-        .relative()
-        .can_drop(move |value, _, _| {
-            value
-                .downcast_ref::<AccountDrag>()
-                .is_some_and(|drag| drag.moves_to(&accepted))
-        })
-        .on_drag_move(cx.listener(
-            move |this, event: &gpui::DragMoveEvent<AccountDrag>, _, cx| {
-                if event.bounds.contains(&event.event.position) && event.drag(cx).moves_to(&hovered)
-                {
-                    this.drop_section = Some(hovered.clone());
-                    cx.notify();
-                }
-            },
-        ))
-        .on_drop(cx.listener(move |this, drag: &AccountDrag, window, cx| {
-            this.drop_account(drag, target.clone(), window, cx)
+                    .disabled(s.busy()),
+                )
         }))
-        .when(highlighted, |element| {
-            element.child(
-                div()
-                    .absolute()
-                    .left(px(6.))
-                    .right(px(6.))
-                    .top(px(if heading { 4. } else { 0. }))
-                    .bottom_0()
-                    .bg(accent.opacity(0.06))
-                    .border_color(accent)
-                    .border_l_2()
-                    .border_r_2()
-                    .when(heading, |outline| outline.border_t_2().rounded_t_lg())
-                    .when(last, |outline| outline.border_b_2().rounded_b_lg()),
+        .child(el().grow(1.))
+        .child(
+            small(s.data.credentials.len().to_string(), c.muted).help("Active credential profiles"),
+        )
+        .child(
+            icon_button(
+                "clear-all-credentials",
+                "Clear all credentials",
+                &CLEAR_ALL,
+                Command::ClearAllCredentials,
+                c,
             )
-        })
+            .disabled(s.data.credentials.is_empty() || s.busy()),
+        )
 }
 
-pub(super) struct Assets;
-
-impl AssetSource for Assets {
-    fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
-        if path == "icons/refresh.svg" {
-            return Ok(Some(Cow::Borrowed(include_bytes!("../assets/refresh.svg"))));
-        }
-        if path == "icons/star-filled.svg" {
-            return Ok(Some(Cow::Borrowed(include_bytes!(
-                "../assets/star-filled.svg"
-            ))));
-        }
-        gpui_component_assets::Assets.load(path)
-    }
-
-    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
-        let mut assets = gpui_component_assets::Assets.list(path)?;
-        if "icons/refresh.svg".starts_with(path) {
-            assets.push("icons/refresh.svg".into());
-        }
-        if "icons/star-filled.svg".starts_with(path) {
-            assets.push("icons/star-filled.svg".into());
-        }
-        Ok(assets)
-    }
+fn switch(key: &str, title: &str, checked: bool, command: Command, c: &crate::theme::Colors) -> El {
+    row()
+        .key(key)
+        .gap(12.)
+        .center_y()
+        .role("switch")
+        .label(title)
+        .checked(checked)
+        .focusable(true)
+        .focus_ring(2., 2., c.accent)
+        .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx))
+        .child(
+            el().size(34., 20.)
+                .radius(10.)
+                .fill(if checked { c.accent } else { c.element })
+                .border(1., if checked { c.accent } else { c.border })
+                .child(
+                    el().key(format!("{key}-knob"))
+                        .size(14., 14.)
+                        .radius(7.)
+                        .fill(if checked { Color::WHITE } else { c.muted })
+                        .absolute(if checked { 17. } else { 3. }, 3.)
+                        .motion(rune::tok::motion::SNAPPY),
+                ),
+        )
+        .child(label(title, c.text))
 }
 
-struct Colors {
-    background: Hsla,
-    sidebar: Hsla,
-    border: Hsla,
-    text: Hsla,
-    muted: Hsla,
-    selection: Hsla,
-    accent: Hsla,
-    success: Hsla,
-    warning: Hsla,
-    profile: Hsla,
+fn external_link(key: &str, title: &str, url: &'static str, c: &crate::theme::Colors) -> El {
+    row()
+        .key(key)
+        .h(30.)
+        .gap(6.)
+        .center_y()
+        .focusable(true)
+        .role("link")
+        .label(title)
+        .help(url)
+        .hover(c.text.alpha(0.05))
+        .radius(5.)
+        .px(6.)
+        .child(label(title, c.info))
+        .child(icon(&EXTERNAL, 13.).color(c.info))
+        .on_press_tx(move |s: &mut Sesh, tx| s.open_url(url, tx))
 }
 
-fn remaining(value: &str) -> String {
-    let Ok(time) = chrono::DateTime::parse_from_rfc3339(value) else {
-        return "Unknown expiry".into();
-    };
-    let seconds = time.signed_duration_since(chrono::Utc::now()).num_seconds();
-    if seconds <= 0 {
-        return "Expired".into();
-    }
-    let minutes = (seconds + 59) / 60;
-    if minutes >= 60 {
-        return format!("{}h {}m remaining", minutes / 60, minutes % 60);
-    }
-    format!("{minutes}m remaining")
+fn label(value: impl Into<String>, color: Color) -> El {
+    text(value).font(BODY).color(color).truncate()
+}
+fn small(value: impl Into<String>, color: Color) -> El {
+    text(value).font(SMALL).color(color).truncate()
+}
+fn divider(color: Color) -> El {
+    el().w_full().h(1.).fill(color)
 }
 
-fn expiration(value: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map(|time| {
-            time.with_timezone(&chrono::Local)
-                .format("%H:%M")
-                .to_string()
-        })
-        .unwrap_or_else(|_| "Unknown".into())
+fn button(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    command: Command,
+    c: &crate::theme::Colors,
+) -> El {
+    button_with_icon(key, title, command, None, c)
 }
 
-fn menu_option(
-    label: SharedString,
+fn button_with_icon(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    command: Command,
+    leading: Option<&'static Icon>,
+    c: &crate::theme::Colors,
+) -> El {
+    let title = title.into();
+    row()
+        .key(key)
+        .h(CONTROL_HEIGHT)
+        .px(12.)
+        .gap(8.)
+        .center()
+        .radius(6.)
+        .fill(c.element)
+        .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
+        .press(Color::BLACK.alpha(0.08))
+        .role("button")
+        .label(&title)
+        .focusable(true)
+        .focus_ring(2., 1., c.accent)
+        .children(leading.map(|glyph| icon(glyph, 16.).color(c.muted)))
+        .child(label(title, c.text))
+        .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx))
+}
+
+fn icon_button(
+    key: &str,
+    title: &str,
+    glyph: &'static Icon,
+    command: Command,
+    c: &crate::theme::Colors,
+) -> El {
+    row()
+        .key(key)
+        .size(24., 26.)
+        .center()
+        .radius(5.)
+        .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
+        .press(Color::BLACK.alpha(0.08))
+        .focusable(true)
+        .role("button")
+        .label(title)
+        .help(title)
+        .focus_ring(2., 1., c.accent)
+        .child(icon(glyph, 16.).color(c.muted))
+        .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx))
+}
+
+fn dropdown_trigger(
+    title: &str,
+    leading: Option<&'static Icon>,
+    show_chevron: bool,
+    muted: bool,
+    k: &Kit,
+    c: &crate::theme::Colors,
+) -> El {
+    row()
+        .h(CONTROL_HEIGHT)
+        .px(12.)
+        .gap(8.)
+        .center_y()
+        .radius(6.)
+        .fill(c.element)
+        .border(1., c.border)
+        .children(leading.map(|glyph| icon(glyph, 16.).color(c.muted)))
+        .child(
+            label(title, if muted { c.muted } else { c.text })
+                .grow(1.)
+                .min_w(0.),
+        )
+        .children(show_chevron.then(|| icon(k.glyph.chevron_down, 14.).color(c.muted)))
+}
+
+fn account_row_metrics(compact: bool) -> (f32, f32) {
+    if compact { (48., 3.) } else { (74., 6.) }
+}
+
+fn disabled_button(
+    key: &str,
+    title: &str,
     command: Command,
     disabled: bool,
-    commands: &mut Vec<Command>,
-) -> select::SelectOption {
-    let mut option = select::SelectOption::new(commands.len().to_string(), label);
-    let action = match &command {
-        Command::ItemAction(_, action) | Command::SessionAction(_, action) => action.as_ref(),
-        action => action,
-    };
-    option.icon = match action {
-        Command::TogglePin => Some(IconName::Star),
-        Command::GroupMenu | Command::SetGroup(_) => Some(IconName::Folder),
-        Command::NewGroup | Command::NewSession => Some(IconName::Plus),
-        Command::CopyAccount | Command::CopyName | Command::CopyProfile => Some(IconName::Copy),
-        Command::Console | Command::Portal => Some(IconName::ExternalLink),
-        Command::SetCredentials => Some(IconName::SquareTerminal),
-        Command::SelectRole(_) => Some(IconName::CircleUser),
-        _ => None,
-    };
-    option.action = matches!(action, Command::NewGroup);
-    option.disabled = disabled;
-    commands.push(command);
-    option
+    c: &crate::theme::Colors,
+) -> El {
+    let control = button(key, title, command, c).w_full();
+    if disabled {
+        control.disabled(true).inert().opacity(0.4)
+    } else {
+        control
+    }
 }
 
-impl Sesh {
-    pub(super) fn show_menu(
-        &mut self,
-        items: Vec<(SharedString, Command, bool)>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.show_dropdown(
-            items,
-            false,
-            window.mouse_position(),
-            px(240.),
-            self.focus.clone(),
-            window,
-            cx,
-        );
-    }
-
-    fn show_dropdown(
-        &mut self,
-        items: Vec<(SharedString, Command, bool)>,
-        searchable: bool,
-        position: gpui::Point<gpui::Pixels>,
-        width: gpui::Pixels,
-        focus: gpui::FocusHandle,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let mut commands = vec![];
-        let mut options = vec![];
-        for (label, command, disabled) in items {
-            let mut option = menu_option(label, command.clone(), disabled, &mut commands);
-            if let Command::SelectRole(role) = &command {
-                option.checked = self.role.as_ref() == Some(role);
-            }
-            if let Command::ItemAction(position, action) = &command
-                && matches!(**action, Command::GroupMenu)
-            {
-                let targets = if self.marked.len() > 1 {
-                    self.targets(cx)
-                } else {
-                    self.visible(cx)
-                        .get(*position)
-                        .and_then(|index| self.data.accounts.get(*index))
-                        .cloned()
-                        .into_iter()
-                        .collect()
-                };
-                let current = shared_group(&targets).flatten();
-                let grouped = targets.iter().any(|account| account.group.is_some());
-                for group in self.groups() {
-                    let selected = current.as_ref() == Some(&group);
-                    let mut child = menu_option(
-                        group.clone().into(),
-                        Command::ItemAction(*position, Box::new(Command::SetGroup(Some(group)))),
-                        selected,
-                        &mut commands,
-                    );
-                    child.checked = selected;
-                    option.children.push(child);
-                }
-                if grouped {
-                    option.children.push(menu_option(
-                        "Remove from group".into(),
-                        Command::ItemAction(*position, Box::new(Command::SetGroup(None))),
-                        false,
-                        &mut commands,
-                    ));
-                }
-                option.children.push(menu_option(
-                    "New group…".into(),
-                    Command::ItemAction(*position, Box::new(Command::NewGroup)),
-                    false,
-                    &mut commands,
-                ));
-            }
-            options.push(option);
-        }
-        let menu = cx.new(|cx| select::Dropdown::new(options, searchable, width, window, cx));
-        let subscription = cx.subscribe_in(
-            &menu,
-            window,
-            move |this, _, event: &select::SelectEvent, window, cx| {
-                this.popup = None;
-                focus.focus(window);
-                if let select::SelectEvent::Confirm(value) = event
-                    && let Some(command) = value
-                        .parse::<usize>()
-                        .ok()
-                        .and_then(|index| commands.get(index))
-                        .cloned()
-                {
-                    this.dispatch(command, window, cx);
-                }
-                cx.notify();
+fn session_actions(name: &str, authenticated: bool) -> Vec<(String, Command)> {
+    [
+        (
+            if authenticated {
+                "Sign out…"
+            } else {
+                "Sign in"
             },
-        );
-        menu.read(cx).focus_handle(cx).focus(window);
-        self.popup = Some((position, menu, subscription));
-        cx.notify();
-    }
-
-    pub(super) fn show_roles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(account) = &self.account else { return };
-        let items = account
-            .roles
-            .iter()
-            .map(|role| {
-                (
-                    role.clone().into(),
-                    Command::SelectRole(role.clone()),
-                    false,
-                )
-            })
-            .collect();
-        self.show_dropdown(
-            items,
-            true,
-            self.role_bounds.bottom_left() + gpui::point(px(0.), px(4.)),
-            self.role_bounds.size.width.max(px(240.)),
-            self.role_focus.clone(),
-            window,
-            cx,
-        );
-    }
-    fn toolbar_button(
-        &self,
-        button: Button,
-        icon: impl Into<Icon>,
-        label: impl Into<SharedString>,
-        cx: &Context<Self>,
-    ) -> Button {
-        button
-            .ghost()
-            .size(px(24.))
-            .p_0()
-            .rounded(px(6.))
-            .cursor_pointer()
-            .child(
-                Icon::new(icon).size(px(16.)).text_color(
-                    cx.theme()
-                        .muted_foreground
-                        .opacity(if self.modal() { 0.5 } else { 1. }),
-                ),
-            )
-            .tooltip(label)
-            .disabled(self.modal())
-            .tab_stop(!self.modal())
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.window_should_move = false;
-                    cx.stop_propagation();
-                }),
-            )
-            .on_mouse_up(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _, _, _| this.window_should_move = false),
-            )
-    }
-
-    fn window_toolbar(&self, sidebar: f32, window: &Window, cx: &Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        let inset = if window.is_fullscreen() {
-            0.
-        } else if cfg!(target_os = "macos") {
-            82.
-        } else {
-            8.
-        };
-        let clearance = 16. + (self.sidebar_width - (96. + inset)).max(0.) * sidebar;
-        let capsule = div()
-            .relative()
-            .h(px(32.))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .px(px(6.))
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .rounded(px(12.))
-                    .border_1()
-                    .border_color(theme.border.opacity(0.55))
-                    .bg(theme.title_bar)
-                    .shadow_sm()
-                    .opacity(1. - sidebar),
-            )
-            .child(div().w(px(inset)).flex_shrink_0())
-            .child(
-                div().flex().items_center().gap(px(2.)).children(
-                    [
-                        (
-                            "toolbar-sidebar",
-                            IconName::PanelLeft,
-                            "Toggle sidebar",
-                            "toggle_sidebar",
-                            Command::ToggleSidebar,
-                        ),
-                        (
-                            "toolbar-commands",
-                            IconName::Search,
-                            "Commands",
-                            "commands",
-                            Command::Palette,
-                        ),
-                        (
-                            "toolbar-settings",
-                            IconName::Settings,
-                            "Settings",
-                            "settings",
-                            Command::Settings,
-                        ),
-                    ]
-                    .into_iter()
-                    .map(|(id, icon, label, shortcut, command)| {
-                        let label = format!(
-                            "{label} · {}",
-                            platform::shortcut_label(shortcut, &self.shortcuts)
-                        );
-                        self.toolbar_button(self.button(id, "", command, cx), icon, label, cx)
-                            .occlude()
-                    }),
-                ),
-            );
-        div()
-            .id("window-toolbar")
-            .absolute()
-            .top_0()
-            .left_0()
-            .w_full()
-            .h(px(HEADER_HEIGHT))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .pt(px(4.))
-            .px(px(8.))
-            .on_mouse_down_out(cx.listener(|this, _, _, _| this.window_should_move = false))
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _, _, _| this.window_should_move = true),
-            )
-            .on_mouse_up(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _, _, _| this.window_should_move = false),
-            )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, _| {
-                    if this.window_should_move
-                        && event.pressed_button == Some(gpui::MouseButton::Left)
-                    {
-                        this.window_should_move = false;
-                        platform::start_window_move(window);
-                    }
-                }),
-            )
-            .on_double_click(|_, _window, _| {
-                #[cfg(not(target_os = "windows"))]
-                _window.titlebar_double_click();
-            })
-            .child(
-                div()
-                    .id("window-drag-region")
-                    .flex()
-                    .items_center()
-                    .flex_1()
-                    .h_full()
-                    .min_w_0()
-                    .window_control_area(gpui::WindowControlArea::Drag)
-                    .when(cfg!(target_os = "windows"), |region| {
-                        region.on_mouse_down(
-                            gpui::MouseButton::Left,
-                            |event: &gpui::MouseDownEvent, window, cx| {
-                                cx.stop_propagation();
-                                platform::window_drag_or_toggle(
-                                    window,
-                                    event.position.x.into(),
-                                    event.position.y.into(),
-                                );
-                            },
-                        )
-                    })
-                    .child(capsule)
-                    .child(div().w(px(clearance)).flex_shrink_0())
-                    .child(self.workspace_toolbar(cx)),
-            )
-            .child(self.window_controls(window, cx))
-            .into_any_element()
-    }
-
-    /// Native caption buttons (Windows). macOS keeps its traffic lights, and the
-    /// OS handles clicks for these via the window control areas.
-    fn window_controls(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
-        if cfg!(target_os = "macos") || window.is_fullscreen() {
-            return div().into_any_element();
-        }
-        let theme = cx.theme();
-        let foreground = theme.foreground;
-        let secondary_hover = theme.secondary_hover;
-        let secondary_active = theme.secondary_active;
-        let secondary_foreground = theme.secondary_foreground;
-        let danger = theme.danger;
-        let danger_active = theme.danger_active;
-        let danger_foreground = theme.danger_foreground;
-
-        let control = move |id: &'static str,
-                            area: gpui::WindowControlArea,
-                            icon: IconName,
-                            label: &'static str,
-                            is_close: bool| {
-            div()
-                .id(id)
-                .flex()
-                .w(px(34.))
-                .h_full()
-                .flex_shrink_0()
-                .justify_center()
-                .items_center()
-                .text_color(foreground)
-                .hover(move |style| {
-                    if is_close {
-                        style.bg(danger).text_color(danger_foreground)
-                    } else {
-                        style.bg(secondary_hover).text_color(secondary_foreground)
-                    }
-                })
-                .active(move |style| {
-                    if is_close {
-                        style.bg(danger_active).text_color(danger_foreground)
-                    } else {
-                        style.bg(secondary_active).text_color(secondary_foreground)
-                    }
-                })
-                .window_control_area(area)
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(label).build(window, cx)
-                })
-                .on_click(move |_, window, _| match area {
-                    gpui::WindowControlArea::Min => window.minimize_window(),
-                    gpui::WindowControlArea::Max => platform::toggle_maximize(window),
-                    gpui::WindowControlArea::Close => window.remove_window(),
-                    gpui::WindowControlArea::Drag => {}
-                })
-                .child(Icon::new(icon).small())
-        };
-
-        let maximize = if window.is_maximized() {
-            control(
-                "window-restore",
-                gpui::WindowControlArea::Max,
-                IconName::WindowRestore,
-                "Restore",
-                false,
-            )
-        } else {
-            control(
-                "window-maximize",
-                gpui::WindowControlArea::Max,
-                IconName::WindowMaximize,
-                "Maximize",
-                false,
-            )
-        };
-
-        div()
-            .id("window-controls")
-            .flex()
-            .items_center()
-            .flex_shrink_0()
-            .h_full()
-            .child(control(
-                "window-minimize",
-                gpui::WindowControlArea::Min,
-                IconName::WindowMinimize,
-                "Minimize",
-                false,
-            ))
-            .child(maximize)
-            .child(control(
-                "window-close",
-                gpui::WindowControlArea::Close,
-                IconName::WindowClose,
-                "Close",
-                true,
-            ))
-            .into_any_element()
-    }
-
-    fn workspace_toolbar(&self, cx: &Context<Self>) -> AnyElement {
-        let colors = self.colors(cx);
-        let title = match self.screen {
-            Screen::Accounts => self.data.session.as_deref().unwrap_or("Welcome to Sesh"),
-            Screen::Credentials => "Credentials",
-            Screen::Settings => "Settings",
-        };
-        let mut toolbar = div()
-            .id("workspace-toolbar")
-            .h(px(24.))
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.window_should_move = false;
-                    cx.stop_propagation();
-                }),
-            )
-            .on_mouse_up(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.window_should_move = false;
-                    cx.stop_propagation();
-                }),
-            )
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .h(px(24.))
-                    .max_w(px(320.))
-                    .min_w_0()
-                    .px(px(6.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(div().truncate().child(SharedString::from(title.to_owned()))),
-            );
-        let mut actions = div().flex().items_center().flex_shrink_0().gap(px(2.));
-        if self.screen == Screen::Accounts && self.data.session.is_some() {
-            let authenticated = self.authenticated();
-            toolbar = toolbar.child(
-                div()
-                    .h(px(24.))
-                    .flex_shrink_0()
-                    .px(px(6.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .child(self.status(
-                        if authenticated {
-                            "Signed in"
-                        } else {
-                            "Signed out"
-                        },
-                        if authenticated {
-                            colors.success
-                        } else {
-                            colors.warning
-                        },
-                        authenticated,
-                    )),
-            );
-            if !authenticated {
-                actions = actions.child(
-                    self.button("auth-session", "Sign in", Command::Login, cx)
-                        .ghost()
-                        .h(px(24.))
-                        .px(px(6.))
-                        .rounded(px(6.)),
-                );
-            }
-            actions = actions.child(
-                self.toolbar_button(
-                    Button::new("session-options"),
-                    IconName::Ellipsis,
-                    "Session actions",
-                    cx,
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    let items = [
-                        ("Edit session…", Command::EditSession),
-                        ("Open SSO portal", Command::Portal),
-                        (
-                            if authenticated {
-                                "Sign out…"
-                            } else {
-                                "Sign in"
-                            },
-                            if authenticated {
-                                Command::SignOut
-                            } else {
-                                Command::Login
-                            },
-                        ),
-                        ("Delete session…", Command::DeleteSession),
-                    ]
-                    .into_iter()
-                    .map(|(label, command)| (label.into(), command, false))
-                    .collect();
-                    this.show_menu(items, window, cx);
-                })),
-            );
-        }
-        if self.screen != Screen::Settings {
-            actions = actions.child(self.toolbar_button(
-                self.button("refresh", "", Command::Refresh, cx),
-                Icon::default().path("icons/refresh.svg"),
-                "Refresh",
-                cx,
-            ));
-        }
-        toolbar.child(actions).into_any_element()
-    }
-
-    fn background_texture(&self, window: &Window) -> AnyElement {
-        let mut texture = div().absolute().inset_0().overflow_hidden().opacity(0.12);
-        let viewport = window.viewport_size();
-        let mut y = px(0.);
-        while y < viewport.height {
-            let mut x = px(0.);
-            while x < viewport.width {
-                texture = texture.child(
-                    img(self.texture.clone())
-                        .absolute()
-                        .left(x)
-                        .top(y)
-                        .size(px(256.)),
-                );
-                x += px(256.);
-            }
-            y += px(256.);
-        }
-        texture.into_any_element()
-    }
-
-    fn status(&self, label: impl Into<SharedString>, color: Hsla, active: bool) -> AnyElement {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .text_size(px(12.))
-            .text_color(color)
-            .child(
-                Icon::new(if active {
-                    IconName::CircleCheck
-                } else {
-                    IconName::CircleX
-                })
-                .size(px(16.))
-                .flex_shrink_0(),
-            )
-            .child(label.into())
-            .into_any_element()
-    }
-    fn colors(&self, cx: &Context<Self>) -> Colors {
-        let theme = cx.theme();
-        Colors {
-            background: Hsla {
-                a: 1.,
-                ..theme.background
+            if authenticated {
+                Command::SignOut
+            } else {
+                Command::Login
             },
-            sidebar: theme.sidebar,
-            border: theme.border,
-            text: theme.foreground,
-            muted: theme.muted_foreground,
-            selection: theme.list_active,
-            accent: theme.link,
-            success: theme.success,
-            warning: theme.warning,
-            profile: theme.magenta,
-        }
-    }
+        ),
+        ("Edit session…", Command::EditSession),
+        ("Open SSO portal", Command::Portal),
+        ("Delete session…", Command::DeleteSession),
+    ]
+    .into_iter()
+    .map(|(label, command)| {
+        (
+            label.into(),
+            Command::SessionAction(name.into(), Box::new(command)),
+        )
+    })
+    .collect()
+}
 
-    fn button(
-        &self,
-        id: impl Into<ElementId>,
-        label: impl Into<SharedString>,
-        command: Command,
-        cx: &Context<Self>,
-    ) -> Button {
-        let label = label.into();
-        Button::new(id)
-            .when(!label.is_empty(), |button| button.label(label))
-            .h(px(36.))
-            .px_3()
-            .disabled(
-                self.modal()
-                    && !matches!(
-                        command,
-                        Command::Confirm
-                            | Command::Cancel
-                            | Command::OpenLogin
-                            | Command::ClearShortcut(_)
-                    ),
-            )
-            .tab_stop(
-                !self.modal()
-                    || matches!(
-                        command,
-                        Command::Confirm
-                            | Command::Cancel
-                            | Command::OpenLogin
-                            | Command::ClearShortcut(_)
-                    ),
-            )
-            .on_click(cx.listener(move |this, _, window, cx| {
-                cx.stop_propagation();
-                this.dispatch(command.clone(), window, cx);
-            }))
-    }
-
-    pub(super) fn preferences_dirty(&self, cx: &gpui::App) -> bool {
-        let Some(account) = &self.account else {
-            return false;
-        };
-        let role = self.role(cx);
-        self.preferences_saving(cx)
-            || self.region.read(cx).value().trim() != account.region.as_deref().unwrap_or("")
-            || self.profile.read(cx).value().trim()
-                != role
-                    .as_ref()
-                    .and_then(|role| account.profiles.get(role))
-                    .map(String::as_str)
-                    .unwrap_or("")
-    }
-
-    fn copy_value(
-        &self,
-        id: &'static str,
-        value: &str,
-        command: Command,
-        cx: &Context<Self>,
-    ) -> Button {
-        let name = matches!(command, Command::CopyName);
-        Button::new(id)
-            .child(
-                div()
-                    .max_w(px(270.))
-                    .truncate()
-                    .text_size(px(if name { 20. } else { 11. }))
-                    .font_weight(if name {
-                        FontWeight::SEMIBOLD
-                    } else {
-                        FontWeight::NORMAL
-                    })
-                    .child(SharedString::from(value.to_owned())),
-            )
-            .ghost()
-            .px_1()
-            .h(px(if name { 32. } else { 24. }))
-            .justify_start()
-            .cursor_pointer()
-            .tooltip("Click to copy")
-            .disabled(self.modal())
-            .tab_stop(!self.modal())
-            .on_click(
-                cx.listener(move |this, _, window, cx| this.dispatch(command.clone(), window, cx)),
-            )
-    }
-
-    fn sidebar(&self, cx: &Context<Self>) -> AnyElement {
-        let colors = self.colors(cx);
-        let sessions =
-            self.data
-                .sessions
-                .iter()
-                .enumerate()
-                .map(|(index, session)| {
-                    let selected = self.screen == Screen::Accounts
-                        && self.data.session.as_ref() == Some(&session.name);
-                    let name = session.name.clone();
-                    let session_name = session.name.clone();
-                    let authenticated = session.authenticated;
-                    let disabled = self.modal();
-                    div()
-                        .id(("session-container", index))
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .child(
-                            self.button(
-                                ("session", index),
-                                SharedString::from(session.name.clone()),
-                                Command::Session(session.name.clone()),
-                                cx,
-                            )
-                            .icon(IconName::Building2)
-                            .child(
-                                Icon::new(if authenticated {
-                                    IconName::CircleCheck
-                                } else {
-                                    IconName::CircleX
-                                })
-                                .size(px(14.))
-                                .text_color(if authenticated {
-                                    colors.success
-                                } else {
-                                    colors.warning
-                                }),
-                            )
-                            .tooltip(if authenticated {
-                                "Signed in"
-                            } else {
-                                "Signed out · double-click to sign in"
-                            })
-                            .ghost()
-                            .selected(selected)
-                            .text_color(if authenticated {
-                                colors.text
-                            } else {
-                                colors.muted
-                            })
-                            .cursor_pointer()
-                            .w_full()
-                            .justify_start()
-                            .on_click(cx.listener(
-                                move |this, event: &gpui::ClickEvent, window, cx| {
-                                    if this.modal() {
-                                        return;
-                                    }
-                                    let signed_in = this.data.sessions.iter().any(|value| {
-                                        value.name == session_name && value.authenticated
-                                    });
-                                    let command = if event.click_count() == 2 && !signed_in {
-                                        Command::SessionAction(
-                                            session_name.clone(),
-                                            Box::new(Command::Login),
-                                        )
-                                    } else {
-                                        Command::Session(session_name.clone())
-                                    };
-                                    this.dispatch(command, window, cx);
-                                },
-                            )),
-                        )
-                        .on_mouse_down(
-                            gpui::MouseButton::Right,
-                            cx.listener(move |this, _, window, cx| {
-                                if disabled {
-                                    return;
-                                }
-                                let items = [
-                                    ("Open SSO portal", Command::Portal),
-                                    ("Edit session…", Command::EditSession),
-                                    (
-                                        if authenticated {
-                                            "Sign out…"
-                                        } else {
-                                            "Sign in"
-                                        },
-                                        if authenticated {
-                                            Command::SignOut
-                                        } else {
-                                            Command::Login
-                                        },
-                                    ),
-                                    ("Delete session…", Command::DeleteSession),
-                                ]
-                                .into_iter()
-                                .map(|(label, command)| {
-                                    (
-                                        label.into(),
-                                        Command::SessionAction(name.clone(), Box::new(command)),
-                                        false,
-                                    )
-                                })
-                                .collect();
-                                this.show_menu(items, window, cx);
-                                cx.stop_propagation();
-                            }),
-                        )
-                });
-        div()
-            .w(px(self.sidebar_width))
-            .flex_shrink_0()
-            .h_full()
-            .flex()
-            .flex_col()
-            .border_r_1()
-            .border_color(colors.border)
-            .when(
-                cfg!(any(target_os = "macos", target_os = "windows")),
-                |sidebar| sidebar.pt(px(HEADER_HEIGHT)),
-            )
-            .child(
-                div()
-                    .px_5()
-                    .pt_4()
-                    .pb_2()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(colors.muted)
-                    .child("Organizations"),
-            )
-            .child(
-                div()
-                    .id("session-sidebar")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px_3()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .children(sessions)
-                    .child(
-                        self.button("add-session", "Add SSO session", Command::NewSession, cx)
-                            .icon(IconName::Plus)
-                            .ghost()
-                            .w_full()
-                            .justify_start(),
-                    ),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_3()
-                    .border_t_1()
-                    .border_color(colors.border)
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        self.button(
-                            "show-credentials",
-                            SharedString::from(format!(
-                                "Credentials   {}",
-                                self.data.credentials.len()
-                            )),
-                            Command::Credentials,
-                            cx,
-                        )
-                        .icon(IconName::SquareTerminal)
-                        .ghost()
-                        .selected(self.screen == Screen::Credentials)
-                        .w_full()
-                        .justify_start(),
-                    )
-                    .child(
-                        self.button("settings", "Settings", Command::Settings, cx)
-                            .icon(IconName::Settings)
-                            .ghost()
-                            .selected(self.screen == Screen::Settings)
-                            .w_full()
-                            .justify_start(),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    fn row(&self, position: usize, index: usize, last: bool, cx: &Context<Self>) -> AnyElement {
-        let colors = self.colors(cx);
-        let (title, detail, status, status_color) = if self.screen == Screen::Accounts {
-            let value = &self.data.accounts[index];
-            let active = self
-                .data
-                .credentials
-                .iter()
-                .filter(|credential| {
-                    credential.account_id == value.account_id
-                        && Some(&credential.session_name) == self.data.session.as_ref()
-                })
-                .min_by_key(|credential| !credential.is_default);
-            (
-                value.name.clone(),
-                value
-                    .last_profile
-                    .as_ref()
-                    .map(|profile| format!("{} · {}", value.account_id, profile))
-                    .unwrap_or_else(|| value.account_id.clone()),
-                active
-                    .map(|value| remaining(&value.expiration))
-                    .unwrap_or_default(),
-                active
-                    .map(|value| {
-                        if value.is_default {
-                            colors.success
-                        } else {
-                            colors.profile
-                        }
-                    })
-                    .unwrap_or(colors.muted),
-            )
-        } else {
-            let value = &self.data.credentials[index];
-            (
-                value.account_name.clone(),
-                format!("{} · {}", value.profile_name, value.role_name),
-                if value.is_default {
-                    "Default".into()
-                } else {
-                    remaining(&value.expiration)
-                },
-                if value.is_default {
-                    colors.success
-                } else {
-                    colors.profile
-                },
-            )
-        };
-        let account_id =
-            (self.screen == Screen::Accounts).then(|| self.data.accounts[index].account_id.clone());
-        let marked = account_id
-            .as_ref()
-            .is_some_and(|id| self.marked.len() > 1 && self.marked.contains(id));
-        let selected = if self.marked.len() > 1 {
-            marked
-        } else {
-            self.selected == Some(position)
-        };
-        let cached = self.screen == Screen::Accounts && !self.authenticated();
-        let disabled = self.modal();
-        let account_row = self.screen == Screen::Accounts;
-        let pinned = account_row && self.data.accounts[index].pinned;
-        let section = self.section(index);
-        // Dragging a selected row carries the whole multi-selection along.
-        let moving = if marked {
-            self.targets(cx)
-        } else {
-            vec![self.data.accounts[index].clone()]
-        };
-        let drag = section.clone().map(|_| AccountDrag {
-            position,
-            sections: moving
-                .iter()
-                .map(|account| (!account.pinned).then(|| account.group.clone().unwrap_or_default()))
-                .collect(),
-            ids: moving
-                .into_iter()
-                .map(|account| account.account_id)
-                .collect(),
-            title: title.clone().into(),
-            detail: detail.clone().into(),
-            // The row surface is inset by the row's horizontal padding.
-            width: self.list_width - px(24.),
-            background: colors.background,
-            selection: colors.selection,
-            border: colors.border,
-            text: colors.text,
-            muted: colors.muted,
-            accent: colors.accent,
-        });
-        let dragged = cx.has_active_drag()
-            && account_id
-                .as_ref()
-                .is_some_and(|id| self.dragging.contains(id));
-        let view = cx.entity().downgrade();
-        div()
-            .id(("row", position))
-            .w_full()
-            .h(px(74.))
-            .px_3()
-            .py_1()
-            .when_some(section, |row, section| {
-                let highlighted = self.drop_highlighted(&section, cx);
-                drop_target(row, section, highlighted, last, false, colors.accent, cx)
-            })
-            .child(
-                div()
-                    .h_full()
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .rounded_md()
-                    .bg(if selected {
-                        colors.selection
-                    } else {
-                        Hsla::transparent_black()
-                    })
-                    .id(("row-surface", position))
-                    .debug_selector(|| format!("account-{position}"))
-                    .when_some(drag, |surface, drag| {
-                        surface.on_drag(drag, move |value, _, _, cx| {
-                            let _ = view.update(cx, |this, cx| {
-                                if value.ids.len() == 1 {
-                                    this.marked.clear();
-                                }
-                                this.dragging = value.ids.clone();
-                                cx.notify();
-                            });
-                            cx.new(|_| value.clone())
-                        })
-                    })
-                    .when(dragged, |surface| surface.opacity(0.35))
-                    .group("account-row")
-                    .cursor_pointer()
-                    .hover(move |style| {
-                        style.bg(if selected {
-                            colors.selection
-                        } else {
-                            colors.sidebar
-                        })
-                    })
-                    .text_color(if cached { colors.muted } else { colors.text })
-                    .child(
-                        Icon::new(if self.screen == Screen::Accounts {
-                            IconName::Building2
-                        } else {
-                            IconName::SquareTerminal
-                        })
-                        .size(px(18.))
-                        .flex_shrink_0()
-                        .text_color(if selected {
-                            colors.accent
-                        } else {
-                            colors.muted
-                        }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .truncate()
-                                            .font_family(platform::mono_font())
-                                            .text_size(px(11.))
-                                            .text_color(colors.muted)
-                                            .child(detail),
-                                    )
-                                    .when(account_row && !status.is_empty(), |line| {
-                                        line.child(
-                                            div()
-                                                .flex_shrink_0()
-                                                .text_size(px(12.))
-                                                .text_color(status_color)
-                                                .child(status.clone()),
-                                        )
-                                    }),
-                            ),
-                    )
-                    .when(account_row, |row| {
-                        row.child(
-                            div()
-                                .flex_shrink_0()
-                                .when(!pinned, |star| {
-                                    star.invisible()
-                                        .group_hover("account-row", |style| style.visible())
-                                })
-                                .child(
-                                    self.button(
-                                        ("account-favorite", position),
-                                        "",
-                                        Command::ItemAction(position, Box::new(Command::TogglePin)),
-                                        cx,
-                                    )
-                                    .ghost()
-                                    .size(px(28.))
-                                    .p_0()
-                                    .rounded(px(6.))
-                                    .cursor_pointer()
-                                    .child(
-                                        Icon::new(IconName::Star)
-                                            .size(px(16.))
-                                            .when(pinned, |icon| icon.path("icons/star-filled.svg"))
-                                            .text_color(if pinned {
-                                                cx.theme().yellow
-                                            } else {
-                                                colors.muted
-                                            }),
-                                    )
-                                    .tooltip(if pinned {
-                                        "Remove from favorites"
-                                    } else {
-                                        "Add to favorites"
-                                    }),
-                                ),
-                        )
-                    })
-                    .when(!account_row && !status.is_empty(), |row| {
-                        row.child(self.status(status, status_color, true))
-                    }),
-            )
-            .on_click(
-                cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                    if this.modal() {
-                        return;
-                    }
-                    if event.click_count() == 2 && this.screen == Screen::Accounts {
-                        this.dispatch(
-                            Command::ItemAction(position, Box::new(Command::SetCredentials)),
-                            window,
-                            cx,
-                        );
-                        return;
-                    }
-                    let modifiers = event.modifiers();
-                    if this.screen == Screen::Accounts && (modifiers.secondary() || modifiers.shift)
-                    {
-                        this.mark(position, modifiers.shift, window, cx);
-                        return;
-                    }
-                    this.marked.clear();
-                    this.selected = Some(position);
-                    this.focus.focus(window);
-                    this.inspect(window, cx);
-                    cx.notify();
-                }),
-            )
-            .on_mouse_down(
-                gpui::MouseButton::Right,
-                cx.listener(move |this, _, window, cx| {
-                    if disabled {
-                        return;
-                    }
-                    if !marked {
-                        this.marked.clear();
-                    }
-                    let count = this.targets(cx).len();
-                    let commands: Vec<(SharedString, Command, bool)> = if marked && count > 1 {
-                        let pinned = this.targets(cx).iter().all(|account| account.pinned);
-                        vec![
-                            (
-                                if pinned {
-                                    format!("Remove {count} from favorites")
-                                } else {
-                                    format!("Add {count} to favorites")
-                                }
-                                .into(),
-                                Command::Pin(!pinned),
-                                false,
-                            ),
-                            (
-                                format!("Move {count} to group").into(),
-                                Command::GroupMenu,
-                                false,
-                            ),
-                            (
-                                format!("Copy {count} account IDs").into(),
-                                Command::CopyAccount,
-                                false,
-                            ),
-                            (
-                                format!("Copy {count} account names").into(),
-                                Command::CopyName,
-                                false,
-                            ),
-                            ("Clear selection".into(), Command::ClearSelection, false),
-                        ]
-                    } else if account_row {
-                        vec![
-                            ("Set credentials", Command::SetCredentials, cached),
-                            ("Open AWS Console", Command::Console, false),
-                            (
-                                if pinned {
-                                    "Remove from favorites"
-                                } else {
-                                    "Add to favorites"
-                                },
-                                Command::TogglePin,
-                                false,
-                            ),
-                            ("Move to group", Command::GroupMenu, false),
-                            ("Copy account ID", Command::CopyAccount, false),
-                            ("Copy account name", Command::CopyName, false),
-                        ]
-                        .into_iter()
-                        .map(|(label, command, unavailable)| (label.into(), command, unavailable))
-                        .collect()
-                    } else {
-                        vec![
-                            ("Copy CLI profile", Command::CopyProfile, false),
-                            ("Copy account ID", Command::CopyAccount, false),
-                            ("Copy account name", Command::CopyName, false),
-                            ("Remove profile…", Command::RemoveCredential, false),
-                        ]
-                        .into_iter()
-                        .map(|(label, command, unavailable)| (label.into(), command, unavailable))
-                        .collect()
-                    };
-                    let items = commands
-                        .into_iter()
-                        .map(|(label, command, unavailable)| {
-                            (
-                                label,
-                                Command::ItemAction(position, Box::new(command)),
-                                unavailable,
-                            )
-                        })
-                        .collect();
-                    this.show_menu(items, window, cx);
-                    cx.stop_propagation();
-                }),
-            )
-            .into_any_element()
-    }
-
-    /// Extend the multi-selection with ⌘/Ctrl-click, which toggles one account, or Shift-click,
-    /// which selects the range from the current row.
-    fn mark(&mut self, position: usize, range: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let visible = self.visible(cx);
-        let id = |position: usize| self.data.accounts[visible[position]].account_id.clone();
-        if range {
-            let anchor = self.selected.unwrap_or(position);
-            self.marked = (anchor.min(position)..=anchor.max(position))
-                .map(id)
-                .collect();
-        } else {
-            if self.marked.is_empty()
-                && let Some(selected) = self.selected.filter(|selected| *selected < visible.len())
-            {
-                self.marked.insert(id(selected));
-            }
-            let clicked = id(position);
-            if self.marked.remove(&clicked) {
-                // Keep inspecting an account that is still selected.
-                self.selected =
-                    (0..visible.len()).find(|position| self.marked.contains(&id(*position)));
-            } else {
-                self.marked.insert(clicked);
-                self.selected = Some(position);
-            }
-            self.inspect(window, cx);
-        }
-        self.focus.focus(window);
-        cx.notify();
-    }
-
-    /// The list section an account row sits in, while accounts can be dragged between sections.
-    fn section(&self, index: usize) -> Option<Option<String>> {
-        let accounts = &self.data.accounts;
-        if self.screen != Screen::Accounts
-            || self.modal()
-            || !accounts
-                .iter()
-                .any(|account| account.pinned || account.group.is_some())
-        {
-            return None;
-        }
-        let account = &accounts[index];
-        Some((!account.pinned).then(|| account.group.clone().unwrap_or_default()))
-    }
-
-    fn drop_account(
-        &mut self,
-        drag: &AccountDrag,
-        target: Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.drop_section = None;
-        if self.modal() || !drag.moves_to(&target) {
-            return;
-        }
-        let commands = match target {
-            None => vec![Command::Pin(true)],
-            Some(group) => {
-                let mut commands = vec![Command::SetGroup((!group.is_empty()).then_some(group))];
-                // Favorites are listed above every group, so leaving them requires unpinning.
-                if drag.sections.contains(&None) {
-                    commands.push(Command::Pin(false));
-                }
-                commands
-            }
-        };
-        for command in commands {
-            self.dispatch(
-                Command::ItemAction(drag.position, Box::new(command)),
-                window,
-                cx,
-            );
-        }
-    }
-
-    fn drop_highlighted(&self, section: &Option<String>, cx: &Context<Self>) -> bool {
-        cx.has_active_drag() && self.drop_section.as_ref() == Some(section)
-    }
-
-    fn heading(
-        &self,
-        ix: usize,
-        group: Option<String>,
-        count: usize,
-        collapsed: bool,
-        last: bool,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let colors = self.colors(cx);
-        let label = match group.as_deref() {
-            None => "Favorites".to_owned(),
-            Some("") => "Other accounts".to_owned(),
-            Some(group) => group.to_owned(),
-        };
-        let icon = match group {
-            None => IconName::Star,
-            Some(_) if collapsed => IconName::ChevronRight,
-            Some(_) => IconName::ChevronDown,
-        };
-        let target = (self.screen == Screen::Accounts && !self.modal()).then(|| group.clone());
-        let toggle =
-            group.filter(|_| !self.modal() && self.search.read(cx).value().trim().is_empty());
-        div()
-            .id(("section", ix))
-            .w_full()
-            .h(px(36.))
-            .px_3()
-            .pt_2()
-            .when_some(target, |heading, target| {
-                let highlighted = self.drop_highlighted(&target, cx);
-                drop_target(heading, target, highlighted, last, true, colors.accent, cx)
-            })
-            .child(
-                div()
-                    .id(("section-surface", ix))
-                    .debug_selector(|| format!("section-{label}"))
-                    .h_full()
-                    .px_3()
-                    .rounded_md()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(colors.muted)
-                    .child(Icon::new(icon).size(px(14.)).flex_shrink_0())
-                    .child(div().flex_1().min_w_0().truncate().child(label))
-                    .child(div().flex_shrink_0().child(count.to_string()))
-                    .when_some(toggle, |surface, group| {
-                        let toggled = group.clone();
-                        surface
-                            .cursor_pointer()
-                            .hover(move |style| style.bg(colors.sidebar))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.dispatch(Command::ToggleGroup(toggled.clone()), window, cx)
-                            }))
-                            .on_mouse_down(
-                                gpui::MouseButton::Right,
-                                cx.listener(move |this, _, window, cx| {
-                                    let mut items: Vec<(SharedString, Command, bool)> = vec![(
-                                        if collapsed { "Expand" } else { "Collapse" }.into(),
-                                        Command::ToggleGroup(group.clone()),
-                                        false,
-                                    )];
-                                    if !group.is_empty() {
-                                        items.extend([
-                                            (
-                                                "Rename group…".into(),
-                                                Command::RenameGroup(group.clone()),
-                                                false,
-                                            ),
-                                            (
-                                                "Remove group…".into(),
-                                                Command::RemoveGroup(group.clone()),
-                                                false,
-                                            ),
-                                        ]);
-                                    }
-                                    this.show_menu(items, window, cx);
-                                    cx.stop_propagation();
-                                }),
-                            )
-                    }),
-            )
-            .into_any_element()
-    }
-
-    fn list(&self, cx: &mut Context<Self>) -> AnyElement {
-        let colors = self.colors(cx);
-        let entries = self.entries(cx);
-        let count: usize = entries
+fn account_actions(s: &Sesh, id: &str) -> Vec<(String, Command)> {
+    let mut items = vec![
+        ("Set credentials".into(), Command::SetCredentials),
+        ("Open AWS Console".into(), Command::Console),
+        ("Copy account ID".into(), Command::CopyAccount),
+        ("Copy account name".into(), Command::CopyName),
+        ("Toggle favorite".into(), Command::TogglePin),
+        ("New group…".into(), Command::NewGroup),
+    ];
+    items.extend(
+        s.groups()
             .iter()
-            .map(|entry| match entry {
-                Entry::Account(_) => 1,
-                Entry::Heading {
-                    count,
-                    collapsed: true,
-                    ..
-                } => *count,
-                Entry::Heading { .. } => 0,
-            })
-            .sum();
-        let title = if self.screen == Screen::Credentials {
-            "Active profiles"
-        } else {
-            "Accounts"
-        };
-        let view = cx.entity().downgrade();
-        let mut list = div()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .flex()
-            .flex_col()
-            // Runs before the items' own drag listeners, which claim the section under the cursor.
-            .on_drag_move(
-                cx.listener(|this, _: &gpui::DragMoveEvent<AccountDrag>, _, cx| {
-                    this.drop_section = None;
-                    cx.notify();
-                }),
+            .cloned()
+            .map(|group| (format!("Move to {group}"), Command::SetGroup(Some(group)))),
+    );
+    items.push(("Remove from group".into(), Command::SetGroup(None)));
+    items
+        .into_iter()
+        .map(|(label, command)| {
+            (
+                label,
+                Command::AccountAction(id.to_owned(), Box::new(command)),
             )
-            .child(
-                canvas(
-                    move |bounds, _, cx| {
-                        let _ = view.update(cx, |this, cx| {
-                            if this.list_width != bounds.size.width {
-                                this.list_width = bounds.size.width;
-                                cx.notify();
-                            }
-                        });
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .inset_0()
-                .size_full(),
-            )
-            .child(
-                div()
-                    .px_5()
-                    .pt_4()
-                    .pb_3()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(colors.muted)
-                            .child(count.to_string()),
-                    ),
-            )
-            .child(
-                div().px_4().pb_3().child(
-                    Input::new(&self.search)
-                        .large()
-                        .min_h(px(44.))
-                        .prefix(Icon::new(IconName::Search))
-                        .disabled(self.modal()),
-                ),
-            );
-        if !entries.is_empty() {
-            let sizes = Rc::new(
-                entries
-                    .iter()
-                    .map(|entry| {
-                        size(
-                            px(0.),
-                            px(match entry {
-                                Entry::Heading { .. } => 36.,
-                                Entry::Account(_) => 74.,
-                            }),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            );
-            let positions: Vec<usize> = entries
-                .iter()
-                .scan(0, |next, entry| {
-                    let position = *next;
-                    if matches!(entry, Entry::Account(_)) {
-                        *next += 1;
-                    }
-                    Some(position)
-                })
-                .collect();
-            list = list.child(
-                v_virtual_list(cx.entity(), "items", sizes, move |this, range, _, cx| {
-                    range
-                        .map(|ix| {
-                            let last =
-                                matches!(entries.get(ix + 1), None | Some(Entry::Heading { .. }));
-                            match &entries[ix] {
-                                Entry::Heading {
-                                    group,
-                                    count,
-                                    collapsed,
-                                } => this.heading(ix, group.clone(), *count, *collapsed, last, cx),
-                                Entry::Account(index) => this.row(positions[ix], *index, last, cx),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .w_full()
-                .flex_1()
-                .track_scroll(&self.scroll),
-            );
-        } else {
-            let (heading, description) = if self.busy || !self.initialized {
-                ("Loading…", "Reading your workspace and cached accounts.")
-            } else if !self.search.read(cx).value().is_empty() {
-                (
-                    "No matching results",
-                    "Try an account name, ID, role or profile.",
-                )
-            } else if self.screen == Screen::Credentials {
-                (
-                    "No active credentials",
-                    "Set credentials from an account’s inspector to see its profile here.",
-                )
-            } else if self.data.session.is_none() {
-                (
-                    "Connect your organization",
-                    "Add an SSO session to start browsing AWS accounts.",
-                )
-            } else if !self.authenticated() {
-                (
-                    "Sign in to load accounts",
-                    "Authorize this organization in your browser. Cached accounts remain available when signed out.",
-                )
-            } else if self.busy {
-                (
-                    "Loading accounts…",
-                    "Fetching your organization’s available accounts.",
-                )
-            } else {
-                (
-                    "No accounts found",
-                    "Refresh to check the organization’s account list.",
-                )
-            };
-            let mut empty = div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .justify_center()
-                .items_center()
-                .p_6()
-                .gap_3()
-                .child(
-                    Icon::new(IconName::Inbox)
-                        .size(px(28.))
-                        .text_color(colors.muted),
-                )
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(heading))
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(colors.muted)
-                        .text_center()
-                        .child(description),
-                );
-            if !self.busy
-                && self.initialized
-                && self.screen == Screen::Accounts
-                && self.search.read(cx).value().is_empty()
-            {
-                empty = empty.child(
-                    self.button(
-                        "empty-action",
-                        if self.data.session.is_some() {
-                            "Sign in"
-                        } else {
-                            "Add SSO session"
-                        },
-                        if self.data.session.is_some() {
-                            Command::Login
-                        } else {
-                            Command::NewSession
-                        },
-                        cx,
-                    )
-                    .primary(),
-                );
-            }
-            list = list.child(empty);
-        }
-        list.into_any_element()
-    }
+        })
+        .collect()
+}
 
-    fn metadata(&self, label: &str, value: &str, cx: &Context<Self>) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(
-                div()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(label.to_owned())),
-            )
-            .child(
-                div()
-                    .min_h(px(44.))
-                    .px_4()
-                    .flex()
-                    .items_center()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().input)
-                    .bg(cx.theme().background)
-                    .when(cx.theme().shadow, |field| field.shadow_xs())
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_base()
-                            .child(SharedString::from(value.to_owned())),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    fn expiry(&self, value: &str, cx: &Context<Self>) -> AnyElement {
-        let colors = self.colors(cx);
-        div()
-            .p_3()
-            .rounded_md()
-            .bg(colors.sidebar)
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(
-                div()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(remaining(value)),
-            )
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(colors.muted)
-                    .child(format!("Expires at {} local time", expiration(value))),
-            )
-            .into_any_element()
-    }
-
-    /// The inspector for a multi-selection: what is selected, and what can be done to all of it.
-    fn bulk_inspector(
-        &self,
-        panel: gpui::Stateful<gpui::Div>,
-        targets: &[crate::Account],
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let colors = self.colors(cx);
-        let count = targets.len();
-        let pinned = targets.iter().all(|account| account.pinned);
-        let grouped = targets.iter().any(|account| account.group.is_some());
-        let accounts = targets.iter().map(|account| {
-            let place = if account.pinned {
-                "Favorites"
-            } else {
-                account.group.as_deref().unwrap_or("Other accounts")
-            };
-            div()
-                .py_2()
-                .flex()
-                .items_center()
-                .gap_3()
-                .border_b_1()
-                .border_color(colors.border)
-                .child(
-                    Icon::new(IconName::Building2)
-                        .size(px(16.))
-                        .flex_shrink_0()
-                        .text_color(colors.muted),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .truncate()
-                                .text_size(px(13.))
-                                .child(account.name.clone()),
-                        )
-                        .child(
-                            div()
-                                .truncate()
-                                .font_family(platform::mono_font())
-                                .text_size(px(11.))
-                                .text_color(colors.muted)
-                                .child(account.account_id.clone()),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w(px(96.))
-                        .truncate()
-                        .text_size(px(11.))
-                        .text_color(colors.muted)
-                        .child(place.to_owned()),
-                )
-        });
-        panel
-            .debug_selector(|| "bulk-inspector".into())
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_size(px(20.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(format!("{count} accounts selected")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(colors.muted)
-                            .child("Actions apply to every selected account."),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        self.button(
-                            "bulk-pin",
-                            if pinned {
-                                "Remove from favorites"
-                            } else {
-                                "Add to favorites"
-                            },
-                            Command::Pin(!pinned),
-                            cx,
-                        )
-                        .icon(if pinned {
-                            IconName::StarOff
-                        } else {
-                            IconName::Star
-                        })
-                        .w_full(),
-                    )
-                    .child(
-                        self.button("bulk-group", "Move to group…", Command::GroupMenu, cx)
-                            .icon(IconName::Folder)
-                            .w_full(),
-                    )
-                    .when(grouped, |actions| {
-                        actions.child(
-                            self.button(
-                                "bulk-ungroup",
-                                "Remove from groups",
-                                Command::SetGroup(None),
-                                cx,
-                            )
-                            .icon(IconName::FolderOpen)
-                            .w_full(),
-                        )
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                self.button("bulk-copy-ids", "Copy IDs", Command::CopyAccount, cx)
-                                    .icon(IconName::Copy)
-                                    .flex_1(),
-                            )
-                            .child(
-                                self.button("bulk-copy-names", "Copy names", Command::CopyName, cx)
-                                    .icon(IconName::Copy)
-                                    .flex_1(),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .pt_3()
-                    .border_t_1()
-                    .border_color(colors.border)
-                    .children(accounts),
-            )
-            .child(
-                self.button("bulk-clear", "Clear selection", Command::ClearSelection, cx)
-                    .ghost()
-                    .w_full(),
-            )
-            .into_any_element()
-    }
-
-    fn inspector(&self, cx: &Context<Self>) -> AnyElement {
-        let colors = self.colors(cx);
-        let mut panel = div()
-            .id("inspector")
-            .w(px(344.))
-            .flex_shrink_0()
-            .h_full()
-            .overflow_y_scroll()
-            .p_5()
-            .flex()
-            .flex_col()
-            .gap_5()
-            .border_l_1()
-            .border_color(colors.border);
-        if self.screen == Screen::Credentials {
-            if let Some(value) = self.credential(cx) {
-                panel = panel
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(
-                                self.copy_value(
-                                    "credential-name",
-                                    &value.account_name,
-                                    Command::CopyName,
-                                    cx,
-                                )
-                                .text_size(px(20.))
-                                .font_weight(FontWeight::SEMIBOLD),
-                            )
-                            .child(
-                                self.copy_value(
-                                    "credential-id",
-                                    &value.account_id,
-                                    Command::CopyAccount,
-                                    cx,
-                                )
-                                .font_family(platform::mono_font())
-                                .text_size(px(11.))
-                                .text_color(colors.muted),
-                            ),
-                    )
-                    .child(self.metadata("Role", &value.role_name, cx))
-                    .child(self.metadata(
-                        "Region",
-                        value.region.as_deref().unwrap_or("Not configured"),
-                        cx,
-                    ))
-                    .child(self.metadata("CLI profile", &value.profile_name, cx))
-                    .child(self.metadata("Organization", &value.session_name, cx))
-                    .child(self.expiry(&value.expiration, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .pt_3()
-                            .border_t_1()
-                            .border_color(colors.border)
-                            .child(
-                                self.button(
-                                    "copy-profile",
-                                    "Copy profile",
-                                    Command::CopyProfile,
-                                    cx,
-                                )
-                                .icon(IconName::Copy)
-                                .w_full(),
-                            )
-                            .child(
-                                self.button(
-                                    "remove-credential",
-                                    "Remove profile…",
-                                    Command::RemoveCredential,
-                                    cx,
-                                )
-                                .danger()
-                                .w_full(),
-                            ),
-                    );
-            } else {
-                panel = panel.child(
-                    div()
-                        .pt_10()
-                        .text_color(colors.muted)
-                        .text_center()
-                        .child("Select a profile to inspect its credentials."),
-                );
-            }
-            return panel.into_any_element();
-        }
-        let targets = self.targets(cx);
-        if targets.len() > 1 {
-            return self.bulk_inspector(panel, &targets, cx);
-        }
-        let Some(account) = &self.account else {
-            return panel
-                .child(
-                    div()
-                        .pt_10()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap_3()
-                        .text_color(colors.muted)
-                        .child(Icon::new(IconName::Inspector).size(px(28.)))
-                        .child("Select an account"),
-                )
-                .into_any_element();
-        };
-        let role = self.role(cx);
-        let ready = role.is_some() && self.authenticated();
-        let active = self.data.credentials.iter().find(|value| {
-            value.account_id == account.account_id
-                && Some(&value.session_name) == self.data.session.as_ref()
-                && Some(&value.role_name) == role.as_ref()
-        });
-        panel = panel
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        self.copy_value("account-name", &account.name, Command::CopyName, cx)
-                            .text_size(px(20.))
-                            .font_weight(FontWeight::SEMIBOLD),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_2()
-                            .child(
-                                self.copy_value(
-                                    "account-id",
-                                    &account.account_id,
-                                    Command::CopyAccount,
-                                    cx,
-                                )
-                                .font_family(platform::mono_font())
-                                .text_size(px(11.))
-                                .text_color(colors.muted),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .flex_shrink_0()
-                                    .gap_1()
-                                    .child(
-                                        self.button("account-group", "", Command::GroupMenu, cx)
-                                            .ghost()
-                                            .icon(Icon::new(IconName::Folder).size(px(14.)))
-                                            .child(
-                                                div().max_w(px(120.)).truncate().child(
-                                                    SharedString::from(
-                                                        account.group.clone().unwrap_or_else(
-                                                            || "Add to group".into(),
-                                                        ),
-                                                    ),
-                                                ),
-                                            )
-                                            .h(px(24.))
-                                            .px(px(6.))
-                                            .rounded(px(6.))
-                                            .text_size(px(12.))
-                                            .text_color(colors.muted)
-                                            .cursor_pointer()
-                                            .tooltip("Move to group"),
-                                    )
-                                    .child(
-                                        self.button("toggle-pin", "", Command::TogglePin, cx)
-                                            .ghost()
-                                            .size(px(24.))
-                                            .p_0()
-                                            .rounded(px(6.))
-                                            .cursor_pointer()
-                                            .child(
-                                                Icon::new(IconName::Star)
-                                                    .size(px(16.))
-                                                    .when(account.pinned, |icon| {
-                                                        icon.path("icons/star-filled.svg")
-                                                    })
-                                                    .text_color(if account.pinned {
-                                                        cx.theme().yellow
-                                                    } else {
-                                                        colors.muted
-                                                    }),
-                                            )
-                                            .tooltip(format!(
-                                                "{} · {}",
-                                                if account.pinned {
-                                                    "Remove from favorites"
-                                                } else {
-                                                    "Add to favorites"
-                                                },
-                                                platform::shortcut_label(
-                                                    "pin_account",
-                                                    &self.shortcuts
-                                                )
-                                            )),
-                                    ),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(div().font_weight(FontWeight::MEDIUM).child("Role"))
-                    .child({
-                        let view = cx.entity().clone();
-                        div()
-                            .id("role-select")
-                            .relative()
-                            .h(px(44.))
-                            .w_full()
-                            .px_3()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .rounded(px(7.))
-                            .border_1()
-                            .border_color(colors.border)
-                            .bg(cx.theme().background)
-                            .track_focus(&self.role_focus.clone().tab_stop(!self.modal()))
-                            .focus(|style| style.border_color(colors.accent))
-                            .cursor_pointer()
-                            .child(div().flex_1().truncate().child(role.clone().unwrap_or_else(
-                                || {
-                                    if self.busy && !account.roles_loaded {
-                                        "Loading roles…".into()
-                                    } else {
-                                        "Select a role".into()
-                                    }
-                                },
-                            )))
-                            .child(
-                                Icon::new(IconName::ChevronsUpDown)
-                                    .size(px(14.))
-                                    .text_color(colors.muted),
-                            )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if this.modal() {
-                                    return;
-                                }
-                                this.dispatch(Command::RoleMenu, window, cx);
-                                cx.stop_propagation();
-                            }))
-                            .on_key_down(cx.listener(
-                                |this, event: &gpui::KeyDownEvent, window, cx| {
-                                    if this.modal()
-                                        || !matches!(
-                                            event.keystroke.key.as_str(),
-                                            "enter" | "space" | "down" | "up"
-                                        )
-                                    {
-                                        return;
-                                    }
-                                    this.dispatch(Command::RoleMenu, window, cx);
-                                    window.prevent_default();
-                                    cx.stop_propagation();
-                                },
-                            ))
-                            .child(
-                                canvas(
-                                    move |bounds, _, cx| {
-                                        view.update(cx, |this, _| this.role_bounds = bounds)
-                                    },
-                                    |_, _, _, _| {},
-                                )
-                                .absolute()
-                                .inset_0()
-                                .size_full(),
-                            )
-                    })
-                    .when(
-                        role.is_some() && role != account.preferred_role,
-                        |section| {
-                            section.child(
-                                self.button(
-                                    "prefer-role",
-                                    "Make preferred",
-                                    Command::PreferRole,
-                                    cx,
-                                )
-                                .ghost(),
-                            )
-                        },
-                    ),
-            );
-        if !account.roles_loaded || account.roles.is_empty() {
-            panel = panel.child(self.button(
-                "load-roles",
-                if self.authenticated() {
-                    "Load roles"
+fn toolbar(s: &Sesh, cx: &Cx<Sesh>, c: &crate::theme::Colors) -> El {
+    let native_inset = if cfg!(target_os = "macos") && cx.titlebar_inset() > 0. {
+        82.
+    } else {
+        0.
+    };
+    let capsule_width = native_inset + 60.;
+    let open = s.appearance.sidebar_visible;
+    let clearance = if open {
+        (s.appearance.sidebar_width - capsule_width + 4.).max(16.)
+    } else {
+        16.
+    };
+    let mut status = row()
+        .key("organization-toolbar")
+        .center_y()
+        .gap(12.)
+        .grow(1.)
+        .min_w(0.);
+    if s.screen == Screen::Accounts {
+        status = status.child(
+            label(s.data.session.as_deref().unwrap_or("Sesh"), c.text)
+                .grow(1.)
+                .min_w(0.),
+        );
+        if s.data.session.is_some() {
+            status = status.child(icon_button(
+                "toolbar-login",
+                if s.authenticated() {
+                    "Sign out"
                 } else {
-                    "Sign in to load roles"
+                    "Sign in"
                 },
-                if self.authenticated() {
-                    Command::LoadRoles
+                if s.authenticated() {
+                    &SIGN_OUT
+                } else {
+                    &SIGN_IN
+                },
+                if s.authenticated() {
+                    Command::SignOut
                 } else {
                     Command::Login
                 },
-                cx,
+                c,
             ));
-        }
-        panel = panel
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(div().font_weight(FontWeight::MEDIUM).child("Region"))
-                    .child(
-                        Input::new(&self.region)
-                            .large()
-                            .min_h(px(44.))
-                            .disabled(self.modal()),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(div().font_weight(FontWeight::MEDIUM).child("CLI profile"))
-                    .child(
-                        Input::new(&self.profile)
-                            .large()
-                            .min_h(px(44.))
-                            .disabled(self.modal() || role.is_none()),
-                    ),
-            );
-        if let Some(active) = active {
-            panel = panel.child(self.expiry(&active.expiration, cx));
-        }
-        if self.preferences_dirty(cx) {
-            panel = panel.child(div().text_size(px(11.)).text_color(colors.muted).child(
-                if self.preferences_saving(cx) {
-                    "Saving preferences…"
-                } else {
-                    "Preferences could not be saved. Check the region and profile."
-                },
-            ));
-        }
-        panel = panel.child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .pt_3()
-                .border_t_1()
-                .border_color(colors.border)
-                .child(
-                    self.button(
-                        "set-credentials",
-                        "Set credentials",
-                        Command::SetCredentials,
-                        cx,
-                    )
-                    .primary()
-                    .w_full()
-                    .disabled(self.modal() || !ready || self.preferences_dirty(cx)),
-                )
-                .child(
-                    self.button("open-console", "Open AWS Console", Command::Console, cx)
-                        .icon(IconName::ExternalLink)
-                        .w_full()
-                        .disabled(self.modal() || role.is_none()),
-                ),
-        );
-        if !self.authenticated() {
-            panel = panel.child(
-                self.button(
-                    "inspector-login",
-                    "Sign in to this organization",
-                    Command::Login,
-                    cx,
-                )
-                .w_full(),
+            let items = session_actions(s.data.session.as_deref().unwrap_or(""), s.authenticated());
+            let point = cx
+                .window_layout("session-menu")
+                .map(|rect| rune::PointerPress {
+                    x: rect[0],
+                    y: rect[1] + rect[3] + 4.,
+                })
+                .unwrap_or(rune::PointerPress { x: 400., y: HEADER });
+            status = status.child(
+                row()
+                    .key("session-menu")
+                    .size(20., 26.)
+                    .center()
+                    .radius(5.)
+                    .role("button")
+                    .label("Organization actions")
+                    .focusable(true)
+                    .help("Organization actions")
+                    .hover(c.text.alpha(0.07))
+                    .child(icon(&MORE, 16.).color(c.muted))
+                    .on_press(move |s: &mut Sesh| {
+                        s.context_menu = Some(ContextMenu {
+                            point,
+                            items: items.clone(),
+                        });
+                    }),
             );
         }
-        panel.into_any_element()
+    } else if s.screen == Screen::Settings {
+        status = status.child(label("Settings", c.text));
+    } else {
+        status = credential_toolbar(s, c);
     }
-
-    fn settings(&self, cx: &Context<Self>) -> AnyElement {
-        let colors = self.colors(cx);
-        let choices = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
-        div()
-            .id("settings-content")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .p_8()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .child(
-                div()
-                    .max_w(px(650.))
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_size(px(16.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Appearance"),
+    if s.screen == Screen::Accounts {
+        status = status.child(icon_button(
+            "toolbar-refresh",
+            "Refresh",
+            &REFRESH,
+            Command::Refresh,
+            c,
+        ));
+    }
+    row()
+        .key("window-toolbar")
+        .motion(rune::tok::motion::SNAPPY)
+        .pin(
+            Some(0.),
+            Some(0.),
+            Some(if s.screen == Screen::Settings {
+                0.
+            } else {
+                345.
+            }),
+            None,
+        )
+        .h(HEADER)
+        .px(8.)
+        .pt(4.)
+        .center_y()
+        .window_drag()
+        .pr(if s.screen == Screen::Settings {
+            cx.chrome_insets().trailing + 8.
+        } else {
+            8.
+        })
+        .child(
+            row()
+                .key("titlebar-island")
+                .w(capsule_width)
+                .h(32.)
+                .center_y()
+                .px(6.)
+                .gap(2.)
+                .child(
+                    el().key("island-background")
+                        .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+                        .radius(12.)
+                        .fill(c.element)
+                        .border(1., c.border.alpha(0.55))
+                        .shadow(2., 7., Color::BLACK.alpha(0.24))
+                        .opacity(if open { 0. } else { 1. })
+                        .motion(rune::tok::motion::SNAPPY)
+                        .inert(),
+                )
+                .child(el().key("native-control-clearance").w(native_inset).h(26.))
+                .child(
+                    icon_button(
+                        "toolbar-sidebar",
+                        "Toggle sidebar",
+                        &SIDEBAR,
+                        Command::ToggleSidebar,
+                        c,
                     )
-                    .child(
-                        div()
-                            .text_color(colors.muted)
-                            .child("Follow your system, or choose a light or dark workspace."),
-                    )
-                    .child(div().flex().gap_2().children(choices.into_iter().map(
-                        |(value, label)| {
-                            self.button(value, label, Command::Appearance(value.into()), cx)
-                                .selected(self.appearance.mode == value)
-                        },
-                    )))
-                    .child(div().pt_3().font_weight(FontWeight::MEDIUM).child("Theme"))
-                    .child(theme::opaque_select(
-                        RoleSelect::new(&self.themes)
-                            .large()
-                            .h(px(44.))
-                            .w(px(320.))
-                            .disabled(self.modal()),
-                    ))
-                    .child(
-                        self.button(
-                            "open-theme-directory",
-                            "Open theme location",
-                            Command::OpenThemeDirectory,
-                            cx,
-                        )
-                        .icon(IconName::Folder)
-                        .w(px(320.)),
-                    )
-                    .child(
-                        div()
-                            .pt_3()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("Window background"),
-                    )
-                    .child(
-                        div()
-                            .w(px(420.))
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .child("Translucency")
-                                    .child(div().text_color(colors.muted).child(format!(
-                                        "{:.0}%",
-                                        self.translucency.read(cx).value().end()
-                                    ))),
-                            )
-                            .child(
-                                div()
-                                    .id("translucency-control")
-                                    .px_2()
-                                    .py_1()
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(Hsla::transparent_black())
-                                    .track_focus(&self.translucency_focus)
-                                    .tab_stop(!self.modal())
-                                    .key_context("Translucency")
-                                    .focus(move |style| style.border_color(colors.accent))
-                                    .capture_any_mouse_down(cx.listener(
-                                        |this, event: &gpui::MouseDownEvent, window, cx| {
-                                            if event.button == gpui::MouseButton::Left
-                                                && !this.modal()
-                                            {
-                                                this.translucency_focus.focus(window);
-                                                cx.notify();
-                                            }
-                                        },
-                                    ))
-                                    .on_key_down(cx.listener(
-                                        |this, event: &gpui::KeyDownEvent, window, cx| {
-                                            if this.modal() {
-                                                return;
-                                            }
-                                            let value = this.translucency.read(cx).value().end();
-                                            let amount = match event.keystroke.key.as_str() {
-                                                "left" => value - 1.,
-                                                "right" => value + 1.,
-                                                "home" => 0.,
-                                                "end" => 100.,
-                                                _ => return,
-                                            };
-                                            this.dispatch(
-                                                Command::Translucency(amount),
-                                                window,
-                                                cx,
-                                            );
-                                            cx.stop_propagation();
-                                        },
-                                    ))
-                                    .child(
-                                        div()
-                                            .relative()
-                                            .child(
-                                                div()
-                                                    .absolute()
-                                                    .left(relative(0.1))
-                                                    .top(px(6.))
-                                                    .w(px(1.))
-                                                    .h(px(12.))
-                                                    .bg(colors.muted),
-                                            )
-                                            .child(
-                                                Slider::new(&self.translucency)
-                                                    .disabled(self.modal()),
-                                            ),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        Checkbox::new("dither-texture")
-                            .label("Dither texture")
-                            .checked(self.appearance.dithering)
-                            .disabled(
-                                self.translucency.read(cx).value().end() == 0. || self.modal(),
-                            )
-                            .key_context("DitherTexture")
-                            .on_action(cx.listener(|this, _: &ToggleDithering, window, cx| {
-                                if this.translucency.read(cx).value().end() > 0. && !this.modal() {
-                                    this.dispatch(
-                                        Command::Dithering(!this.appearance.dithering),
-                                        window,
-                                        cx,
-                                    );
-                                }
-                            }))
-                            .on_click(cx.listener(|this, checked: &bool, window, cx| {
-                                this.dispatch(Command::Dithering(*checked), window, cx);
-                            })),
+                    .expanded(open),
+                )
+                .child(
+                    icon_button("toolbar-commands", "Commands", &SEARCH, Command::Palette, c).help(
+                        format!(
+                            "Commands · {}",
+                            platform::shortcut_label("commands", &s.appearance.shortcuts)
+                        ),
                     ),
-            )
-            .child(
-                div()
-                    .max_w(px(650.))
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .pt_5()
-                    .border_t_1()
-                    .border_color(colors.border)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(px(16.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Keyboard shortcuts"),
-                            )
-                            .child(
-                                self.button(
-                                    "reset-shortcuts",
-                                    "Restore defaults",
-                                    Command::ResetShortcuts,
-                                    cx,
-                                )
-                                .disabled(
-                                    self.modal()
-                                        || (self.shortcuts.is_empty()
-                                            && self.appearance.shortcuts.is_empty()),
-                                ),
-                            ),
+                ),
+        )
+        .child(
+            el().key("toolbar-clearance")
+                .w(clearance)
+                .motion(rune::tok::motion::SNAPPY),
+        )
+        .child(status)
+}
+
+fn sidebar_item(
+    key: impl Into<String>,
+    title: &str,
+    selected: bool,
+    c: &crate::theme::Colors,
+) -> El {
+    row()
+        .key(key)
+        .w_full()
+        .h(36.)
+        .px(10.)
+        .gap(8.)
+        .center_y()
+        .radius(6.)
+        .fill(if selected {
+            c.element
+        } else {
+            Color::TRANSPARENT
+        })
+        .hover(c.text.alpha(0.05))
+        .focusable(true)
+        .role("button")
+        .label(title)
+        .focus_selected(selected)
+}
+
+fn sidebar(s: &Sesh, c: &crate::theme::Colors) -> El {
+    let width = s.appearance.sidebar_width;
+    let mut organizations = col().w_full().gap(4.).px(10.).pt(12.).child(
+        text("Organizations")
+            .font(TextStyle::new(12., 600.))
+            .color(c.muted)
+            .px(7.)
+            .py(4.),
+    );
+    for session in &s.data.sessions {
+        let name = session.name.clone();
+        let items = session_actions(&name, session.authenticated);
+        let selected = s.data.session.as_ref() == Some(&name) && s.screen == Screen::Accounts;
+        organizations = organizations.child(
+            sidebar_item(format!("session-{name}"), &name, selected, c)
+                .child(icon(&BUILDING, 17.).color(c.muted))
+                .child(
+                    label(
+                        &name,
+                        if session.authenticated {
+                            c.text
+                        } else {
+                            c.muted
+                        },
                     )
-                    .children(platform::shortcuts().into_iter().map(|shortcut| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .py_1()
-                            .gap_4()
-                            .child(div().flex_1().child(shortcut.label))
-                            .child(
-                                self.button(
-                                    shortcut.id,
-                                    platform::shortcut_label(shortcut.id, &self.shortcuts),
-                                    Command::RecordShortcut(shortcut.id),
-                                    cx,
-                                )
-                                .min_w(px(112.)),
-                            )
-                    })),
+                    .grow(1.)
+                    .min_w(0.),
+                )
+                .child(
+                    icon(
+                        if session.authenticated {
+                            &CHECK
+                        } else {
+                            &SIGNED_OUT
+                        },
+                        13.,
+                    )
+                    .color(if session.authenticated {
+                        c.success
+                    } else {
+                        c.warning
+                    }),
+                )
+                .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(Command::Session(name.clone()), tx))
+                .on_secondary_press(move |s: &mut Sesh, point, _| {
+                    s.context_menu = Some(ContextMenu {
+                        point,
+                        items: items.clone(),
+                    })
+                }),
+        );
+    }
+    organizations = organizations.child(
+        sidebar_item("new-session", "Add SSO session", false, c)
+            .child(icon(&PLUS, 17.).color(c.muted))
+            .child(label("Add SSO session", c.text))
+            .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::NewSession, tx)),
+    );
+    let count = s.data.credentials.len();
+    let credentials = sidebar_item(
+        "credentials-navigation",
+        &format!("Credentials ({count})"),
+        s.screen == Screen::Credentials,
+        c,
+    )
+    .child(icon(&TERMINAL, 17.).color(c.muted))
+    .child(label("Credentials", c.text).grow(1.).min_w(0.))
+    .child(small(count.to_string(), c.muted))
+    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::Credentials, tx));
+    let settings = sidebar_item(
+        "settings-navigation",
+        "Settings",
+        s.screen == Screen::Settings,
+        c,
+    )
+    .child(icon(&SETTINGS, 17.).color(c.muted))
+    .child(label("Settings", c.text))
+    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::Settings, tx));
+    col()
+        .key("sidebar")
+        .w(width)
+        .h_full()
+        .pt(HEADER)
+        .fill(c.panel.alpha(0.25))
+        .child(
+            col()
+                .grow(1.)
+                .min_h(0.)
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(organizations),
+        )
+        .child(
+            col()
+                .w_full()
+                .gap(4.)
+                .px(10.)
+                .py(8.)
+                .child(credentials)
+                .child(settings),
+        )
+}
+
+fn section_key(group: &Option<String>) -> String {
+    match group {
+        None => "favorites".into(),
+        Some(group) if group.is_empty() => "other".into(),
+        Some(group) => format!("group:{group}"),
+    }
+}
+
+fn section_target(key: &str) -> Option<String> {
+    if key == "favorites" {
+        None
+    } else {
+        Some(key.strip_prefix("group:").unwrap_or("").to_owned())
+    }
+}
+
+fn account_row(s: &Sesh, position: usize, index: usize, c: &crate::theme::Colors) -> El {
+    let compact = s.appearance.compact_accounts;
+    let (height, _) = account_row_metrics(compact);
+    let account = &s.data.accounts[index];
+    let selected = s.selected == Some(position) || s.marked.contains(&account.account_id);
+    let account_id = account.account_id.clone();
+    let title = account.name.clone();
+    let key = Sesh::account_row_key(&account.account_id);
+    let selection_id = account_id.clone();
+    let action_id = account_id.clone();
+    let menu_id = account_id.clone();
+    let dragging = s
+        .dragging
+        .as_ref()
+        .is_some_and(|drag| drag.active && drag.ids.contains(&account_id));
+    row()
+        .key(key)
+        .h(height)
+        .w_full()
+        .px(12.)
+        .gap(12.)
+        .center_y()
+        .radius(6.)
+        .fill(if selected {
+            c.selection
+        } else {
+            Color::TRANSPARENT
+        })
+        .hover(c.text.alpha(0.035))
+        .role("row")
+        .label(&title)
+        .focus_selected(selected)
+        .focusable(true)
+        .focus_ring(2., -2., c.accent)
+        .opacity(if dragging { 0.3 } else { 1. })
+        .child(
+            icon(&BUILDING, if compact { 18. } else { 22. }).color(if selected {
+                c.accent
+            } else if s.authenticated() {
+                c.success
+            } else {
+                c.muted
+            }),
+        )
+        .child(
+            col()
+                .grow(1.)
+                .min_w(0.)
+                .gap(if compact { 2. } else { 7. })
+                .child(label(
+                    &title,
+                    if selected {
+                        c.selected_text
+                    } else if s.authenticated() {
+                        c.text
+                    } else {
+                        c.muted
+                    },
+                ))
+                .child(
+                    text(
+                        account
+                            .last_profile
+                            .as_ref()
+                            .map(|profile| format!("{} · {profile}", account.account_id))
+                            .unwrap_or_else(|| account.account_id.clone()),
+                    )
+                    .font(SMALL.mono())
+                    .color(c.muted)
+                    .truncate(),
+                ),
+        )
+        .children(
+            s.data
+                .credentials
+                .iter()
+                .filter(|credential| {
+                    credential.account_id == account.account_id
+                        && Some(&credential.session_name) == s.data.session.as_ref()
+                })
+                .min_by_key(|credential| !credential.is_default)
+                .map(|credential| {
+                    small(
+                        remaining(&credential.expiration),
+                        if credential.is_default {
+                            c.success
+                        } else {
+                            c.secondary
+                        },
+                    )
+                }),
+        )
+        .child(
+            icon_button(
+                &format!("favorite-{position}"),
+                "Toggle favorite",
+                &STAR,
+                Command::AccountAction(account_id.clone(), Box::new(Command::TogglePin)),
+                c,
             )
-            .when(self.wsl_available || self.wsl_enabled, |el| {
-                el.child(
-                    div()
-                        .max_w(px(650.))
-                        .flex_shrink_0()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .pt_5()
-                        .border_t_1()
-                        .border_color(colors.border)
-                        .child(
-                            div()
-                                .text_size(px(16.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Integration"),
-                        )
-                        .child(
-                            Checkbox::new("use-wsl-workspace")
-                                .label("Use WSL workspace")
-                                .checked(self.wsl_enabled)
-                                .disabled(self.modal() || self.busy || self.preference_save.is_some())
-                                .on_click(cx.listener(|this, checked: &bool, window, cx| {
-                                    this.dispatch(Command::UseWslWorkspace(*checked), window, cx);
-                                })),
-                        )
-                        .child(div().text_color(colors.muted).text_size(px(13.)).child(
-                            "Share SSO sessions, tokens, caches, preferences and credentials with awsesh in your default WSL distribution. Desktop appearance stays on Windows.",
+            .opacity(if account.pinned { 1. } else { 0.35 }),
+        )
+        .on_press_tx(move |s: &mut Sesh, tx| {
+            if let Some(position) = s.account_position(&selection_id) {
+                s.select_account(position, tx);
+            }
+        })
+        .on_double_press_tx(move |s: &mut Sesh, tx| {
+            s.dispatch(
+                Command::AccountAction(action_id.clone(), Box::new(Command::SetCredentials)),
+                tx,
+            )
+        })
+        .on_secondary_press(move |s: &mut Sesh, point, _| {
+            if s.account_position(&menu_id).is_some() {
+                s.context_menu = Some(ContextMenu {
+                    point,
+                    items: account_actions(s, &menu_id),
+                });
+            }
+        })
+        .on_drag(move |s: &mut Sesh, drag, tx| match drag.phase {
+            Phase::Down => {
+                s.suppress_account_press = false;
+                if s.account_position(&account_id).is_none() {
+                    return;
+                }
+                let point = drag.window_point();
+                let rect = [point[0] - drag.x, point[1] - drag.y, drag.w, drag.h];
+                let mut sections: Vec<_> = s
+                    .entries()
+                    .iter()
+                    .cloned()
+                    .filter_map(|entry| match entry {
+                        Entry::Heading { group, .. } => Some(section_key(&group)),
+                        _ => None,
+                    })
+                    .collect();
+                if sections.is_empty() {
+                    sections.push("other".into());
+                }
+                s.section_bounds.retain(|key, _| sections.contains(key));
+                let ids = if s.marked.contains(&account_id) {
+                    s.targets()
+                        .into_iter()
+                        .map(|a| a.account_id.clone())
+                        .collect()
+                } else {
+                    vec![account_id.clone()]
+                };
+                s.dragging = Some(AccountDrag {
+                    ids,
+                    label: title.clone(),
+                    rect,
+                    origin: [rect[0], rect[1]],
+                    pointer: drag.window_point(),
+                    target: None,
+                    active: false,
+                    marked: if s.marked.contains(&account_id) {
+                        s.marked.clone()
+                    } else {
+                        Default::default()
+                    },
+                    selected: if s.marked.contains(&account_id) {
+                        s.selected.and_then(|position| {
+                            s.visible()
+                                .get(position)
+                                .map(|index| s.data.accounts[*index].account_id.clone())
+                        })
+                    } else {
+                        Some(account_id.clone())
+                    },
+                });
+            }
+            Phase::Move => {
+                let point = drag.window_point();
+                let target = s
+                    .section_bounds
+                    .iter()
+                    .find(|(_, r)| {
+                        point[0] >= r[0]
+                            && point[0] <= r[0] + r[2]
+                            && point[1] >= r[1]
+                            && point[1] <= r[1] + r[3]
+                    })
+                    .map(|(key, _)| section_target(key))
+                    .filter(|target| {
+                        s.dragging.as_ref().is_some_and(|drag| {
+                            s.data
+                                .accounts
+                                .iter()
+                                .filter(|account| drag.ids.contains(&account.account_id))
+                                .any(|account| match target {
+                                    None => !account.pinned,
+                                    Some(group) => {
+                                        account.pinned
+                                            || account.group.as_deref().unwrap_or("") != group
+                                    }
+                                })
+                        })
+                    });
+                if let Some(current) = &mut s.dragging {
+                    current.active |= drag.dx.hypot(drag.dy) > 4.;
+                    current.rect[0] = current.origin[0] + drag.dx;
+                    current.rect[1] = current.origin[1] + drag.dy;
+                    current.pointer = point;
+                    current.target = target;
+                }
+            }
+            Phase::Up => {
+                if let Some(current) = s.dragging.take()
+                    && current.active
+                {
+                    s.suppress_account_press = true;
+                    s.marked = current.marked;
+                    s.selected = current
+                        .selected
+                        .as_deref()
+                        .and_then(|id| s.account_position(id));
+                    s.inspect();
+                    if !drag.cancelled()
+                        && let Some(target) = current.target
+                    {
+                        apply_drop(s, &current.ids, target);
+                    }
+                    tx.focus("account-list", false);
+                }
+            }
+        })
+}
+
+fn apply_drop(s: &mut Sesh, ids: &[String], target: Option<String>) {
+    let accounts: Vec<_> = s
+        .data
+        .accounts
+        .iter()
+        .filter(|a| ids.contains(&a.account_id))
+        .cloned()
+        .collect();
+    for account in accounts {
+        let name = s.data.session.clone();
+        match &target {
+            None => {
+                if !account.pinned {
+                    s.request(
+                        "pinAccount",
+                        json!({"name": name, "accountId": account.account_id, "pinned": true}),
+                    );
+                }
+            }
+            Some(group) => {
+                if account.pinned {
+                    s.request(
+                        "pinAccount",
+                        json!({"name": name, "accountId": account.account_id, "pinned": false}),
+                    );
+                }
+                let group = (!group.is_empty()).then(|| group.clone());
+                if account.group != group {
+                    s.request("setAccountGroup", json!({"name": name, "accountId": account.account_id, "group": group.unwrap_or_default()}));
+                }
+            }
+        }
+    }
+}
+
+fn account_list(s: &Sesh, c: &crate::theme::Colors) -> El {
+    let entries = s.entries();
+    let (height, gap) = account_row_metrics(s.appearance.compact_accounts);
+    let mut content = col().key("account-rows").w_full().gap(6.);
+    let mut sections: Vec<AccountSection> = vec![];
+    let mut position = 0;
+    for entry in entries.iter().cloned() {
+        match entry {
+            Entry::Heading {
+                group,
+                count,
+                collapsed,
+            } => sections.push(AccountSection {
+                group,
+                heading: Some((count, collapsed)),
+                accounts: vec![],
+            }),
+            Entry::Account(index) => {
+                if sections.is_empty() {
+                    sections.push(AccountSection {
+                        group: Some(String::new()),
+                        heading: None,
+                        accounts: vec![],
+                    });
+                }
+                if let Some(section) = sections.last_mut() {
+                    section.accounts.push((position, index));
+                }
+                position += 1;
+            }
+        }
+    }
+    for AccountSection {
+        group,
+        heading,
+        accounts,
+    } in sections
+    {
+        let section = section_key(&group);
+        let target = s
+            .dragging
+            .as_ref()
+            .is_some_and(|drag| drag.active && drag.target.as_ref() == Some(&group));
+        let mut block = col()
+            .key(format!("section-{section}"))
+            .w_full()
+            .radius(7.)
+            .gap(6.)
+            .border(1., if target { c.accent } else { Color::TRANSPARENT });
+        if let Some((count, collapsed)) = heading {
+            let title = match group.as_deref() {
+                None => "Favorites",
+                Some("") => "Other accounts",
+                Some(group) => group,
+            };
+            let mut header = row()
+                .key(format!("heading-{section}"))
+                .h(32.)
+                .px(10.)
+                .gap(8.)
+                .center_y()
+                .child(small(if collapsed { "›" } else { "⌄" }, c.muted))
+                .child(text(title).font(TextStyle::new(12., 600.)).color(c.muted))
+                .child(small(count.to_string(), c.muted));
+            if let Some(group) = &group {
+                let toggle = group.clone();
+                header = header
+                    .role("button")
+                    .label(title)
+                    .expanded(!collapsed)
+                    .focusable(true)
+                    .on_press_tx(move |s: &mut Sesh, tx| {
+                        s.dispatch(Command::ToggleGroup(toggle.clone()), tx)
+                    });
+                if !group.is_empty() {
+                    let group = group.clone();
+                    header = header.on_secondary_press(move |s: &mut Sesh, point, _| {
+                        s.context_menu = Some(ContextMenu {
+                            point,
+                            items: vec![
+                                ("Rename group…".into(), Command::RenameGroup(group.clone())),
+                                ("Remove group…".into(), Command::RemoveGroup(group.clone())),
+                            ],
+                        });
+                    });
+                }
+            }
+            block = block.child(header);
+        }
+        let accounts = Rc::new(accounts);
+        let keys = accounts.clone();
+        let colors = *c;
+        let rows = col()
+            .key(format!("rows-{section}"))
+            .w_full()
+            .gap(gap)
+            .growth(rune::GrowthSpec {
+                spring: rune::Spring::NONE,
+                ..Default::default()
+            })
+            .virtual_rows(
+                accounts.len(),
+                height + gap,
+                move |s: &Sesh, index| {
+                    Cow::Owned(Sesh::account_row_key(
+                        &s.data.accounts[keys[index].1].account_id,
+                    ))
+                },
+                move |s: &Sesh, index| {
+                    let (position, account) = accounts[index];
+                    account_row(s, position, account, &colors)
+                },
+            );
+        block = block.child(rows);
+        block = block.on_drawn_layout(move |s: &mut Sesh, rect| {
+            s.section_bounds.insert(section.clone(), rect);
+        });
+        content = content.child(block);
+    }
+    if position == 0 {
+        content = content.child(
+            col()
+                .h(180.)
+                .center()
+                .gap(10.)
+                .child(label(
+                    if s.busy() {
+                        "Loading accounts…"
+                    } else if s.search.text.is_empty() {
+                        "No accounts"
+                    } else {
+                        "No matching accounts"
+                    },
+                    c.muted,
+                ))
+                .children((s.data.session.is_none()).then(|| {
+                    button(
+                        "empty-add-session",
+                        "Add SSO session",
+                        Command::NewSession,
+                        c,
+                    )
+                })),
+        );
+    }
+    col()
+        .key("account-scroll")
+        .grow(1.)
+        .min_h(0.)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
+        .child(content)
+}
+
+fn credentials_list(s: &Sesh, c: &crate::theme::Colors) -> El {
+    let mut rows = col().w_full().gap(6.);
+    for (position, index) in s.visible().iter().copied().enumerate() {
+        let credential = &s.data.credentials[index];
+        let items = [
+            ("Copy profile", Command::CopyProfile),
+            ("Copy account ID", Command::CopyAccount),
+            ("Copy account name", Command::CopyName),
+            ("Remove profile…", Command::RemoveCredential),
+        ]
+        .into_iter()
+        .map(|(label, command)| {
+            (
+                label.into(),
+                Command::ItemAction(position, Box::new(command)),
+            )
+        })
+        .collect::<Vec<_>>();
+        rows = rows.child(
+            row()
+                .key(format!("account-{position}"))
+                .w_full()
+                .h(74.)
+                .px(12.)
+                .gap(12.)
+                .center_y()
+                .radius(6.)
+                .fill(
+                    if s.marked_credentials
+                        .contains(&Sesh::credential_key(credential))
+                        || s.selected == Some(position)
+                    {
+                        c.selection
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                )
+                .hover(c.text.alpha(0.035))
+                .role("row")
+                .label(&credential.profile_name)
+                .focus_selected(
+                    s.marked_credentials
+                        .contains(&Sesh::credential_key(credential))
+                        || s.selected == Some(position),
+                )
+                .focusable(true)
+                .child(icon(&TERMINAL, 20.).color(c.muted))
+                .child(
+                    col()
+                        .grow(1.)
+                        .min_w(0.)
+                        .gap(6.)
+                        .child(label(&credential.profile_name, c.text))
+                        .child(small(
+                            format!("{} · {}", credential.account_name, credential.role_name),
+                            c.muted,
                         )),
                 )
+                .child(small(
+                    if credential.is_default {
+                        "Default".into()
+                    } else {
+                        remaining(&credential.expiration)
+                    },
+                    if credential.is_default {
+                        c.success
+                    } else {
+                        c.secondary
+                    },
+                ))
+                .on_press_tx(move |s: &mut Sesh, tx| s.select_account(position, tx))
+                .on_secondary_press(move |s: &mut Sesh, point, _| {
+                    s.context_menu = Some(ContextMenu {
+                        point,
+                        items: items.clone(),
+                    })
+                }),
+        );
+    }
+    if s.data.credentials.is_empty() {
+        rows = rows.child(
+            col()
+                .h(200.)
+                .center()
+                .child(label("No active credentials", c.muted)),
+        );
+    }
+    col()
+        .key("account-scroll")
+        .grow(1.)
+        .min_h(0.)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
+        .child(rows)
+}
+
+fn workspace(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> El {
+    let title = row()
+        .h(30.)
+        .center_y()
+        .gap(8.)
+        .child(
+            text(if s.screen == Screen::Credentials {
+                "Active credentials"
+            } else {
+                "Accounts"
             })
+            .font(LABEL)
+            .color(c.text),
+        )
+        .child(el().grow(1.))
+        .child(small(s.visible().len().to_string(), c.muted));
+    let search = TextInput::new(&s.search)
+        .width(None)
+        .text_style(BODY)
+        .placeholder(if s.screen == Screen::Credentials {
+            "Search profiles, accounts or roles"
+        } else {
+            "Search accounts, IDs or roles"
+        })
+        .label(if s.screen == Screen::Credentials {
+            "Search credential profiles"
+        } else {
+            "Search accounts"
+        })
+        .leading_icon(&SEARCH)
+        .height(CONTROL_HEIGHT)
+        .on_edit(|s: &mut Sesh| &mut s.search)
+        .on_change(|s: &mut Sesh, tx| {
+            s.flush_preferences();
+            s.selected = None;
+            s.marked.clear();
+            s.marked_credentials.clear();
+            s.account = None;
+            tx.scroll_to_instant("account-scroll", 0., 0.);
+        })
+        .on_submit(|s: &mut Sesh, tx| {
+            s.selected = Some(0);
+            s.inspect();
+            tx.focus("account-list", false);
+        })
+        .on_key(|s: &mut Sesh, event, tx| {
+            if event.key == Key::Down {
+                s.selected = Some(0);
+                s.inspect();
+                tx.focus("account-list", false);
+                true
+            } else {
+                false
+            }
+        })
+        .build(k)
+        .key("account-search");
+    col()
+        .key("account-list")
+        .grow(1.)
+        .min_w(0.)
+        .min_h(0.)
+        .pt(HEADER + 10.)
+        .px(12.)
+        .gap(12.)
+        .focusable(true)
+        .role("list")
+        .label(if s.screen == Screen::Credentials {
+            "Active credentials"
+        } else {
+            "Accounts"
+        })
+        .children((s.screen == Screen::Accounts).then_some(title))
+        .child(search)
+        .child(if s.screen == Screen::Credentials {
+            credentials_list(s, c)
+        } else {
+            account_list(s, c)
+        })
+}
+
+fn group_picker(
+    s: &Sesh,
+    bulk: bool,
+    k: &Kit,
+    layers: &mut Vec<El>,
+    c: &crate::theme::Colors,
+) -> El {
+    let targets = s.targets();
+    let current = shared_group(&targets).flatten();
+    let mut options = select::options(s.groups());
+    options.push(ComboboxOption::new("__create_group", "New group…"));
+    if targets.iter().any(|account| account.group.is_some()) {
+        options.push(ComboboxOption::new("__remove_group", "Remove from group"));
+    }
+    let title = current.as_deref().unwrap_or("Add to group");
+    let trigger = if bulk {
+        dropdown_trigger(title, Some(&FOLDER), true, false, k, c)
+            .w_full()
+            .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
+    } else {
+        row()
+            .h(CONTROL_HEIGHT)
+            .gap(7.)
+            .center_y()
+            .radius(5.)
+            .px(4.)
+            .hover(c.text.alpha(0.05))
+            .child(icon(&FOLDER, 15.).color(c.muted))
+            .child(label(title, c.muted))
+    }
+    .role("combobox")
+    .label("Account group")
+    .a11y_value(title)
+    .focusable(true)
+    .focus_ring(2., 1., c.accent);
+    Combobox::new("group-picker", &s.groups, &options, |s: &mut Sesh| {
+        &mut s.groups
+    })
+    .label("Account group")
+    .trigger(trigger)
+    .current(current.as_deref())
+    .on_choose(|s: &mut Sesh, value, tx| {
+        let command = match value {
+            "__create_group" => Command::NewGroup,
+            "__remove_group" => Command::SetGroup(None),
+            group => Command::SetGroup(Some(group.into())),
+        };
+        s.dispatch(command, tx);
+    })
+    .build(k, layers)
+}
+
+fn bulk_account_actions(
+    s: &Sesh,
+    targets: &[&crate::sdk::Account],
+    trailing: f32,
+    k: &Kit,
+    layers: &mut Vec<El>,
+    c: &crate::theme::Colors,
+) -> El {
+    let action = |key, title, command, glyph| {
+        button_with_icon(key, title, command, Some(glyph), c)
+            .w(0.)
+            .grow(1.)
+            .min_w(0.)
+            .justify_start()
+    };
+    let favorite_button = |key, title, pinned, glyph| {
+        let control = action(key, title, Command::Pin(pinned), glyph);
+        if targets.iter().all(|account| account.pinned == pinned) {
+            control.disabled(true).inert().opacity(0.4)
+        } else {
+            control
+        }
+    };
+
+    col()
+        .w_full()
+        .gap(16.)
+        .child(
+            row()
+                .h(HEADER)
+                .pr(trailing)
+                .gap(4.)
+                .center_y()
+                .child(
+                    text(format!("{} accounts selected", targets.len()))
+                        .font(LABEL)
+                        .color(c.text)
+                        .truncate()
+                        .grow(1.)
+                        .min_w(0.),
+                )
+                .child(icon_button(
+                    "bulk-clear",
+                    "Clear selection",
+                    &CLOSE,
+                    Command::ClearSelection,
+                    c,
+                )),
+        )
+        .child(
+            col()
+                .gap(7.)
+                .child(small("Organize", c.muted))
+                .child(group_picker(s, true, k, layers, c))
+                .child(
+                    row()
+                        .gap(8.)
+                        .child(favorite_button("bulk-pin", "Favorite", true, &STAR))
+                        .child(favorite_button(
+                            "bulk-unpin",
+                            "Unfavorite",
+                            false,
+                            &STAR_OFF,
+                        )),
+                ),
+        )
+        .child(
+            col()
+                .gap(7.)
+                .child(small("Copy", c.muted))
+                .child(
+                    row()
+                        .gap(8.)
+                        .child(action(
+                            "bulk-copy-ids",
+                            "Copy IDs",
+                            Command::CopyAccount,
+                            k.glyph.copy,
+                        ))
+                        .child(action(
+                            "bulk-copy-names",
+                            "Copy names",
+                            Command::CopyName,
+                            k.glyph.copy,
+                        )),
+                )
+                .children(s.bulk_copy_notice.as_ref().map(|(message, _)| {
+                    small(message, c.muted)
+                        .key("bulk-copy-notice")
+                        .role("status")
+                        .label(message)
+                })),
+        )
+}
+
+fn inspector(
+    s: &Sesh,
+    cx: &Cx<Sesh>,
+    k: &Kit,
+    layers: &mut Vec<El>,
+    c: &crate::theme::Colors,
+) -> El {
+    let trailing = cx.chrome_insets().trailing;
+    let mut panel = col()
+        .key("inspector")
+        .w(344.)
+        .min_w(280.)
+        .h_full()
+        .px(18.)
+        .gap(18.);
+    if s.screen == Screen::Credentials && s.selected_credentials().len() > 1 {
+        panel = panel
             .child(
-                div()
-                    .max_w(px(650.))
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .pt_5()
-                    .border_t_1()
-                    .border_color(colors.border)
+                row().h(HEADER).center_y().child(
+                    text(format!(
+                        "{} profiles selected",
+                        s.selected_credentials().len()
+                    ))
+                    .font(LABEL)
+                    .color(c.text),
+                ),
+            )
+            .child(
+                text("Remove the selected profiles using the toolbar above the list.")
+                    .font(BODY)
+                    .color(c.muted)
+                    .wrap(),
+            );
+    } else if s.screen == Screen::Credentials {
+        if let Some(credential) = s.credential() {
+            let expiration = chrono::DateTime::parse_from_rfc3339(&credential.expiration)
+                .map(|expiration| {
+                    expiration
+                        .with_timezone(&chrono::Local)
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                })
+                .unwrap_or_else(|_| credential.expiration.clone());
+            panel = panel
+                .child(
+                    inspector_heading("copy-credential-profile", &credential.profile_name, c)
+                        .pr(trailing),
+                )
+                .child(detail_row(
+                    "copy-credential-name",
+                    "Account",
+                    &credential.account_name,
+                    c,
+                ))
+                .child(detail_row(
+                    "copy-credential-account",
+                    "Account ID",
+                    &credential.account_id,
+                    c,
+                ))
+                .child(detail_row(
+                    "copy-credential-role",
+                    "Role",
+                    &credential.role_name,
+                    c,
+                ))
+                .child(detail_row(
+                    "copy-credential-session",
+                    "Organization",
+                    &credential.session_name,
+                    c,
+                ))
+                .child(detail_row(
+                    "copy-credential-region",
+                    "Region",
+                    credential.region.as_deref().unwrap_or("Default"),
+                    c,
+                ))
+                .child(detail_row(
+                    "copy-credential-expiration",
+                    "Expires",
+                    &expiration,
+                    c,
+                ))
+                .child(
+                    button(
+                        "remove-credential",
+                        "Clear credential",
+                        Command::RemoveCredential,
+                        c,
+                    )
+                    .w_full()
+                    .fill(c.danger.alpha(0.18))
+                    .border(1., c.danger.alpha(0.45))
+                    .child(icon(&REMOVE, 15.).color(c.danger)),
+                );
+        } else {
+            panel = panel.child(
+                row()
+                    .h(HEADER)
+                    .center_y()
+                    .child(label("Select a credential profile", c.muted)),
+            );
+        }
+    } else if let targets = s.targets()
+        && targets.len() > 1
+    {
+        panel = panel
+            .key("bulk-inspector")
+            .child(bulk_account_actions(s, &targets, trailing, k, layers, c));
+    } else if let Some(account) = &s.account {
+        panel = panel
+            .child(inspector_heading("copy-account-name", &account.name, c).pr(trailing))
+            .child(
+                row()
+                    .center_y()
+                    .gap(8.)
                     .child(
-                        div()
-                            .font_family(platform::mono_font())
-                            .text_size(px(11.))
-                            .line_height(px(17.))
-                            .text_color(colors.accent)
-                            .child(include_str!("../assets/wordmark.txt")),
+                        copy_value("copy-account-id", &account.account_id, SMALL.mono(), c)
+                            .grow(1.),
+                    )
+                    .child(group_picker(s, false, k, layers, c))
+                    .child(icon_button(
+                        "inspector-favorite",
+                        "Toggle favorite",
+                        &STAR,
+                        Command::TogglePin,
+                        c,
+                    )),
+            );
+        let authenticated = s.authenticated();
+        let choose_role = authenticated && account.roles_loaded;
+        let loading_roles =
+            authenticated && !account.roles_loaded && s.roles_loading(&account.account_id);
+        let role_selected = account.roles_loaded && s.role.is_some();
+        let role_label = if !authenticated {
+            "Sign in to load roles"
+        } else if loading_roles {
+            "Loading roles…"
+        } else if !account.roles_loaded {
+            "Retry loading roles"
+        } else {
+            s.role.as_deref().unwrap_or("Select a role")
+        };
+        let mut trigger =
+            dropdown_trigger(role_label, None, choose_role, loading_roles, k, c).w_full();
+        if loading_roles {
+            trigger = trigger.role("status").label(role_label);
+        } else if choose_role {
+            trigger = trigger
+                .role("combobox")
+                .label("Role")
+                .a11y_value(role_label)
+                .focusable(true)
+                .focus_ring(2., 1., c.accent)
+                .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH));
+        } else {
+            let command = if authenticated {
+                Command::LoadRoles
+            } else {
+                Command::Login
+            };
+            trigger = trigger
+                .role("button")
+                .label(role_label)
+                .focusable(true)
+                .focus_ring(2., 1., c.accent)
+                .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH))
+                .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx));
+        }
+        let roles = select::options(&account.roles);
+        let role = Combobox::new("role", &s.roles, &roles, |s: &mut Sesh| &mut s.roles)
+            .label("Role")
+            .placeholder("Select a role")
+            .current(s.role.as_deref())
+            .width(308.)
+            .trigger(trigger)
+            .disabled(!choose_role)
+            .on_choose(|s: &mut Sesh, role, tx| s.dispatch(Command::SelectRole(role.into()), tx))
+            .build(k, layers);
+        let preferred = account.preferred_role == s.role && s.role.is_some();
+        panel = panel.child(
+            col().gap(10.).child(label("Role", c.text)).child(
+                row()
+                    .gap(8.)
+                    .center_y()
+                    .child(role.grow(1.).min_w(0.))
+                    .child(
+                        icon_button(
+                            "prefer-role",
+                            if preferred {
+                                "Default role"
+                            } else {
+                                "Use this role by default"
+                            },
+                            &STAR,
+                            Command::PreferRole,
+                            c,
+                        )
+                        .disabled(!role_selected || preferred || s.busy())
+                        .opacity(if preferred { 1. } else { 0.75 }),
+                    ),
+            ),
+        );
+        let region = TextInput::new(&s.region)
+            .width(None)
+            .text_style(BODY)
+            .placeholder("eu-north-1")
+            .label("Region")
+            .height(CONTROL_HEIGHT)
+            .on_edit(|s: &mut Sesh| &mut s.region)
+            .on_change(|s: &mut Sesh, tx| s.schedule_preference("setRegion", tx))
+            .on_submit(|s: &mut Sesh, _| s.flush_preferences())
+            .build(k)
+            .key("region");
+        let profile = TextInput::new(&s.profile)
+            .width(None)
+            .text_style(BODY)
+            .placeholder("default")
+            .label("CLI profile")
+            .height(CONTROL_HEIGHT)
+            .disabled(!role_selected)
+            .on_edit(|s: &mut Sesh| &mut s.profile)
+            .on_change(|s: &mut Sesh, tx| s.schedule_preference("setProfile", tx))
+            .on_submit(|s: &mut Sesh, _| s.flush_preferences())
+            .build(k)
+            .key("profile");
+        let dark = s.appearance.dark(cx.system_dark());
+        // Light surfaces can already be white, so leave room for a visible hover highlight.
+        let (console_fill, console_hover) = if dark {
+            (c.element, Color::WHITE.alpha(0.02))
+        } else {
+            (c.element.mix(c.text, 0.15), Color::WHITE.alpha(0.7))
+        };
+        panel = panel
+            .child(col().gap(10.).child(label("Region", c.text)).child(region))
+            .child(
+                col()
+                    .gap(10.)
+                    .child(label("CLI profile", c.text))
+                    .child(profile),
+            )
+            .child(
+                row()
+                    .gap(8.)
+                    .child(
+                        disabled_button(
+                            "set-credentials",
+                            "Set credentials",
+                            Command::SetCredentials,
+                            !authenticated || !role_selected || s.busy() || s.preferences_dirty(),
+                            c,
+                        )
+                        .fill(c.selection)
+                        .border(1., c.accent.alpha(0.2))
+                        .grow(1.)
+                        .min_w(0.),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .text_size(px(12.))
-                            .text_color(colors.muted)
-                            .child("Open Source AWS Session Manager – presented by")
-                            .child(
-                                Button::new("elva-link")
-                                    .link()
-                                    .h(px(24.))
-                                    .p_0()
-                                    .cursor_pointer()
-                                    .child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(colors.accent)
-                                            .text_decoration_1()
-                                            .child("Elva"),
-                                    )
-                                    .disabled(self.modal())
-                                    .tab_stop(!self.modal())
-                                    .tooltip("https://elva-group.com")
-                                    .on_click(|_, _, cx| cx.open_url("https://elva-group.com")),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(colors.muted)
-                            .child(format!(
-                                "Sesh {} · Native desktop client for awsesh",
-                                env!("CARGO_PKG_VERSION")
-                            )),
+                        button("open-console", "Console", Command::Console, c)
+                            .fill(console_fill)
+                            .hover(console_hover)
+                            .disabled(!role_selected || s.busy())
+                            .child(icon(&EXTERNAL, 14.).color(c.muted)),
                     ),
             )
-            .into_any_element()
+            .children((!authenticated).then(|| {
+                button(
+                    "sign-in-organization",
+                    "Sign in to this organization",
+                    Command::Login,
+                    c,
+                )
+                .w_full()
+            }));
+    } else {
+        panel = panel.child(
+            row()
+                .h(HEADER)
+                .center_y()
+                .child(label("Select an account", c.muted)),
+        );
     }
-
-    fn overlays(&self, cx: &Context<Self>) -> Option<AnyElement> {
-        let colors = self.colors(cx);
-        let mut panel = div()
-            .w(px(480.))
-            .p_6()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .bg(colors.background)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_lg()
-            .shadow_lg();
-        if let Some(id) = self.recording {
-            let label = platform::shortcuts()
-                .into_iter()
-                .find(|shortcut| shortcut.id == id)
-                .map(|shortcut| shortcut.label)
-                .unwrap_or("Shortcut");
-            panel = panel
-                .child(
-                    div()
-                        .text_size(px(18.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Change shortcut"),
-                )
-                .child(label)
-                .child(
-                    div()
-                        .p_4()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(colors.accent)
-                        .text_color(colors.muted)
-                        .child("Press a key combination. Escape cancels."),
-                )
-                .when_some(self.shortcut_error.clone(), |panel, error| {
-                    panel.child(div().text_color(cx.theme().danger).child(error))
+    row()
+        .key("inspector-pane")
+        .instant_changes()
+        .h_full()
+        .child(el().w(1.).h_full().pt(HEADER).fill(c.border))
+        .child(
+            col()
+                .h_full()
+                .min_h(0.)
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
                 })
-                .child(
-                    div()
-                        .flex()
-                        .justify_end()
-                        .gap_2()
-                        .child(self.button(
-                            "disable-shortcut",
-                            "Disable shortcut",
-                            Command::ClearShortcut(id),
-                            cx,
-                        ))
-                        .child(self.button("cancel-shortcut", "Cancel", Command::Cancel, cx)),
-                );
-        } else if let Some(form) = &self.form {
-            let submitting = form.submission.is_some();
-            panel = panel
-                .child(
-                    div()
-                        .text_size(px(18.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(form.title.clone()),
+                .child(panel.h(740.)),
+        )
+}
+
+fn settings(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -> El {
+    let mut appearance = col()
+        .w_full()
+        .gap(18.)
+        .child(text("Appearance").font(TITLE).color(c.text))
+        .child(label("Color mode", c.text));
+    let mut modes = row().gap(8.);
+    for mode in ["system", "light", "dark"] {
+        modes = modes.child(
+            button(
+                format!("appearance-{mode}"),
+                match mode {
+                    "system" => "System",
+                    "light" => "Light",
+                    _ => "Dark",
+                },
+                Command::Appearance(mode.into()),
+                c,
+            )
+            .fill(if s.appearance.mode == mode {
+                c.selection
+            } else {
+                c.element
+            }),
+        );
+    }
+    appearance = appearance
+        .child(modes)
+        .child(label("Theme", c.text))
+        .child(
+            Combobox::new(
+                "theme-picker",
+                &s.themes,
+                &select::options(&s.appearance.themes),
+                |s: &mut Sesh| &mut s.themes,
+            )
+            .label("Theme")
+            .current(Some(&s.appearance.theme))
+            .trigger(
+                dropdown_trigger(&s.appearance.theme, None, true, false, k, c)
+                    .key("theme-dropdown")
+                    .w(280.)
+                    .role("combobox")
+                    .label("Theme")
+                    .a11y_value(&s.appearance.theme)
+                    .focusable(true)
+                    .focus_ring(2., 1., c.accent)
+                    .hover(Color::BLACK.alpha(CONTROL_HOVER_STRENGTH)),
+            )
+            .on_choose(|s: &mut Sesh, theme, tx| s.dispatch(Command::Theme(theme.into()), tx))
+            .build(k, layers),
+        )
+        .child(
+            row().child(
+                button(
+                    "theme-directory",
+                    "Theme directory",
+                    Command::OpenThemeDirectory,
+                    c,
                 )
+                .child(icon(&EXTERNAL, 14.).color(c.muted)),
+            ),
+        )
+        .child(label(
+            format!("Translucency  {:.0}%", s.appearance.translucency),
+            c.text,
+        ))
+        .child(translucency_slider(s, c))
+        .child(switch(
+            "dithering-switch",
+            "Dither translucent backgrounds",
+            s.appearance.dithering,
+            Command::Dithering(!s.appearance.dithering),
+            c,
+        ))
+        .child(switch(
+            "sidebar-switch",
+            "Show organization sidebar",
+            s.appearance.sidebar_visible,
+            Command::ToggleSidebar,
+            c,
+        ))
+        .child(switch(
+            "compact-accounts-switch",
+            "Compact account list",
+            s.appearance.compact_accounts,
+            Command::CompactAccounts(!s.appearance.compact_accounts),
+            c,
+        ));
+    let mut content = col()
+        .w_full()
+        .max_w(840.)
+        .padding(28.)
+        .gap(24.)
+        .child(appearance)
+        .child(divider(c.border))
+        .child(
+            row()
+                .center_y()
+                .gap(12.)
                 .child(
-                    div()
-                        .text_color(colors.muted)
-                        .child(form.description.clone()),
+                    text("Keyboard shortcuts")
+                        .font(TITLE)
+                        .color(c.text)
+                        .grow(1.),
+                )
+                .child(button("reset-shortcuts", "Reset", Command::ResetShortcuts, c).h(28.)),
+        );
+    for definition in platform::shortcuts() {
+        let Some(recorder) = s.recorders.get(definition.id) else {
+            continue;
+        };
+        let id = definition.id;
+        let control =
+            ShortcutRecorder::new(format!("shortcut-{id}"), recorder, move |s: &mut Sesh| {
+                s.recorders.entry(id).or_default()
+            })
+            .label(definition.label)
+            .width(220.)
+            .on_change(move |s: &mut Sesh, shortcut, tx| {
+                let mut shortcuts = s.appearance.shortcuts.clone();
+                shortcuts.insert(
+                    id.into(),
+                    shortcut.map(ToString::to_string).unwrap_or_default(),
                 );
-            for (key, input) in &form.fields {
-                let label = match key.as_str() {
-                    "name" => "Session name",
-                    "startUrl" => "SSO start URL",
-                    "ssoRegion" => "SSO region",
-                    "defaultRegion" => "Default region",
-                    "group" | "renamed" => "Group name",
-                    _ => key,
-                };
-                panel = panel.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(SharedString::from(label.to_owned()))
-                        .child(
-                            Input::new(input)
-                                .large()
-                                .min_h(px(44.))
-                                .disabled(submitting),
-                        )
-                        .when(
-                            key == "startUrl" && !input.read(cx).value().trim().is_empty(),
-                            |field| {
-                                field.child(
-                                    div()
-                                        .font_family(platform::mono_font())
-                                        .text_size(px(11.))
-                                        .text_color(colors.muted)
-                                        .child(sso_start_url(&input.read(cx).value())),
-                                )
-                            },
-                        ),
+                let shortcuts = platform::validate_shortcuts(&shortcuts).map_err(|error| {
+                    s.error = true;
+                    s.message = error.to_string();
+                    rune::ShortcutError::Conflict
+                })?;
+                s.appearance.shortcuts = shortcuts;
+                s.save_appearance("shortcuts", json!(s.appearance.shortcuts), tx);
+                s.update_menus();
+                Ok(())
+            })
+            .build(k);
+        content = content.child(
+            row()
+                .w_full()
+                .center_y()
+                .gap(12.)
+                .child(label(definition.label, c.text).grow(1.).min_w(0.))
+                .child(control)
+                .child(
+                    button(
+                        format!("clear-shortcut-{id}"),
+                        "Clear",
+                        Command::ClearShortcut(id),
+                        c,
+                    )
+                    .h(28.),
+                ),
+        );
+    }
+    if cfg!(windows) {
+        content = content.child(divider(c.border)).child(text("Integration").font(TITLE).color(c.text))
+            .child(switch("wsl-switch", "Use WSL workspace", s.wsl_enabled, Command::UseWslWorkspace(!s.wsl_enabled), c)
+                .disabled(!s.wsl_available || s.busy()))
+            .child(text("Shares sessions, caches, preferences and AWS credentials with the CLI in your default WSL distribution.").font(SMALL).color(c.muted).wrap());
+    }
+    content = content
+        .child(divider(c.border))
+        .child(
+            col()
+                .key("about-wordmark")
+                .gap(6.)
+                .child(
+                    text(include_str!("../assets/wordmark.txt").trim_end())
+                        .font(SMALL.mono())
+                        .color(c.text)
+                        .label("awsesh"),
+                )
+                .child(small("AWS Session Manager by Elva", c.muted)),
+        )
+        .child(label(
+            format!(
+                "Version {}",
+                option_env!("AWSESH_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+            ),
+            c.muted,
+        ))
+        .child(
+            row()
+                .gap(16.)
+                .child(external_link(
+                    "repository-link",
+                    "Sesh repository",
+                    "https://github.com/elva-labs/awsesh",
+                    c,
+                ))
+                .child(external_link(
+                    "elva-link",
+                    "Elva",
+                    "https://elva-group.com",
+                    c,
+                )),
+        );
+    col()
+        .key("settings")
+        .grow(1.)
+        .min_w(0.)
+        .min_h(0.)
+        .pt(HEADER)
+        .child(
+            col()
+                .grow(1.)
+                .min_h(0.)
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(content),
+        )
+}
+
+fn translucency_slider(s: &Sesh, c: &crate::theme::Colors) -> El {
+    let value = s.appearance.translucency;
+    row()
+        .key("translucency")
+        .w(320.)
+        .h(24.)
+        .center_y()
+        .role("slider")
+        .label("Translucency")
+        .focusable(true)
+        .a11y_value(format!("{value:.0} percent"))
+        .range_value(f64::from(value), 0., 100.)
+        .range_step(1.)
+        .child(
+            el().w_full()
+                .h(4.)
+                .radius(2.)
+                .fill(c.border)
+                .child(el().w_frac(value / 100.).h(4.).radius(2.).fill(c.accent)),
+        )
+        .child(
+            el().size(12., 12.)
+                .radius(6.)
+                .fill(c.text)
+                .absolute(value * 3.08, 6.),
+        )
+        .on_drag(|s: &mut Sesh, drag, tx| {
+            if drag.phase == Phase::Down {
+                drag.data = s.appearance.translucency;
+            }
+            let value = if drag.cancelled() {
+                drag.data
+            } else {
+                (drag.x / drag.w * 100.).clamp(0., 100.)
+            };
+            s.dispatch(Command::Translucency(value), tx);
+        })
+        .on_step(|s: &mut Sesh, amount, tx| {
+            tx.instant();
+            s.dispatch(
+                Command::Translucency(s.appearance.translucency + amount as f32),
+                tx,
+            );
+        })
+        .on_step_limit(|s: &mut Sesh, end, tx| {
+            tx.instant();
+            s.dispatch(Command::Translucency(if end { 100. } else { 0. }), tx)
+        })
+}
+
+fn form(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> Option<El> {
+    let form = s.form.as_ref()?;
+    let mut sheet = col()
+        .key("form-dialog")
+        .w(460.)
+        .max_h(580.)
+        .padding(24.)
+        .gap(16.)
+        .radius(12.)
+        .fill(c.menu)
+        .border(1., c.border)
+        .shadow(12., 40., Color::BLACK.alpha(0.3))
+        .role("dialog")
+        .label(&form.title)
+        .modal(false, |s: &mut Sesh| s.form = None)
+        .child(text(&form.title).font(TITLE).color(c.text))
+        .child(text(&form.description).font(BODY).color(c.muted).wrap());
+    for (index, (name, edit)) in form.fields.iter().enumerate() {
+        let form_id = form.id;
+        let title = match name.as_str() {
+            "name" => "Organization name",
+            "startUrl" => "SSO start URL",
+            "ssoRegion" => "SSO region",
+            "defaultRegion" => "Default AWS region",
+            "group" => "Group name",
+            "renamed" => "New group name",
+            _ => name,
+        };
+        let mut field = col().gap(7.).child(label(title, c.text)).child(
+            TextInput::new(edit)
+                .width(None)
+                .text_style(BODY)
+                .height(CONTROL_HEIGHT)
+                .label(title)
+                .placeholder(if name == "startUrl" {
+                    "Organization short name or full URL"
+                } else {
+                    ""
+                })
+                .disabled(form.submission.is_some())
+                .on_edit(move |s: &mut Sesh| {
+                    if let Some(form) = &mut s.form
+                        && form.id == form_id
+                        && let Some((_, edit)) = form.fields.get_mut(index)
+                    {
+                        edit
+                    } else {
+                        &mut s.inactive_edit
+                    }
+                })
+                .on_submit(|s: &mut Sesh, tx| s.dispatch(Command::Confirm, tx))
+                .build(k)
+                .key(format!("form-{}-field-{index}", form.id)),
+        );
+        if name == "startUrl" {
+            let resolved = crate::sso_start_url(&edit.text);
+            if resolved != edit.text.trim() {
+                field = field.child(
+                    text(format!("Resolves to: {resolved}"))
+                        .key("sso-url-preview")
+                        .font(SMALL)
+                        .color(c.muted)
+                        .wrap(),
                 );
             }
-            if self.error {
-                panel = panel.child(
-                    div()
-                        .text_color(cx.theme().danger)
-                        .child(self.message.clone()),
-                );
-            }
-            let confirm = self
-                .button(
-                    "confirm-form",
-                    if submitting {
-                        "Working…"
+        }
+        sheet = sheet.child(field);
+    }
+    if s.error {
+        sheet = sheet.child(
+            text(&s.message)
+                .font(SMALL)
+                .color(c.danger)
+                .wrap()
+                .role("alert"),
+        );
+    }
+    sheet = sheet.child(
+        row()
+            .gap(10.)
+            .child(el().grow(1.))
+            .child(button("form-cancel", "Cancel", Command::Cancel, c))
+            .child(
+                disabled_button(
+                    "form-confirm",
+                    if form.submission.is_some() {
+                        "Saving…"
                     } else if form.destructive {
-                        "Remove"
-                    } else if form.operation == "saveSession" {
-                        "Save session"
+                        "Confirm"
                     } else {
                         "Save"
                     },
                     Command::Confirm,
-                    cx,
+                    form.submission.is_some(),
+                    c,
                 )
-                .disabled(submitting);
-            panel = panel.child(
-                div()
-                    .flex()
-                    .justify_end()
-                    .gap_2()
-                    .child(self.button("cancel-form", "Cancel", Command::Cancel, cx))
-                    .child(if form.destructive {
-                        confirm.danger()
-                    } else {
-                        confirm.primary()
-                    }),
-            );
-        } else if let Some(login) = &self.login {
-            panel = panel
-                .child(
-                    div()
-                        .text_size(px(18.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(if login.code.is_empty() {
-                            "Connecting to AWS…"
-                        } else {
-                            "Authorize in your browser"
-                        }),
-                )
-                .child(
-                    div()
-                        .text_color(colors.muted)
-                        .child(if login.code.is_empty() {
-                            "Starting SSO sign-in"
-                        } else {
-                            "Check that this code matches the code shown in your browser."
-                        }),
-                )
-                .child(
-                    div()
-                        .py_4()
-                        .font_family(platform::mono_font())
-                        .text_size(px(28.))
-                        .text_center()
-                        .child(login.code.clone()),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(colors.muted)
-                        .child("Waiting for AWS authorization…"),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .justify_end()
-                        .gap_2()
-                        .child(self.button("cancel-login", "Cancel", Command::Cancel, cx))
-                        .child(
-                            self.button("open-login", "Open browser again", Command::OpenLogin, cx)
-                                .primary()
-                                .disabled(login.url.is_empty()),
-                        ),
-                );
-        } else if self.palette {
-            let commands = self.commands(cx);
-            let count = commands.len();
-            panel = panel
-                .w(px(560.))
-                .p_3()
-                .child(
-                    Input::new(&self.command_search)
-                        .large()
-                        .min_h(px(44.))
-                        .prefix(Icon::new(IconName::Search)),
-                )
-                .child(
-                    uniform_list(
-                        "command-results",
-                        count,
-                        cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                            let colors = this.colors(cx);
-                            range
-                                .map(|index| {
-                                    let (label, command) = &commands[index];
-                                    let command = command.clone();
-                                    div()
-                                        .id(("command-result", index))
-                                        .w_full()
-                                        .h(px(44.))
-                                        .px_3()
-                                        .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .rounded_md()
-                                        .bg(if this.command_selected == index {
-                                            colors.selection
-                                        } else {
-                                            colors.background
-                                        })
-                                        .cursor_pointer()
-                                        .hover(move |style| style.bg(colors.sidebar))
-                                        .child(label.clone())
-                                        .child(div().text_color(colors.muted).child(
-                                            if this.command_selected == index {
-                                                "↵"
-                                            } else {
-                                                ""
-                                            },
-                                        ))
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.dispatch(command.clone(), window, cx)
-                                        }))
-                                        .into_any_element()
-                                })
-                                .collect::<Vec<_>>()
-                        }),
-                    )
-                    .h(px((count.min(8) * 44) as f32))
-                    .w_full()
-                    .track_scroll(self.command_scroll.clone()),
-                )
-                .when(count == 0, |panel| {
-                    panel.child(
-                        div()
-                            .p_4()
-                            .text_color(colors.muted)
-                            .child("No matching commands"),
-                    )
+                .w(100.)
+                .fill(if form.destructive {
+                    c.danger.alpha(0.2)
+                } else {
+                    c.selection
                 })
+                .default_button(),
+            ),
+    );
+    Some(
+        el().key("form-scrim")
+            .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+            .fill(Color::BLACK.alpha(0.3))
+            .center()
+            .child(sheet),
+    )
+}
+
+fn login(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> Option<El> {
+    let login = s.login.as_ref()?;
+    Some(
+        el().key("login-scrim")
+            .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+            .fill(Color::BLACK.alpha(0.3))
+            .center()
+            .child(
+                col()
+                    .key("login-dialog")
+                    .w(440.)
+                    .padding(24.)
+                    .gap(18.)
+                    .radius(12.)
+                    .fill(c.menu)
+                    .border(1., c.border)
+                    .role("dialog")
+                    .label("Sign in")
+                    .modal(false, |s: &mut Sesh| {
+                        if let Some(login) = s.login.take() {
+                            s.request("cancelLogin", json!({"name": login.name}));
+                        }
+                    })
+                    .child(
+                        row()
+                            .gap(8.)
+                            .center_y()
+                            .child(
+                                text(format!("Sign in to {}", login.name))
+                                    .key("login-title")
+                                    .font(TITLE)
+                                    .color(c.text)
+                                    .wrap()
+                                    .grow(1.)
+                                    .min_w(0.),
+                            )
+                            .child(icon_button(
+                                "cancel-login",
+                                "Cancel sign-in",
+                                &CLOSE,
+                                Command::Cancel,
+                                c,
+                            )),
+                    )
+                    .child(
+                        text(if login.code.is_empty() {
+                            "Requesting a sign-in code…"
+                        } else {
+                            "Continue in your browser. To use a different browser or profile, copy the link. If prompted, enter this code:"
+                        })
+                        .font(BODY)
+                        .color(c.muted)
+                        .wrap(),
+                    )
+                    .child(
+                        row().w_full().center().child(
+                            text(&login.code)
+                                .key("login-code")
+                                .font(TextStyle::new(24., 600.).mono())
+                                .color(c.text)
+                                .selectable(true),
+                        ),
+                    )
+                    .child(
+                        row()
+                            .gap(10.)
+                            .child(el().grow(1.))
+                            .child(
+                                Button::new(if login.link_copied {
+                                    "Link copied"
+                                } else {
+                                    "Copy link"
+                                })
+                                    .control_size(ControlSize::ExtraLarge)
+                                    .variant(ButtonVariant::Outline)
+                                    .disabled(login.url.is_empty())
+                                    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::CopyLoginLink, tx))
+                                    .build(k)
+                                    .key("copy-login-link"),
+                            )
+                            .child(
+                                Button::new("Open browser")
+                                    .control_size(ControlSize::ExtraLarge)
+                                    .help("Open in the system default browser")
+                                    .variant(ButtonVariant::Contrast)
+                                    .disabled(login.url.is_empty())
+                                    .on_press_tx(|s: &mut Sesh, tx| s.dispatch(Command::OpenLogin, tx))
+                                    .build(k)
+                                    .key("open-login"),
+                            ),
+                    ),
+            ),
+    )
+}
+
+fn palette(s: &Sesh, k: &Kit, c: &crate::theme::Colors) -> Option<El> {
+    if !s.palette {
+        return None;
+    }
+    let commands = s.commands();
+    let mut results = col().key("command-rows").w_full().padding(6.).gap(2.);
+    for (index, (title, command)) in commands.into_iter().enumerate() {
+        results = results.child(
+            row()
+                .key(format!("command-{index}"))
+                .w_full()
+                .h(40.)
+                .px(10.)
+                .center_y()
+                .radius(5.)
+                .fill(if s.command_selected == index {
+                    c.selection
+                } else {
+                    Color::TRANSPARENT
+                })
+                .hover(c.text.alpha(0.05))
+                .role("button")
+                .label(&title)
+                .focusable(true)
                 .child(
-                    div()
-                        .border_t_1()
-                        .border_color(colors.border)
-                        .pt_3()
-                        .px_2()
-                        .text_size(px(11.))
-                        .text_color(colors.muted)
-                        .child("↑ ↓ Navigate     ↵ Run command     Esc Close"),
-                );
-        } else {
-            return None;
-        }
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .occlude()
-                .bg(gpui::rgba(0x00000044))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(panel)
-                .into_any_element(),
+                    text(title)
+                        .font(TextStyle::new(14., 500.))
+                        .color(c.text)
+                        .truncate(),
+                )
+                .on_press_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx)),
+        );
+    }
+    let search = TextInput::new(&s.command_search)
+        .width(None)
+        .text_style(BODY)
+        .placeholder("Search commands and organizations…")
+        .label("Commands")
+        .height(CONTROL_HEIGHT)
+        .leading_icon(&SEARCH)
+        .on_edit(|s: &mut Sesh| &mut s.command_search)
+        .on_change(|s: &mut Sesh, tx| {
+            s.command_selected = 0;
+            tx.scroll_to_instant("command-scroll", 0., 0.);
+        })
+        .on_key(|s: &mut Sesh, event, tx| {
+            match event.key {
+                Key::Down => {
+                    s.command_selected =
+                        (s.command_selected + 1).min(s.commands().len().saturating_sub(1))
+                }
+                Key::Up => s.command_selected = s.command_selected.saturating_sub(1),
+                Key::Enter => {
+                    if let Some((_, command)) = s.commands().get(s.command_selected).cloned() {
+                        s.dispatch(command, tx);
+                    }
+                }
+                Key::Escape => s.dispatch(Command::Cancel, tx),
+                _ => return false,
+            }
+            tx.scroll_into_view(format!("command-{}", s.command_selected));
+            true
+        })
+        .build(k)
+        .key("command-search");
+    Some(
+        col()
+            .key("command-scrim")
+            .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+            .fill(Color::BLACK.alpha(0.25))
+            .pt(60.)
+            .items_center()
+            .child(
+                col()
+                    .key("command-dialog")
+                    .w(560.)
+                    .h(380.)
+                    .radius(12.)
+                    .fill(c.menu)
+                    .border(1., c.border)
+                    .shadow(12., 40., Color::BLACK.alpha(0.3))
+                    .role("dialog")
+                    .label("Command bar")
+                    .modal(true, |s: &mut Sesh| {
+                        s.palette = false;
+                        s.command_search.focused = false;
+                    })
+                    .child(search)
+                    .child(
+                        col()
+                            .key("command-scroll")
+                            .grow(1.)
+                            .min_h(0.)
+                            .scroll(ScrollSpec {
+                                stick_bottom: false,
+                            })
+                            .child(results),
+                    ),
+            ),
+    )
+}
+
+fn context_menu(s: &Sesh, k: &Kit, layers: &mut Vec<El>) {
+    let Some(context) = &s.context_menu else {
+        return;
+    };
+    let mut menu = Menu::new("context-menu")
+        .trigger(el().size(0., 0.))
+        .at(context.point.x, context.point.y)
+        .open(true)
+        .on_close(|s: &mut Sesh| s.context_menu = None);
+    for (title, command) in &context.items {
+        let command = command.clone();
+        menu = menu.item(
+            MenuItem::new(title)
+                .on_select_tx(move |s: &mut Sesh, tx| s.dispatch(command.clone(), tx)),
+        );
+    }
+    let _ = menu.build(k, layers);
+}
+
+pub fn view(s: &Sesh, cx: &mut Cx<Sesh>) -> El {
+    let system_dark = cx.system_dark();
+    let dark = s.appearance.dark(system_dark);
+    let c = s.appearance.colors(system_dark);
+    let k = s.appearance.kit(system_dark);
+    if let Some(window) = &s.window {
+        platform::apply_window_appearance(
+            window,
+            &s.appearance.mode,
+            dark,
+            s.appearance.translucency > 0.,
+        );
+    }
+    cx.help_look(rune::HelpLook::system(dark).on_focus(true));
+    cx.caption_color(c.text);
+    cx.foreground(c.text);
+    let mut layers = vec![];
+    let open = s.appearance.sidebar_visible;
+    let mut background = el()
+        .key("window-background")
+        .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+        .inert();
+    if s.appearance.translucency > 0. {
+        background = background.child(
+            el().key("native-backdrop")
+                .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+                .system_material(rune::SystemMaterial::Popover)
+                .fill(c.background),
+        );
+    }
+    background = background.child(
+        el().key("background-tint")
+            .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+            .fill(c.background.alpha(1. - s.appearance.translucency / 100.)),
+    );
+    let mut body = row()
+        .key("workspace")
+        .motion(rune::tok::motion::SNAPPY)
+        .grow(1.)
+        .min_h(0.)
+        .child(
+            col()
+                .key("sidebar-viewport")
+                .w(if open { s.appearance.sidebar_width } else { 0. })
+                .h_full()
+                .min_w(0.)
+                .clip_rounded(0.)
+                .motion(rune::tok::motion::SNAPPY)
+                .child(sidebar(s, &c)),
         )
+        .children(open.then(|| {
+            el().key("sidebar-resize")
+                .w(1.)
+                .h_full()
+                .fill(c.border)
+                .child(
+                    el().w(7.)
+                        .h_full()
+                        .absolute(-3., HEADER)
+                        .cursor(rune::Cursor::ResizeColumn)
+                        .focusable(true)
+                        .role("separator")
+                        .label("Sidebar width")
+                        .on_drag(|s: &mut Sesh, drag, tx| {
+                            if drag.phase == Phase::Down {
+                                drag.data = s.appearance.sidebar_width;
+                            }
+                            s.dispatch(
+                                Command::SidebarWidth(if drag.cancelled() {
+                                    drag.data
+                                } else {
+                                    drag.data + drag.dx
+                                }),
+                                tx,
+                            );
+                        })
+                        .on_key(|s: &mut Sesh, event, tx| {
+                            let width = match event.key {
+                                Key::Left => s.appearance.sidebar_width - 8.,
+                                Key::Right => s.appearance.sidebar_width + 8.,
+                                _ => return false,
+                            };
+                            tx.instant();
+                            s.dispatch(Command::SidebarWidth(width), tx);
+                            true
+                        }),
+                )
+        }));
+    if s.screen == Screen::Settings {
+        body = body.child(settings(s, &k, &mut layers, &c));
+    } else {
+        body = body
+            .child(workspace(s, &k, &c))
+            .child(inspector(s, cx, &k, &mut layers, &c));
+    }
+    let default = s
+        .data
+        .credentials
+        .iter()
+        .find(|credential| credential.is_default)
+        .map(|credential| {
+            format!(
+                "Default: {} · {}",
+                credential.account_name, credential.role_name
+            )
+        })
+        .unwrap_or_else(|| "No default credentials".into());
+    let status = row()
+        .key("status-bar")
+        .w_full()
+        .h(31.)
+        .px(14.)
+        .center_y()
+        .gap(12.)
+        .child(small(default, c.muted))
+        .child(el().grow(1.))
+        .child(
+            small(&s.message, if s.error { c.danger } else { c.muted }).role(if s.error {
+                "alert"
+            } else {
+                "status"
+            }),
+        );
+    let mut root = col().key("root").w_full().h_full().child(background);
+    if s.appearance.dithering {
+        let [width, height] = cx.layout_size("root").unwrap_or([1200., 780.]);
+        let mut texture = el()
+            .key("dither-texture")
+            .pin(Some(0.), Some(0.), Some(0.), Some(0.))
+            .clip_rounded(0.)
+            .opacity(0.12)
+            .inert();
+        let mut y = 0.;
+        while y < height {
+            let mut x = 0.;
+            while x < width {
+                texture = texture.child(
+                    el().size(256., 256.)
+                        .absolute(x, y)
+                        .pixels(s.texture.get_or_init(dither_texture)),
+                );
+                x += 256.;
+            }
+            y += 256.;
+        }
+        root = root.child(texture);
+    }
+    root = root
+        .child(body)
+        .child(divider(c.border))
+        .child(status)
+        .child(toolbar(s, cx, &c));
+    context_menu(s, &k, &mut layers);
+    layers.extend(form(s, &k, &c));
+    layers.extend(login(s, &k, &c));
+    layers.extend(palette(s, &k, &c));
+    if let Some(drag) = &s.dragging
+        && drag.active
+    {
+        layers.push(
+            row()
+                .key("account-drag")
+                .absolute(drag.rect[0], drag.rect[1])
+                .size(drag.rect[2], drag.rect[3])
+                .radius(6.)
+                .px(12.)
+                .gap(12.)
+                .center_y()
+                .fill(c.selection)
+                .border(1., c.accent.alpha(0.4))
+                .shadow(5., 20., Color::BLACK.alpha(0.3))
+                .inert()
+                .child(icon(&BUILDING, 22.).color(c.accent))
+                .child(label(
+                    if drag.ids.len() > 1 {
+                        format!("{} accounts", drag.ids.len())
+                    } else {
+                        drag.label.clone()
+                    },
+                    c.text,
+                )),
+        );
+    }
+    rune_kit::root(root, layers)
+}
+
+pub fn preview(s: &mut Sesh) {
+    s.preview = true;
+    s.initialized = true;
+    s.appearance.mode = "dark".into();
+    s.appearance.translucency = 0.;
+    s.data = serde_json::from_value(json!({
+        "sessions": (["Polaris", "Elva", "Donedev", "Rentr", "Stampen"].map(|name| json!({
+            "name": name, "startUrl": "https://security.awsapps.com/start", "ssoRegion": "eu-north-1",
+            "defaultRegion": "eu-north-1", "authenticated": false
+        }))),
+        "session": "Donedev", "accounts": ([
+            ("Galleri", "258109618380"), ("Lagom-Eurovision", "471112757205"), ("Lagom-Popcorn", "821157343717"),
+            ("Management", "365474014391"), ("Minecraft", "664342887370"), ("Misc", "185226997040"),
+            ("Ork", "438186829307"), ("Portfolio", "696616821118")
+        ].map(|(name, id)| json!({"name": name, "accountId": id, "lastProfile": format!("security-{}", name.to_lowercase()),
+            "roles": [], "rolesLoaded": false, "profiles": {}, "pinned": false}))),
+        "credentials": [], "collapsedGroups": []
+    })).unwrap_or_default();
+    s.selected = Some(3);
+    s.account = s.data.accounts.get(3).cloned();
+    s.sync_recorders();
+    s.rebuild_index();
+}
+
+pub fn preview_authenticated(s: &mut Sesh) {
+    preview(s);
+    for session in &mut s.data.sessions {
+        if Some(&session.name) == s.data.session.as_ref() {
+            session.authenticated = true;
+        }
+    }
+    if let Some(account) = s.data.accounts.get_mut(3) {
+        account.roles = vec![
+            "AdministratorAccess".into(),
+            "ReadOnlyAccess".into(),
+            "SecurityAudit".into(),
+        ];
+        account.roles_loaded = true;
+        account.preferred_role = Some("AdministratorAccess".into());
+        account.region = Some("eu-north-1".into());
+        account
+            .profiles
+            .insert("AdministratorAccess".into(), "security-management".into());
+    }
+    if let Some(account) = s.data.accounts.get(3).cloned() {
+        s.sync_inspector(account, true);
+    }
+    s.data.credentials = vec![crate::sdk::Credential {
+        profile_name: "security-management".into(),
+        account_id: "365474014391".into(),
+        account_name: "Management".into(),
+        role_name: "AdministratorAccess".into(),
+        session_name: "Donedev".into(),
+        expiration: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+        is_default: false,
+        region: Some("eu-north-1".into()),
+    }];
+    s.rebuild_index();
+}
+
+fn remaining(expiration: &str) -> String {
+    let Ok(expiration) = chrono::DateTime::parse_from_rfc3339(expiration) else {
+        return String::new();
+    };
+    let seconds = (expiration.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_seconds();
+    if seconds <= 0 {
+        "Expired".into()
+    } else if seconds >= 3600 {
+        format!("{}h {}m", seconds / 3600, seconds % 3600 / 60)
+    } else {
+        format!("{}m", seconds / 60)
     }
 }
 
-impl Render for Sesh {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Some((_, started)) = self.sidebar_transition {
-            if started.elapsed().as_secs_f32() >= 0.2 || platform::reduced_motion() {
-                self.sidebar_transition = None;
+pub fn dither_texture() -> rune::Pixels {
+    let pixels = rune::Pixels::new();
+    let matrix = [
+        [0u8, 8, 2, 10],
+        [12, 4, 14, 6],
+        [3, 11, 1, 9],
+        [15, 7, 13, 5],
+    ];
+    let mut rgba = Vec::with_capacity(256 * 256 * 4);
+    for y in 0..256 {
+        for x in 0..256 {
+            let value = matrix[(y / 2) % 4][(x / 2) % 4];
+            let channel = if value < 8 { 255 } else { 0 };
+            let alpha = if value < 8 {
+                255 - value * 34
             } else {
-                window.request_animation_frame();
-            }
+                (value - 8) * 34 + 17
+            };
+            rgba.extend_from_slice(&[channel, channel, channel, alpha]);
         }
-        let sidebar = self.sidebar_progress();
-        let colors = self.colors(cx);
-        let body = if self.screen == Screen::Settings {
-            self.settings(cx)
-        } else {
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .child(self.list(cx))
-                .child(self.inspector(cx))
-                .into_any_element()
-        };
-        let default = self.data.credentials.iter().find(|value| value.is_default);
-        let status = default
-            .map(|value| {
-                format!(
-                    "Default: {} · {} · {}",
-                    value.account_name,
-                    value.role_name,
-                    remaining(&value.expiration)
-                )
-            })
-            .unwrap_or_else(|| "No default credentials".into());
-        let mut root = div()
-            .relative()
-            .size_full()
-            .flex()
-            .flex_col()
-            .text_color(colors.text)
-            .font_family(cx.theme().font_family.clone())
-            .text_size(px(14.))
-            .key_context("Sesh")
-            .on_key_up(cx.listener(|this, event: &gpui::KeyUpEvent, _, _| {
-                if this.shortcut_release.as_deref() == Some(event.keystroke.key.as_str()) {
-                    this.shortcut_release = None;
-                }
-            }))
-            .track_focus(&self.focus)
-            .on_action(
-                cx.listener(|_, _: &gpui_component::input::Enter, window, _| {
-                    window.prevent_default();
-                }),
-            )
-            .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
-                if !this.palette || !matches!(event.keystroke.key.as_str(), "up" | "down") {
-                    return;
-                }
-                let count = this.commands(cx).len();
-                if count > 0 {
-                    this.command_selected = if event.keystroke.key == "down" {
-                        (this.command_selected + 1) % count
-                    } else {
-                        (this.command_selected + count - 1) % count
-                    };
-                    this.command_scroll
-                        .scroll_to_item(this.command_selected, gpui::ScrollStrategy::Center);
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }))
-            .on_action(cx.listener(|this, _: &Next, window, cx| this.move_selection(1, window, cx)))
-            .on_action(
-                cx.listener(|_, _: &platform::CloseWindow, window, _| window.remove_window()),
-            )
-            .on_action(
-                cx.listener(|this, _: &Previous, window, cx| this.move_selection(-1, window, cx)),
-            )
-            .on_action(cx.listener(|this, _: &Select, window, cx| {
-                this.dispatch(
-                    if this.form.is_some() {
-                        Command::Confirm
-                    } else {
-                        Command::Inspect
-                    },
-                    window,
-                    cx,
-                )
-            }))
-            .on_action(cx.listener(|this, _: &SetCredentials, window, cx| {
-                this.dispatch(Command::SetCredentials, window, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &Back, window, cx| {
-                    this.dispatch(Command::Cancel, window, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &Search, window, cx| {
-                if !this.modal() {
-                    this.search.update(cx, |input, cx| input.focus(window, cx));
-                }
-            }))
-            .on_action(cx.listener(|this, _: &Refresh, window, cx| {
-                this.dispatch(Command::Refresh, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &Console, window, cx| {
-                this.dispatch(Command::Console, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &Accounts, window, cx| {
-                this.dispatch(Command::Accounts, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &Credentials, window, cx| {
-                this.dispatch(Command::Credentials, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &Preferences, window, cx| {
-                this.dispatch(Command::Settings, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &NewSession, window, cx| {
-                this.dispatch(Command::NewSession, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &EditSession, window, cx| {
-                this.dispatch(Command::EditSession, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &Palette, window, cx| {
-                this.dispatch(Command::Palette, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &ToggleSidebar, window, cx| {
-                this.dispatch(Command::ToggleSidebar, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &TogglePin, window, cx| {
-                this.dispatch(Command::TogglePin, window, cx)
-            }))
-            .when(
-                self.translucency.read(cx).value().end() > 0. && self.appearance.dithering,
-                |root| root.child(self.background_texture(window)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .child(
-                        div()
-                            .relative()
-                            .w(px(self.sidebar_width * sidebar))
-                            .flex_shrink_0()
-                            .h_full()
-                            .overflow_hidden()
-                            .when(sidebar > 0., |container| container.child(self.sidebar(cx)))
-                            .when(sidebar == 1. && !self.modal(), |container| {
-                                container.child(
-                                    div()
-                                        .id("sidebar-resize")
-                                        .absolute()
-                                        .right_0()
-                                        .top(px(HEADER_HEIGHT))
-                                        .bottom_0()
-                                        .w(px(6.))
-                                        .cursor_col_resize()
-                                        .track_focus(&self.sidebar_resize_focus)
-                                        .tab_stop(true)
-                                        .focus(|style| style.bg(colors.accent.opacity(0.35)))
-                                        .on_mouse_down(
-                                            gpui::MouseButton::Left,
-                                            cx.listener(|this, _, window, cx| {
-                                                this.sidebar_resize_focus.focus(window);
-                                                cx.notify();
-                                            }),
-                                        )
-                                        .on_key_down(cx.listener(
-                                            |this, event: &gpui::KeyDownEvent, window, cx| {
-                                                let width = match event.keystroke.key.as_str() {
-                                                    "left" => this.sidebar_width - 8.,
-                                                    "right" => this.sidebar_width + 8.,
-                                                    "home" => 192.,
-                                                    "end" => 400.,
-                                                    _ => return,
-                                                };
-                                                this.dispatch(
-                                                    Command::SidebarWidth(width),
-                                                    window,
-                                                    cx,
-                                                );
-                                                cx.stop_propagation();
-                                            },
-                                        ))
-                                        .occlude()
-                                        .hover(|style| style.bg(colors.accent.opacity(0.35)))
-                                        .on_drag(SidebarResize, |value, _, _, cx| {
-                                            cx.new(|_| value.clone())
-                                        })
-                                        .on_drag_move(cx.listener(
-                                            |this,
-                                             event: &gpui::DragMoveEvent<SidebarResize>,
-                                             window,
-                                             cx| {
-                                                this.dispatch(
-                                                    Command::SidebarWidth(f32::from(
-                                                        event.event.position.x,
-                                                    )),
-                                                    window,
-                                                    cx,
-                                                );
-                                            },
-                                        )),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(div().h(px(HEADER_HEIGHT)).flex_shrink_0())
-                            .child(body),
-                    ),
-            )
-            .child(
-                div()
-                    .h(px(32.))
-                    .flex_shrink_0()
-                    .px_4()
-                    .flex()
-                    .items_center()
-                    .gap_4()
-                    .border_t_1()
-                    .border_color(colors.border)
-                    .text_size(px(11.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(colors.muted)
-                            .child(status),
-                    )
-                    .child(
-                        div()
-                            .max_w(px(650.))
-                            .truncate()
-                            .text_color(if self.error {
-                                cx.theme().danger
-                            } else {
-                                colors.muted
-                            })
-                            .child(if self.busy && self.message.is_empty() {
-                                "Updating…".into()
-                            } else {
-                                self.message.clone()
-                            }),
-                    ),
-            );
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
-            root = root.child(self.window_toolbar(sidebar, window, cx));
-        }
-        if let Some((position, menu, _)) = &self.popup {
-            root = root.child(
-                deferred(
-                    anchored()
-                        .position(*position)
-                        .snap_to_window_with_margin(px(8.))
-                        .child(menu.clone()),
-                )
-                .with_priority(1),
-            );
-        }
-        if let Some(overlay) = self.overlays(cx) {
-            root = root.child(overlay);
-        }
-        root
     }
+    pixels.set(256, 256, rgba);
+    pixels
 }
