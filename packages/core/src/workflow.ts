@@ -35,6 +35,31 @@ export function createWorkflow(awsesh: Awsesh) {
     return value
   }
 
+  async function refreshAccountCache(value: SSOSession, preserveRoles = true, signal?: AbortSignal) {
+    const accounts = await awsesh.sso.listAccounts(value, await token(value), signal)
+    return awsesh.accounts.update(value.name, (cache) => {
+      signal?.throwIfAborted()
+      const cached = new Map((preserveRoles ? cache?.accounts ?? [] : []).map((item) => [item.accountId, item]))
+      return {
+        lastUpdated: Date.now(),
+        accounts: accounts.map((item) => {
+          const previous = cached.get(item.accountId)
+          return previous?.rolesLoaded ? { ...item, roles: previous.roles, rolesLoaded: true } : item
+        }),
+      }
+    })
+  }
+
+  async function cacheRoles(name: string, accountId: string, roles: string[]) {
+    await awsesh.accounts.update(name, (cache) => {
+      if (!cache) throw new Error("Account cache no longer exists")
+      return {
+        ...cache,
+        accounts: cache.accounts.map((item) => item.accountId === accountId ? { ...item, roles, rolesLoaded: true } : item),
+      }
+    })
+  }
+
   async function snapshot(name?: string) {
     const [sessions, selected, credentials, previous, lastSelected, lastSession] = await Promise.all([
       awsesh.sessions.list().then((sessions) => Promise.all(sessions.map(async (value) => ({
@@ -134,15 +159,19 @@ export function createWorkflow(awsesh: Awsesh) {
   return {
     snapshot,
     layout,
+    refreshAccountCache,
+    cacheRoles,
+    async revalidateAccounts(name: string) {
+      await refreshAccountCache(await session(name))
+      return snapshot(name)
+    },
     async selectSession(name: string, refresh = false) {
       const value = await session(name)
       const cache = await awsesh.accounts.get(name)
-      if (refresh || !cache) {
-        const accounts = await awsesh.sso.listAccounts(value, await token(value))
-        await awsesh.accounts.save(name, { accounts, lastUpdated: Date.now() })
-      }
+      const accountsFromCache = !refresh && cache !== undefined
+      if (!accountsFromCache) await refreshAccountCache(value, false)
       await awsesh.lastSession.save(name)
-      return snapshot(name)
+      return { ...await snapshot(name), accountsFromCache }
     },
     async saveSession(value: SSOSession, creating = false, originalName?: string) {
       const url = new URL(value.startUrl)
@@ -193,12 +222,7 @@ export function createWorkflow(awsesh: Awsesh) {
       const selected = await account(name, accountId)
       if (selected.rolesLoaded && !refresh) return snapshot(name)
       const roles = await awsesh.sso.listRoles(value, await token(value), accountId)
-      const cache = await awsesh.accounts.get(name)
-      if (!cache) throw new Error("Account cache no longer exists")
-      await awsesh.accounts.save(name, {
-        ...cache,
-        accounts: cache.accounts.map((item) => item.accountId === accountId ? { ...item, roles, rolesLoaded: true } : item),
-      })
+      await cacheRoles(name, accountId, roles)
       return snapshot(name)
     },
     async preferRole(name: string, accountId: string, role: string) {

@@ -359,7 +359,10 @@ impl Sesh {
     }
 
     fn busy(&self) -> bool {
-        self.active.is_some() || !self.requests.is_empty()
+        self.active
+            .iter()
+            .chain(&self.requests)
+            .any(|request| request.operation != "revalidateAccounts")
     }
 
     fn roles_loading(&self, account_id: &str) -> bool {
@@ -386,7 +389,10 @@ impl Sesh {
 
     fn request_for_form(&mut self, operation: &'static str, args: Value, form: Option<u64>) -> u64 {
         if form.is_none()
-            && matches!(operation, "snapshot" | "selectSession" | "loadRoles")
+            && matches!(
+                operation,
+                "snapshot" | "selectSession" | "revalidateAccounts" | "loadRoles"
+            )
             && let Some(request) = self
                 .requests
                 .iter()
@@ -422,7 +428,7 @@ impl Sesh {
         }
         if !matches!(
             request.operation,
-            "snapshot" | "getAppearance" | "wslStatus" | "pollLogin"
+            "snapshot" | "revalidateAccounts" | "getAppearance" | "wslStatus" | "pollLogin"
         ) {
             self.error = false;
             self.message = match request.operation {
@@ -445,6 +451,10 @@ impl Sesh {
         let value = match response.result {
             Ok(value) => value,
             Err(error) => {
+                if request.operation == "revalidateAccounts" {
+                    self.start_request();
+                    return;
+                }
                 if let Some(id) = request.form {
                     self.requests.retain(|pending| pending.form != Some(id));
                 }
@@ -472,7 +482,7 @@ impl Sesh {
         };
         if !matches!(
             request.operation,
-            "snapshot" | "getAppearance" | "wslStatus" | "pollLogin"
+            "snapshot" | "revalidateAccounts" | "getAppearance" | "wslStatus" | "pollLogin"
         ) {
             self.error = false;
             self.message.clear();
@@ -594,7 +604,7 @@ impl Sesh {
                     let name = login.name.clone();
                     if value["complete"].as_bool() == Some(true) {
                         self.login = None;
-                        self.request("selectSession", json!({"name": name, "refresh": true}));
+                        self.request("selectSession", json!({"name": name}));
                     } else {
                         self.request("pollLogin", json!({"name": name}));
                     }
@@ -602,7 +612,14 @@ impl Sesh {
             }
             _ => {
                 if value.get("sessions").is_some() {
+                    let revalidate = request.operation == "selectSession"
+                        && value["accountsFromCache"] == true
+                        && self.screen == Screen::Accounts
+                        && request.args["name"].as_str() == self.data.session.as_deref();
                     self.apply_snapshot(value, &request, tx);
+                    if revalidate {
+                        self.request("revalidateAccounts", request.args.clone());
+                    }
                 }
             }
         }
@@ -735,7 +752,7 @@ impl Sesh {
                     self.selected = None;
                     self.marked.clear();
                 }
-            } else if request.operation == "selectSession"
+            } else if matches!(request.operation, "selectSession" | "revalidateAccounts")
                 && self.screen == Screen::Accounts
                 && self.search.text.is_empty()
             {
@@ -1162,6 +1179,9 @@ impl Sesh {
             && !self.data.accounts.is_empty()
         {
             self.screen = Screen::Accounts;
+            if self.authenticated() {
+                self.request("revalidateAccounts", json!({"name": name}));
+            }
             return;
         }
         self.reset_search(tx);
@@ -2638,6 +2658,80 @@ mod tests {
             fields.map(|key| runtime.presented(key).expect(key).0),
             ready
         );
+    }
+
+    #[test]
+    fn cached_accounts_remain_visible_until_revalidation_succeeds() {
+        let mut state = Sesh::default();
+        let (sender, requests) = mpsc::channel();
+        state.sender = Some(sender);
+        state.initialized = true;
+        state.data.sessions.push(sdk::Session {
+            name: "Example".into(),
+            authenticated: true,
+            ..Default::default()
+        });
+        let mut runtime =
+            rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        let snapshot = |name| {
+            json!({
+                "session": "Example",
+                "sessions": [{
+                    "name": "Example",
+                    "startUrl": "https://example.awsapps.com/start",
+                    "ssoRegion": "us-east-1",
+                    "defaultRegion": "us-east-1",
+                    "authenticated": true
+                }],
+                "accountsFromCache": true,
+                "accounts": [{
+                    "accountId": "123456789012",
+                    "name": name,
+                    "roles": [],
+                    "rolesLoaded": true,
+                    "profiles": {},
+                    "pinned": false
+                }],
+                "collapsedGroups": [],
+                "credentials": []
+            })
+        };
+        runtime.update(|state, tx| state.open_session("Example".into(), tx));
+        runtime.update(|state, tx| {
+            let request = requests.try_recv().unwrap();
+            assert_eq!(request.operation, "selectSession");
+            state.receive(
+                Response {
+                    request,
+                    result: Ok(snapshot("Cached")),
+                },
+                tx,
+            );
+            assert_eq!(state.data.accounts[0].name, "Cached");
+            assert!(!state.busy());
+
+            let request = requests.try_recv().unwrap();
+            assert_eq!(request.operation, "revalidateAccounts");
+            state.receive(
+                Response {
+                    request,
+                    result: Err("Service unavailable".into()),
+                },
+                tx,
+            );
+            assert_eq!(state.data.accounts[0].name, "Cached");
+            assert!(!state.error);
+
+            state.open_session("Example".into(), tx);
+            state.receive(
+                Response {
+                    request: requests.try_recv().unwrap(),
+                    result: Ok(snapshot("Updated")),
+                },
+                tx,
+            );
+            assert_eq!(state.data.accounts[0].name, "Updated");
+        });
     }
 
     #[test]

@@ -50,6 +50,7 @@ export function createAwsesh(options: AwseshOptions) {
   const storage = Storage.create({ dir: `${dataDir}/storage` })
   const sessions = Sessions.create({ dir: `${configDir}/sessions` })
   const clients = new Map<string, AWSClient>()
+  const accountWrites = new Map<string, Promise<unknown>>()
 
   function clientForRegion(region: string): AWSClient {
     const existing = clients.get(region)
@@ -76,6 +77,22 @@ export function createAwsesh(options: AwseshOptions) {
     return {
       cache: session?.name === name ? await storage.read<AccountCache>(`accounts/${legacy}`) : undefined,
       legacy: true,
+    }
+  }
+
+  async function updateAccountCache(name: string, update: (cache: AccountCache | undefined) => AccountCache) {
+    const pending = accountWrites.get(name)
+    const write = (pending ?? Promise.resolve()).catch(() => {}).then(async () => {
+      const { cache } = await accountCache(name)
+      const updated = update(cache)
+      await storage.write(`accounts/${sessionStorageKey(name)}`, updated)
+      return updated
+    })
+    accountWrites.set(name, write)
+    try {
+      return await write
+    } finally {
+      if (accountWrites.get(name) === write) accountWrites.delete(name)
     }
   }
 
@@ -127,7 +144,8 @@ export function createAwsesh(options: AwseshOptions) {
     sso: {
       startLogin: (session: SSOSession) => clientForRegion(session.ssoRegion).startSSOLogin(session.startUrl),
       pollForToken: (session: SSOSession, loginInfo: SSOLoginInfo) => clientForRegion(session.ssoRegion).pollForToken(loginInfo),
-      listAccounts: (session: SSOSession, token: string) => clientForRegion(session.ssoRegion).listAccounts(token),
+      listAccounts: (session: SSOSession, token: string, signal?: AbortSignal) =>
+        clientForRegion(session.ssoRegion).listAccounts(token, signal),
       listRoles: (session: SSOSession, token: string, accountId: string, signal?: AbortSignal) =>
         clientForRegion(session.ssoRegion).listAccountRoles(token, accountId, signal),
       getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) =>
@@ -182,7 +200,10 @@ export function createAwsesh(options: AwseshOptions) {
 
     accounts: {
       get: async (name: string) => (await accountCache(name)).cache,
-      save: (sessionName: string, cache: AccountCache) => storage.write(`accounts/${sessionStorageKey(sessionName)}`, cache),
+      save: async (name: string, cache: AccountCache): Promise<void> => {
+        await updateAccountCache(name, () => cache)
+      },
+      update: updateAccountCache,
     },
 
     lastSelected: {

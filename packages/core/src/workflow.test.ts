@@ -112,6 +112,36 @@ describe("Full Workflow", () => {
     expect(await awsesh.credentials.listProfiles()).toEqual([]);
   });
 
+  test("account revalidation replaces the cached list without discarding roles or clearing it on failure", async () => {
+    const workflow = createWorkflow(awsesh);
+    const name = sampleSession.name;
+    const retained = { accountId: "111", name: "Old name", roles: ["ReadOnly"], rolesLoaded: true };
+    const removed = { accountId: "222", name: "Removed", roles: [], rolesLoaded: false };
+    const added = { accountId: "333", name: "Added", roles: [], rolesLoaded: false };
+    const response = Promise.withResolvers<Awaited<ReturnType<typeof awsesh.sso.listAccounts>>>();
+    await workflow.saveSession(sampleSession, true);
+    await awsesh.tokens.save(sampleSession.startUrl, "mock-token", new Date(Date.now() + 3600000));
+    await awsesh.accounts.save(name, { accounts: [retained, removed], lastUpdated: 0 });
+    awsesh.sso.listAccounts = () => response.promise;
+
+    const cached = await workflow.selectSession(name);
+    expect(cached.accountsFromCache).toBe(true);
+    expect(cached.accounts.map((account) => account.name)).toEqual(["Old name", "Removed"]);
+
+    const refresh = workflow.revalidateAccounts(name);
+    await workflow.cacheRoles(name, retained.accountId, ["Admin"]);
+    expect((await awsesh.accounts.get(name))?.lastUpdated).toBe(0);
+    expect((await workflow.snapshot(name)).accounts).toHaveLength(2);
+    response.resolve([{ ...retained, name: "Renamed", roles: [], rolesLoaded: false }, added]);
+    const refreshed = await refresh;
+    expect(refreshed.accounts).toMatchObject([{ ...retained, name: "Renamed", roles: ["Admin"] }, added]);
+    expect(await awsesh.accounts.get(name)).toMatchObject({ accounts: refreshed.accounts.map(({ accountId }) => ({ accountId })) });
+
+    awsesh.sso.listAccounts = async () => { throw new Error("Service unavailable"); };
+    await expect(workflow.revalidateAccounts(name)).rejects.toThrow("Service unavailable");
+    expect((await workflow.snapshot(name)).accounts).toEqual(refreshed.accounts);
+  });
+
   test("interactive workflow validates session and preference inputs before writing", async () => {
     const workflow = createWorkflow(awsesh);
     await expect(workflow.saveSession({ ...sampleSession, name: "   " })).rejects.toThrow("required");

@@ -88,13 +88,14 @@ export class AWSClient {
     }
   }
 
-  async listAccounts(accessToken: string): Promise<Account[]> {
+  async listAccounts(accessToken: string, signal?: AbortSignal): Promise<Account[]> {
     const accounts: Account[] = []
     let nextToken: string | undefined
 
     do {
       const response = await this.ssoClient.send(
-        new ListAccountsCommand({ accessToken, nextToken })
+        new ListAccountsCommand({ accessToken, nextToken }),
+        { abortSignal: signal }
       )
 
       for (const acc of response.accountList ?? []) {
