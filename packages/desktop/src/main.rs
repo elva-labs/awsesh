@@ -2663,75 +2663,43 @@ mod tests {
     #[test]
     fn cached_accounts_remain_visible_until_revalidation_succeeds() {
         let mut state = Sesh::default();
+        let mut tx = Tx::default();
         let (sender, requests) = mpsc::channel();
         state.sender = Some(sender);
         state.initialized = true;
-        state.data.sessions.push(sdk::Session {
-            name: "Example".into(),
-            authenticated: true,
-            ..Default::default()
-        });
-        let mut runtime =
-            rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
+        state.data.session = Some("Example".into());
+        state.screen = Screen::Accounts;
         let snapshot = |name| {
             json!({
-                "session": "Example",
-                "sessions": [{
-                    "name": "Example",
-                    "startUrl": "https://example.awsapps.com/start",
-                    "ssoRegion": "us-east-1",
-                    "defaultRegion": "us-east-1",
-                    "authenticated": true
-                }],
-                "accountsFromCache": true,
+                "session": "Example", "sessions": [], "accountsFromCache": true,
                 "accounts": [{
-                    "accountId": "123456789012",
-                    "name": name,
-                    "roles": [],
-                    "rolesLoaded": true,
-                    "profiles": {},
-                    "pinned": false
+                    "accountId": "123456789012", "name": name, "roles": [],
+                    "rolesLoaded": true, "profiles": {}, "pinned": false
                 }],
-                "collapsedGroups": [],
-                "credentials": []
+                "collapsedGroups": [], "credentials": []
             })
         };
-        runtime.update(|state, tx| state.open_session("Example".into(), tx));
-        runtime.update(|state, tx| {
+        let mut respond = |state: &mut Sesh, operation, result| {
             let request = requests.try_recv().unwrap();
-            assert_eq!(request.operation, "selectSession");
-            state.receive(
-                Response {
-                    request,
-                    result: Ok(snapshot("Cached")),
-                },
-                tx,
-            );
-            assert_eq!(state.data.accounts[0].name, "Cached");
-            assert!(!state.busy());
+            assert_eq!(request.operation, operation);
+            state.receive(Response { request, result }, &mut tx);
+        };
+        state.request("selectSession", json!({"name": "Example"}));
+        respond(&mut state, "selectSession", Ok(snapshot("Cached")));
+        assert_eq!(state.data.accounts[0].name, "Cached");
+        assert!(!state.busy());
 
-            let request = requests.try_recv().unwrap();
-            assert_eq!(request.operation, "revalidateAccounts");
-            state.receive(
-                Response {
-                    request,
-                    result: Err("Service unavailable".into()),
-                },
-                tx,
-            );
-            assert_eq!(state.data.accounts[0].name, "Cached");
-            assert!(!state.error);
+        respond(
+            &mut state,
+            "revalidateAccounts",
+            Err("Service unavailable".into()),
+        );
+        assert_eq!(state.data.accounts[0].name, "Cached");
+        assert!(!state.error);
 
-            state.open_session("Example".into(), tx);
-            state.receive(
-                Response {
-                    request: requests.try_recv().unwrap(),
-                    result: Ok(snapshot("Updated")),
-                },
-                tx,
-            );
-            assert_eq!(state.data.accounts[0].name, "Updated");
-        });
+        state.request("revalidateAccounts", json!({"name": "Example"}));
+        respond(&mut state, "revalidateAccounts", Ok(snapshot("Updated")));
+        assert_eq!(state.data.accounts[0].name, "Updated");
     }
 
     #[test]

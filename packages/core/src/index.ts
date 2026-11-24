@@ -50,7 +50,7 @@ export function createAwsesh(options: AwseshOptions) {
   const storage = Storage.create({ dir: `${dataDir}/storage` })
   const sessions = Sessions.create({ dir: `${configDir}/sessions` })
   const clients = new Map<string, AWSClient>()
-  const accountWrites = new Map<string, Promise<unknown>>()
+  let accountWrite = Promise.resolve()
 
   function clientForRegion(region: string): AWSClient {
     const existing = clients.get(region)
@@ -80,20 +80,15 @@ export function createAwsesh(options: AwseshOptions) {
     }
   }
 
-  async function updateAccountCache(name: string, update: (cache: AccountCache | undefined) => AccountCache) {
-    const pending = accountWrites.get(name)
-    const write = (pending ?? Promise.resolve()).catch(() => {}).then(async () => {
+  function updateAccountCache(name: string, update: (cache: AccountCache | undefined) => AccountCache) {
+    const write = accountWrite.then(async () => {
       const { cache } = await accountCache(name)
       const updated = update(cache)
       await storage.write(`accounts/${sessionStorageKey(name)}`, updated)
       return updated
     })
-    accountWrites.set(name, write)
-    try {
-      return await write
-    } finally {
-      if (accountWrites.get(name) === write) accountWrites.delete(name)
-    }
+    accountWrite = write.then(() => {}, () => {})
+    return write
   }
 
   async function updateAccountLayout(sessionName: string, fn: (layout: AccountLayout) => AccountLayout): Promise<AccountLayout> {
@@ -144,8 +139,7 @@ export function createAwsesh(options: AwseshOptions) {
     sso: {
       startLogin: (session: SSOSession) => clientForRegion(session.ssoRegion).startSSOLogin(session.startUrl),
       pollForToken: (session: SSOSession, loginInfo: SSOLoginInfo) => clientForRegion(session.ssoRegion).pollForToken(loginInfo),
-      listAccounts: (session: SSOSession, token: string, signal?: AbortSignal) =>
-        clientForRegion(session.ssoRegion).listAccounts(token, signal),
+      listAccounts: (session: SSOSession, token: string) => clientForRegion(session.ssoRegion).listAccounts(token),
       listRoles: (session: SSOSession, token: string, accountId: string, signal?: AbortSignal) =>
         clientForRegion(session.ssoRegion).listAccountRoles(token, accountId, signal),
       getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) =>

@@ -36,7 +36,7 @@ export function createWorkflow(awsesh: Awsesh) {
   }
 
   async function refreshAccountCache(value: SSOSession, preserveRoles = true, signal?: AbortSignal) {
-    const accounts = await awsesh.sso.listAccounts(value, await token(value), signal)
+    const accounts = await awsesh.sso.listAccounts(value, await token(value))
     return awsesh.accounts.update(value.name, (cache) => {
       signal?.throwIfAborted()
       const cached = new Map((preserveRoles ? cache?.accounts ?? [] : []).map((item) => [item.accountId, item]))
