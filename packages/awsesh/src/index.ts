@@ -15,6 +15,7 @@ import { accounts } from "./cli/cmd/accounts.js"
 import { credentials } from "./cli/cmd/credentials.js"
 import { set } from "./cli/cmd/set.js"
 import { session } from "./cli/cmd/session.js"
+import { agent } from "./cli/cmd/agent.js"
 
 import { Installation } from "./installation"
 
@@ -73,6 +74,7 @@ const cli = yargs(args)
   .command(config)
   .command(data)
   .command(session)
+  .command(agent)
   .demandCommand(0, 1, "")
   .fail((msg, err) => {
     throw err ?? new Error(msg)
