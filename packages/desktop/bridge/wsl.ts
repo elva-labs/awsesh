@@ -46,7 +46,7 @@ export function wslCommand(helper: string): string[] {
 export class WslHelper {
   private child: ChildProcessWithoutNullStreams
   private lines: ReturnType<typeof createInterface>
-  private responses: AsyncIterator<string>
+  private pending = new Map<number, PromiseWithResolvers<unknown>>()
   private stderr = ""
   private closed = false
   private stopped = false
@@ -58,8 +58,26 @@ export class WslHelper {
       this.stopped = true
       resolve()
     }))
-    this.lines = createInterface({ input: this.child.stdout })
-    this.responses = this.lines[Symbol.asyncIterator]()
+    this.lines = createInterface({ input: this.child.stdout, crlfDelay: Infinity })
+    this.lines.on("line", (line) => {
+      try {
+        const value: unknown = JSON.parse(line)
+        if (typeof value !== "object" || value === null) throw new Error("Invalid WSL SDK response")
+        const id = "id" in value && typeof value.id === "number" ? value.id : 0
+        const response = this.pending.get(id)
+        if ("error" in value) response?.reject(new Error(String(value.error)))
+        else if ("result" in value) response?.resolve(value.result)
+        else response?.reject(new Error("Missing WSL SDK result"))
+      } catch (error) {
+        for (const response of this.pending.values()) response.reject(error)
+      }
+    })
+    this.lines.on("close", () => {
+      this.stopped = true
+      const detail = this.stderr.trim()
+      const error = new Error(`WSL SDK helper stopped unexpectedly.${detail ? ` ${detail}` : ""}`)
+      for (const response of this.pending.values()) response.reject(error)
+    })
     this.child.stderr.on("data", chunk => { this.stderr = (this.stderr + chunk.toString()).slice(-2000) })
     this.child.on("error", error => {
       this.stopped = true
@@ -77,28 +95,21 @@ export class WslHelper {
     return !this.closed && !this.stopped
   }
 
-  async request(operation: string, args: Record<string, unknown>, timeout = 0): Promise<unknown> {
+  async request(operation: string, args: Record<string, unknown>, timeout = 0, id?: number): Promise<unknown> {
+    if (!this.running) throw new Error("WSL SDK helper stopped unexpectedly.")
+    const key = id ?? 0
+    if (this.pending.has(key)) throw new Error("WSL SDK request already in progress")
+    const response = Promise.withResolvers<unknown>()
+    this.pending.set(key, response)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      const response = this.responses.next()
-      this.child.stdin.write(JSON.stringify({ operation, args }) + "\n")
-      const line = timeout ? await Promise.race([
-        response,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("WSL SDK helper did not respond. Check your default WSL distribution.")), timeout)
-        }),
-      ]) : await response
-      if (line.done) {
-        this.stopped = true
-        const detail = this.stderr.trim()
-        throw new Error(`WSL SDK helper stopped unexpectedly.${detail ? ` ${detail}` : ""}`)
+      this.child.stdin.write(JSON.stringify({ operation, args, id }) + "\n")
+      if (timeout) {
+        timer = setTimeout(() => response.reject(new Error("WSL SDK helper did not respond. Check your default WSL distribution.")), timeout)
       }
-      const value: unknown = JSON.parse(line.value)
-      if (typeof value !== "object" || value === null) throw new Error("Invalid WSL SDK response")
-      if ("error" in value) throw new Error(String(value.error))
-      if (!("result" in value)) throw new Error("Missing WSL SDK result")
-      return value.result
+      return await response.promise
     } finally {
+      this.pending.delete(key)
       if (timer !== undefined) clearTimeout(timer)
     }
   }
@@ -145,7 +156,12 @@ export class WslWorkspace {
     }
   }
 
-  async request(operation: string, args: Record<string, unknown>) {
+  async request(operation: string, args: Record<string, unknown>, id?: number) {
+    if (id !== undefined) {
+      // Account revalidation only starts after a foreground session selection opened the helper.
+      if (!this.helper?.running) throw new Error("WSL SDK helper stopped unexpectedly.")
+      return this.helper.request(operation, args, 0, id)
+    }
     // Never fall back to Windows state if the selected WSL workspace is unavailable.
     // Restart only on the next request; a failed mutation may already have completed.
     if (this.helper && !this.helper.running) await this.close()

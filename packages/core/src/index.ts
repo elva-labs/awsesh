@@ -50,7 +50,7 @@ export function createAwsesh(options: AwseshOptions) {
   const storage = Storage.create({ dir: `${dataDir}/storage` })
   const sessions = Sessions.create({ dir: `${configDir}/sessions` })
   const clients = new Map<string, AWSClient>()
-  let accountWrite = Promise.resolve()
+  let accountCacheAccess = Promise.resolve()
 
   function clientForRegion(region: string): AWSClient {
     const existing = clients.get(region)
@@ -80,15 +80,19 @@ export function createAwsesh(options: AwseshOptions) {
     }
   }
 
+  function withAccountCache<T>(operation: () => Promise<T>) {
+    const result = accountCacheAccess.then(operation)
+    accountCacheAccess = result.then(() => {}, () => {})
+    return result
+  }
+
   function updateAccountCache(name: string, update: (cache: AccountCache | undefined) => AccountCache) {
-    const write = accountWrite.then(async () => {
+    return withAccountCache(async () => {
       const { cache } = await accountCache(name)
       const updated = update(cache)
       await storage.write(`accounts/${sessionStorageKey(name)}`, updated)
       return updated
     })
-    accountWrite = write.then(() => {}, () => {})
-    return write
   }
 
   async function updateAccountLayout(sessionName: string, fn: (layout: AccountLayout) => AccountLayout): Promise<AccountLayout> {
@@ -193,7 +197,7 @@ export function createAwsesh(options: AwseshOptions) {
     },
 
     accounts: {
-      get: async (name: string) => (await accountCache(name)).cache,
+      get: (name: string) => withAccountCache(async () => (await accountCache(name)).cache),
       save: async (name: string, cache: AccountCache): Promise<void> => {
         await updateAccountCache(name, () => cache)
       },

@@ -33,6 +33,7 @@ enum Command {
     Settings,
     Refresh,
     LoadRoles,
+    RefreshRoles,
     SelectRole(String),
     PreferRole,
     Console,
@@ -185,6 +186,16 @@ struct Response {
     result: Result<Value, String>,
 }
 
+enum SdkMessage {
+    Response(Response),
+    AccountRefresh(sdk::RefreshEvent),
+}
+
+struct AccountRefresh {
+    name: String,
+    manual: bool,
+}
+
 struct PendingPreference {
     args: Value,
     due: f64,
@@ -270,7 +281,8 @@ struct Sesh {
     active: Option<Request>,
     requests: VecDeque<Request>,
     sender: Option<Sender<Request>>,
-    receiver: Option<Receiver<Response>>,
+    receiver: Option<Receiver<SdkMessage>>,
+    account_refreshes: BTreeMap<u64, AccountRefresh>,
     sequence: u64,
     preferences: BTreeMap<&'static str, PendingPreference>,
     appearance_pending: BTreeMap<String, Value>,
@@ -325,6 +337,7 @@ impl Default for Sesh {
             requests: VecDeque::new(),
             sender: None,
             receiver: None,
+            account_refreshes: BTreeMap::new(),
             sequence: 0,
             preferences: BTreeMap::new(),
             appearance_pending: BTreeMap::new(),
@@ -359,10 +372,13 @@ impl Sesh {
     }
 
     fn busy(&self) -> bool {
-        self.active
-            .iter()
-            .chain(&self.requests)
-            .any(|request| request.operation != "revalidateAccounts")
+        self.active.is_some() || !self.requests.is_empty()
+    }
+
+    fn accounts_loading(&self) -> bool {
+        self.account_refreshes
+            .values()
+            .any(|refresh| self.data.session.as_ref() == Some(&refresh.name))
     }
 
     fn roles_loading(&self, account_id: &str) -> bool {
@@ -387,12 +403,70 @@ impl Sesh {
         self.request_for_form(operation, args, None);
     }
 
+    fn refresh_accounts(&mut self, name: String, manual: bool) {
+        if manual {
+            self.error = false;
+            self.message.clear();
+        }
+        if let Some(refresh) = self
+            .account_refreshes
+            .values_mut()
+            .find(|refresh| refresh.name == name)
+        {
+            refresh.manual |= manual;
+            return;
+        }
+        let id = self.next_id();
+        let Some(sender) = &self.sender else { return };
+        let request = Request {
+            id,
+            operation: "revalidateAccounts",
+            args: json!({"name": name}),
+            form: None,
+        };
+        if sender.send(request).is_ok() {
+            self.account_refreshes
+                .insert(id, AccountRefresh { name, manual });
+        } else if manual {
+            self.error = true;
+            self.message = "SDK worker stopped. Restart Sesh.".into();
+        }
+    }
+
+    fn account_refresh_event(&mut self, event: sdk::RefreshEvent) {
+        let sdk::RefreshEvent::Complete(id, result) = event else {
+            if self.accounts_loading() {
+                self.error = true;
+                self.message = "The SDK helper stopped unexpectedly. Restart Sesh.".into();
+            }
+            self.account_refreshes.clear();
+            return;
+        };
+        let Some(AccountRefresh { name, manual }) = self.account_refreshes.remove(&id) else {
+            return;
+        };
+        if self.data.session.as_ref() != Some(&name)
+            || self
+                .active
+                .iter()
+                .chain(&self.requests)
+                .any(|request| request.operation == "setUseWslWorkspace")
+        {
+            return;
+        }
+        match result {
+            Ok(_) => self.request("snapshot", json!({"name": name, "accountRefresh": true})),
+            Err(error) if manual || self.data.accounts.is_empty() => {
+                self.error = true;
+                self.message = error.to_string();
+            }
+            Err(_) => {}
+        }
+    }
+
     fn request_for_form(&mut self, operation: &'static str, args: Value, form: Option<u64>) -> u64 {
         if form.is_none()
-            && matches!(
-                operation,
-                "snapshot" | "selectSession" | "revalidateAccounts" | "loadRoles"
-            )
+            && matches!(operation, "snapshot" | "selectSession" | "loadRoles")
             && let Some(request) = self
                 .requests
                 .iter()
@@ -428,7 +502,7 @@ impl Sesh {
         }
         if !matches!(
             request.operation,
-            "snapshot" | "revalidateAccounts" | "getAppearance" | "wslStatus" | "pollLogin"
+            "snapshot" | "getAppearance" | "wslStatus" | "pollLogin"
         ) {
             self.error = false;
             self.message = match request.operation {
@@ -451,10 +525,6 @@ impl Sesh {
         let value = match response.result {
             Ok(value) => value,
             Err(error) => {
-                if request.operation == "revalidateAccounts" {
-                    self.start_request();
-                    return;
-                }
                 if let Some(id) = request.form {
                     self.requests.retain(|pending| pending.form != Some(id));
                 }
@@ -482,7 +552,7 @@ impl Sesh {
         };
         if !matches!(
             request.operation,
-            "snapshot" | "revalidateAccounts" | "getAppearance" | "wslStatus" | "pollLogin"
+            "snapshot" | "getAppearance" | "wslStatus" | "pollLogin"
         ) {
             self.error = false;
             self.message.clear();
@@ -570,6 +640,7 @@ impl Sesh {
                     self.wsl_enabled = enabled;
                 }
                 if request.operation == "setUseWslWorkspace" {
+                    self.account_refreshes.clear();
                     self.data = Snapshot::default();
                     self.initialized = false;
                     self.reset_search(tx);
@@ -604,7 +675,7 @@ impl Sesh {
                     let name = login.name.clone();
                     if value["complete"].as_bool() == Some(true) {
                         self.login = None;
-                        self.request("selectSession", json!({"name": name}));
+                        self.request("selectSession", json!({"name": name, "cachedOnly": true}));
                     } else {
                         self.request("pollLogin", json!({"name": name}));
                     }
@@ -612,14 +683,7 @@ impl Sesh {
             }
             _ => {
                 if value.get("sessions").is_some() {
-                    let revalidate = request.operation == "selectSession"
-                        && value["accountsFromCache"] == true
-                        && self.screen == Screen::Accounts
-                        && request.args["name"].as_str() == self.data.session.as_deref();
                     self.apply_snapshot(value, &request, tx);
-                    if revalidate {
-                        self.request("revalidateAccounts", request.args.clone());
-                    }
                 }
             }
         }
@@ -738,6 +802,13 @@ impl Sesh {
             return;
         }
         if current {
+            if request.operation == "selectSession"
+                && self.screen == Screen::Accounts
+                && self.authenticated()
+                && let Some(name) = self.data.session.clone()
+            {
+                self.refresh_accounts(name, false);
+            }
             if let Some(previous) = &self.account {
                 let updated = self
                     .data
@@ -752,7 +823,8 @@ impl Sesh {
                     self.selected = None;
                     self.marked.clear();
                 }
-            } else if matches!(request.operation, "selectSession" | "revalidateAccounts")
+            } else if (request.operation == "selectSession"
+                || request.args["accountRefresh"] == true)
                 && self.screen == Screen::Accounts
                 && self.search.text.is_empty()
             {
@@ -1180,7 +1252,7 @@ impl Sesh {
         {
             self.screen = Screen::Accounts;
             if self.authenticated() {
-                self.request("revalidateAccounts", json!({"name": name}));
+                self.refresh_accounts(name, false);
             }
             return;
         }
@@ -1190,14 +1262,11 @@ impl Sesh {
         self.data.accounts.clear();
         self.rebuild_index();
         self.account = None;
-        self.request(
-            if self.authenticated() {
-                "selectSession"
-            } else {
-                "snapshot"
-            },
-            json!({"name": name}),
-        );
+        if self.authenticated() {
+            self.request("selectSession", json!({"name": name, "cachedOnly": true}));
+        } else {
+            self.request("snapshot", json!({"name": name}));
+        }
     }
 
     fn schedule_preference(&mut self, operation: &'static str, tx: &mut Tx) {
@@ -1382,9 +1451,19 @@ impl Sesh {
                 self.request("snapshot", json!({"name": name}));
                 if self.screen == Screen::Settings { self.request("getAppearance", json!({})); self.request("wslStatus", json!({})); }
             }
-            Command::Refresh => self.request(if self.screen == Screen::Accounts && self.authenticated() { "selectSession" } else { "snapshot" },
-                json!({"name": name, "refresh": true})),
+            Command::Refresh => {
+                if self.screen == Screen::Accounts && self.authenticated() && let Some(name) = name {
+                    self.refresh_accounts(name, true);
+                } else {
+                    self.request("snapshot", json!({"name": self.data.session}));
+                }
+            }
             Command::LoadRoles => if self.authenticated() && let Some(id) = self.account.as_ref().map(|account| account.account_id.clone()) { self.load_roles(&id); },
+            Command::RefreshRoles => {
+                if self.authenticated() && let Some(account) = &self.account {
+                    self.request("loadRoles", json!({"name": name, "accountId": account.account_id, "refresh": true}));
+                }
+            }
             Command::SelectRole(role) => {
                 if !self.account.as_ref().is_some_and(|a| a.roles.contains(&role)) { return; }
                 self.flush_preferences();
@@ -1663,6 +1742,9 @@ impl Sesh {
                 commands.push(("Clear selection".into(), Command::ClearSelection));
             }
         }
+        if self.screen == Screen::Accounts && self.account.is_some() && self.authenticated() {
+            commands.push(("Refresh roles".into(), Command::RefreshRoles));
+        }
         if self.account.is_some() && self.role.is_some() {
             commands.push(("Open AWS Console".into(), Command::Console));
             if self.authenticated() && !self.preferences_dirty() {
@@ -1710,14 +1792,36 @@ fn setup(state: &mut Sesh, waker: Waker) {
         while let Ok(request) = requests.recv() {
             let result = (|| -> anyhow::Result<Value> {
                 if sdk.is_none() {
-                    sdk = Some(sdk::Sdk::start()?);
+                    let responses = responses.clone();
+                    let waker = waker.clone();
+                    sdk = Some(sdk::Sdk::start(move |event| {
+                        if responses.send(SdkMessage::AccountRefresh(event)).is_ok() {
+                            waker();
+                        }
+                    })?);
                 }
-                sdk.as_mut()
-                    .ok_or_else(|| anyhow::anyhow!("SDK unavailable"))?
-                    .request(request.operation, request.args.clone())
-            })()
-            .map_err(|error| error.to_string());
-            if responses.send(Response { request, result }).is_err() {
+                let sdk = sdk
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("SDK unavailable"))?;
+                if request.operation == "revalidateAccounts" {
+                    sdk.revalidate_accounts(request.id, request.args.clone())?;
+                    Ok(Value::Null)
+                } else {
+                    sdk.request(request.operation, request.args.clone())
+                }
+            })();
+            let message = if request.operation == "revalidateAccounts" {
+                if result.is_ok() {
+                    continue;
+                }
+                SdkMessage::AccountRefresh(sdk::RefreshEvent::Complete(request.id, result))
+            } else {
+                SdkMessage::Response(Response {
+                    request,
+                    result: result.map_err(|error| error.to_string()),
+                })
+            };
+            if responses.send(message).is_err() {
                 break;
             }
             waker();
@@ -1739,12 +1843,15 @@ fn poll(state: &mut Sesh, clock: f64, tx: &mut Tx) -> bool {
         state.bulk_copy_notice = None;
         changed = true;
     }
-    while let Some(response) = state
+    while let Some(message) = state
         .receiver
         .as_ref()
         .and_then(|receiver| receiver.try_recv().ok())
     {
-        state.receive(response, tx);
+        match message {
+            SdkMessage::Response(response) => state.receive(response, tx),
+            SdkMessage::AccountRefresh(event) => state.account_refresh_event(event),
+        }
         changed = true;
     }
     let due: Vec<_> = state
@@ -2671,7 +2778,10 @@ mod tests {
         state.screen = Screen::Accounts;
         let snapshot = |name| {
             json!({
-                "session": "Example", "sessions": [], "accountsFromCache": true,
+                "session": "Example", "sessions": [{
+                    "name": "Example", "startUrl": "https://example.awsapps.com/start",
+                    "ssoRegion": "eu-north-1", "defaultRegion": "eu-north-1", "authenticated": true
+                }],
                 "accounts": [{
                     "accountId": "123456789012", "name": name, "roles": [],
                     "rolesLoaded": true, "profiles": {}, "pinned": false
@@ -2689,16 +2799,25 @@ mod tests {
         assert_eq!(state.data.accounts[0].name, "Cached");
         assert!(!state.busy());
 
-        respond(
-            &mut state,
-            "revalidateAccounts",
-            Err("Service unavailable".into()),
-        );
+        let failed = requests.try_recv().unwrap();
+        assert_eq!(failed.operation, "revalidateAccounts");
+        state.account_refresh_event(sdk::RefreshEvent::Complete(
+            failed.id,
+            Err(anyhow::anyhow!("Service unavailable")),
+        ));
         assert_eq!(state.data.accounts[0].name, "Cached");
         assert!(!state.error);
 
-        state.request("revalidateAccounts", json!({"name": "Example"}));
-        respond(&mut state, "revalidateAccounts", Ok(snapshot("Updated")));
+        state.refresh_accounts("Example".into(), false);
+        let refresh = requests.try_recv().unwrap();
+        state.refresh_accounts("Example".into(), true);
+        assert!(requests.try_recv().is_err());
+
+        state.request("snapshot", json!({"name": "Example"}));
+        respond(&mut state, "snapshot", Ok(snapshot("Cached")));
+        assert_eq!(state.data.accounts[0].name, "Cached");
+        state.account_refresh_event(sdk::RefreshEvent::Complete(refresh.id, Ok(Value::Null)));
+        respond(&mut state, "snapshot", Ok(snapshot("Updated")));
         assert_eq!(state.data.accounts[0].name, "Updated");
     }
 

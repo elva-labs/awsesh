@@ -401,7 +401,7 @@ export function AccountListScreen() {
 
   const handleRefresh = async () => {
     const s = session()
-    if (!s || aws.refreshing) return
+    if (!s) return
 
     try {
       await aws.refreshAccounts()

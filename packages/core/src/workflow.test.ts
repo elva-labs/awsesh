@@ -124,21 +124,35 @@ describe("Full Workflow", () => {
     await awsesh.accounts.save(name, { accounts: [retained, removed], lastUpdated: 0 });
     awsesh.sso.listAccounts = () => response.promise;
 
-    const cached = await workflow.selectSession(name);
-    expect(cached.accountsFromCache).toBe(true);
+    const cached = await workflow.selectCachedSession(name);
     expect(cached.accounts.map((account) => account.name)).toEqual(["Old name", "Removed"]);
 
-    const refresh = workflow.revalidateAccounts(name);
+    const refresh = workflow.refreshAccounts(name);
+    expect(workflow.refreshAccounts(name)).toBe(refresh);
     await workflow.cacheRoles(name, retained.accountId, ["Admin"]);
     expect((await awsesh.accounts.get(name))?.lastUpdated).toBe(0);
     expect((await workflow.snapshot(name)).accounts).toHaveLength(2);
     response.resolve([{ ...retained, name: "Renamed", roles: [], rolesLoaded: false }, added]);
-    const refreshed = await refresh;
+    await refresh;
+    const refreshed = await workflow.snapshot(name);
     expect(refreshed.accounts).toMatchObject([{ ...retained, name: "Renamed", roles: ["Admin"] }, added]);
     expect(await awsesh.accounts.get(name)).toMatchObject({ accounts: refreshed.accounts.map(({ accountId }) => ({ accountId })) });
 
     awsesh.sso.listAccounts = async () => { throw new Error("Service unavailable"); };
-    await expect(workflow.revalidateAccounts(name)).rejects.toThrow("Service unavailable");
+    await expect(workflow.refreshAccounts(name)).rejects.toThrow("Service unavailable");
+    expect((await workflow.snapshot(name)).accounts).toEqual(refreshed.accounts);
+
+    const started = Promise.withResolvers<void>();
+    const obsolete = Promise.withResolvers<typeof added[]>();
+    awsesh.sso.listAccounts = () => {
+      started.resolve();
+      return obsolete.promise;
+    };
+    const staleRefresh = workflow.refreshAccounts(name);
+    await started.promise;
+    await awsesh.tokens.remove(sampleSession.startUrl);
+    obsolete.resolve([]);
+    await expect(staleRefresh).rejects.toThrow("SSO session changed");
     expect((await workflow.snapshot(name)).accounts).toEqual(refreshed.accounts);
   });
 

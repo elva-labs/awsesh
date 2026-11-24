@@ -1,10 +1,11 @@
 import { setTimeout } from "node:timers/promises"
 import type { Awsesh } from "./index"
-import type { SSOLoginInfo, SSOSession } from "./types"
+import type { AccountCache, SSOLoginInfo, SSOSession } from "./types"
 
 /** Presentation-independent operations for interactive clients. Never returns credentials or tokens. */
 export function createWorkflow(awsesh: Awsesh) {
   const logins = new Map<string, SSOLoginInfo>()
+  const accountRefreshes = new Map<string, Promise<AccountCache>>()
 
   function validateRegion(region: string) {
     if (!/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(region)) throw new Error("Invalid AWS region")
@@ -35,11 +36,17 @@ export function createWorkflow(awsesh: Awsesh) {
     return value
   }
 
-  async function refreshAccountCache(value: SSOSession, preserveRoles = true, signal?: AbortSignal) {
-    const accounts = await awsesh.sso.listAccounts(value, await token(value))
-    return awsesh.accounts.update(value.name, (cache) => {
-      signal?.throwIfAborted()
-      const cached = new Map((preserveRoles ? cache?.accounts ?? [] : []).map((item) => [item.accountId, item]))
+  async function fetchAccounts(name: string) {
+    const value = await session(name)
+    const accessToken = await token(value)
+    const accounts = await awsesh.sso.listAccounts(value, accessToken)
+    const current = await awsesh.sessions.get(name)
+    if (current?.startUrl !== value.startUrl || current.ssoRegion !== value.ssoRegion ||
+        (await awsesh.tokens.get(value.startUrl))?.token !== accessToken) {
+      throw new Error("SSO session changed during account refresh")
+    }
+    return awsesh.accounts.update(name, (cache) => {
+      const cached = new Map((cache?.accounts ?? []).map((item) => [item.accountId, item]))
       return {
         lastUpdated: Date.now(),
         accounts: accounts.map((item) => {
@@ -48,6 +55,14 @@ export function createWorkflow(awsesh: Awsesh) {
         }),
       }
     })
+  }
+
+  function refreshAccounts(name: string) {
+    const pending = accountRefreshes.get(name)
+    if (pending) return pending
+    const refresh = fetchAccounts(name).finally(() => accountRefreshes.delete(name))
+    accountRefreshes.set(name, refresh)
+    return refresh
   }
 
   async function cacheRoles(name: string, accountId: string, roles: string[]) {
@@ -109,6 +124,12 @@ export function createWorkflow(awsesh: Awsesh) {
     }
   }
 
+  async function selectCachedSession(name: string) {
+    await session(name)
+    await awsesh.lastSession.save(name)
+    return snapshot(name)
+  }
+
   const layout = {
     async pinAccount(name: string, accountId: string, pinned: boolean) {
       await session(name)
@@ -159,19 +180,12 @@ export function createWorkflow(awsesh: Awsesh) {
   return {
     snapshot,
     layout,
-    refreshAccountCache,
+    refreshAccounts,
     cacheRoles,
-    async revalidateAccounts(name: string) {
-      await refreshAccountCache(await session(name))
-      return snapshot(name)
-    },
+    selectCachedSession,
     async selectSession(name: string, refresh = false) {
-      const value = await session(name)
-      const cache = await awsesh.accounts.get(name)
-      const accountsFromCache = !refresh && cache !== undefined
-      if (!accountsFromCache) await refreshAccountCache(value, false)
-      await awsesh.lastSession.save(name)
-      return { ...await snapshot(name), accountsFromCache }
+      if (refresh || !await awsesh.accounts.get(name)) await refreshAccounts(name)
+      return selectCachedSession(name)
     },
     async saveSession(value: SSOSession, creating = false, originalName?: string) {
       const url = new URL(value.startUrl)

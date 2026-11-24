@@ -101,6 +101,28 @@ describe("helper transport", () => {
     }
   })
 
+  test("routes a background reply separately from a foreground reply", async () => {
+    const source = `import { createInterface } from "node:readline";
+      let refresh;
+      for await (const line of createInterface({ input: process.stdin })) {
+        const { id, args } = JSON.parse(line);
+        if (id) {
+          refresh = id;
+        } else {
+          console.log(JSON.stringify({ result: args }));
+          console.log(JSON.stringify({ id: refresh, error: "Refresh failed" }));
+        }
+      }`
+    const helper = new WslHelper([process.execPath, "--eval", source])
+    try {
+      const refresh = helper.request("revalidateAccounts", {}, 5000, 1).catch(error => error)
+      expect(await helper.request("snapshot", { name: "Example" }, 5000)).toEqual({ name: "Example" })
+      expect(String(await refresh)).toBe("Error: Refresh failed")
+    } finally {
+      await helper.close()
+    }
+  })
+
   test("bounds workspace startup time", async () => {
     const helper = new WslHelper([process.execPath, "--eval", 'process.stdin.resume(); process.stdin.on("end", () => process.exit(0)); setInterval(() => {}, 1000)'])
     try {

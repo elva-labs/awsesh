@@ -16,6 +16,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
     const awsesh = useAwsesh()
     const workflow = createWorkflow(awsesh)
     let accountView = new AbortController()
+    let accountRefresh: Promise<void> | undefined
     onCleanup(() => accountView.abort())
 
     const [sessions, setSessions] = createSignal<SSOSession[]>([])
@@ -59,9 +60,9 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
       }
     }
 
-    async function fetchAccounts(session: SSOSession, preserveRoles: boolean) {
+    async function fetchAccounts(session: SSOSession) {
       const { signal } = accountView
-      const { accounts } = await workflow.refreshAccountCache(session, preserveRoles, signal)
+      const { accounts } = await workflow.refreshAccounts(session.name)
       if (signal.aborted) return
       setAccounts(accounts)
       if (accounts.length <= Global.Limits.maxAccountsForRoleLoading) {
@@ -112,10 +113,11 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         return tokenStatus()[startUrl] ?? false
       },
 
-      async loadAccounts(session: SSOSession): Promise<void> {
+      async loadAccounts(session: SSOSession): Promise<boolean> {
         accountView.abort()
         accountView = new AbortController()
         const { signal } = accountView
+        accountRefresh = undefined
         setLoading(true)
         setRefreshing(false)
         setRefreshingRoles(false)
@@ -125,19 +127,17 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
         try {
           const cached = await awsesh.accounts.get(session.name)
-          if (signal.aborted) return
-          if (cached) {
-            setAccounts(cached.accounts)
-            void this.refreshAccounts(true)
-            return
-          }
-
-          await fetchAccounts(session, false)
+          if (signal.aborted) return false
+          if (cached) setAccounts(cached.accounts)
+          void this.refreshAccounts(cached !== undefined).catch((error) => {
+            if (!signal.aborted) setError(`Failed to load accounts: ${error}`)
+          })
         } catch (e) {
           if (!signal.aborted) setError(`Failed to load accounts: ${e}`)
         } finally {
           if (!signal.aborted) setLoading(false)
         }
+        return !signal.aborted
       },
 
       async refreshSessions(): Promise<void> {
@@ -158,19 +158,23 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
       async refreshAccounts(background = false): Promise<void> {
         const session = currentSession()
-        if (!session || refreshing()) return
+        if (!session) return
         const { signal } = accountView
 
         setRefreshing(true)
         if (!background) setError(undefined)
         try {
-          await fetchAccounts(session, background)
+          accountRefresh ??= fetchAccounts(session)
+          await accountRefresh
         } catch (error) {
           if (signal.aborted) return
           if (!background) throw error
           log.warn("Failed to revalidate accounts", { error, sessionName: session.name })
         } finally {
-          if (!signal.aborted) setRefreshing(false)
+          if (!signal.aborted) {
+            accountRefresh = undefined
+            setRefreshing(false)
+          }
         }
       },
 
