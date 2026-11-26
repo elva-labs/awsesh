@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    sync::mpsc::{self, Receiver},
 };
 
 #[cfg(debug_assertions)]
@@ -62,11 +63,43 @@ pub struct Snapshot {
 pub struct Sdk {
     child: Child,
     input: ChildStdin,
-    output: BufReader<ChildStdout>,
+    replies: Receiver<Result<Value>>,
+}
+
+pub enum RefreshEvent {
+    Complete(u64, Result<Value>),
+    Disconnected,
+}
+
+fn read_replies(
+    output: ChildStdout,
+    replies: mpsc::Sender<Result<Value>>,
+    refresh: impl Fn(RefreshEvent),
+) {
+    for line in BufReader::new(output).lines() {
+        let Ok(line) = line else { break };
+        let result = serde_json::from_str::<Value>(&line).context("Invalid SDK response");
+        let id = result.as_ref().ok().and_then(|value| value["id"].as_u64());
+        let result = result.and_then(|response| {
+            if let Some(error) = response["error"].as_str() {
+                bail!("{error}");
+            }
+            response
+                .get("result")
+                .cloned()
+                .context("Missing SDK result")
+        });
+        if let Some(id) = id {
+            refresh(RefreshEvent::Complete(id, result));
+        } else if replies.send(result).is_err() {
+            break;
+        }
+    }
+    refresh(RefreshEvent::Disconnected);
 }
 
 impl Sdk {
-    pub fn start() -> Result<Self> {
+    pub fn start(refresh: impl Fn(RefreshEvent) + Send + 'static) -> Result<Self> {
         let executable = std::env::current_exe()?;
         let bundled = executable
             .parent()
@@ -107,33 +140,36 @@ impl Sdk {
                 "Cannot start the SDK helper. Install Bun for development, or use a packaged build with the bundled helper.",
             )?;
         let input = child.stdin.take().context("Missing SDK input")?;
-        let output = BufReader::new(child.stdout.take().context("Missing SDK output")?);
+        let output = child.stdout.take().context("Missing SDK output")?;
+        let (sender, replies) = mpsc::channel();
+        std::thread::spawn(move || read_replies(output, sender, refresh));
         Ok(Self {
             child,
             input,
-            output,
+            replies,
         })
     }
 
-    pub fn request(&mut self, operation: &str, args: Value) -> Result<Value> {
-        serde_json::to_writer(
-            &mut self.input,
-            &json!({ "operation": operation, "args": args }),
-        )?;
+    fn send(&mut self, operation: &str, args: Value, id: Option<u64>) -> Result<()> {
+        let mut request = json!({ "operation": operation, "args": args });
+        if let Some(id) = id {
+            request["id"] = json!(id);
+        }
+        serde_json::to_writer(&mut self.input, &request)?;
         self.input.write_all(b"\n")?;
         self.input.flush()?;
-        let mut line = String::new();
-        if self.output.read_line(&mut line)? == 0 {
-            bail!("The SDK helper stopped unexpectedly. Restart Sesh.");
-        }
-        let response: Value = serde_json::from_str(&line).context("Invalid SDK response")?;
-        if let Some(error) = response.get("error").and_then(Value::as_str) {
-            bail!("{error}");
-        }
-        response
-            .get("result")
-            .cloned()
-            .context("Missing SDK result")
+        Ok(())
+    }
+
+    pub fn request(&mut self, operation: &str, args: Value) -> Result<Value> {
+        self.send(operation, args, None)?;
+        self.replies
+            .recv()
+            .context("The SDK helper stopped unexpectedly. Restart Sesh.")?
+    }
+
+    pub fn revalidate_accounts(&mut self, id: u64, args: Value) -> Result<()> {
+        self.send("revalidateAccounts", args, Some(id))
     }
 }
 

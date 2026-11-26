@@ -204,7 +204,7 @@ export function SessionListScreen() {
     await awsesh.lastSession.save(session.name)
 
     if (aws.isSessionActive(session.startUrl)) {
-      await aws.loadAccounts(session)
+      if (!await aws.loadAccounts(session)) return
       route.navigate({
         type: "account-select",
         sessionName: session.name,

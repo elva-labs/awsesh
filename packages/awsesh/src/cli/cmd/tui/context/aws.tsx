@@ -4,6 +4,7 @@ import { createSimpleContext } from "./helper"
 import { useAwsesh } from "./awsesh"
 import { Global } from "@/global"
 import { Log } from "@/util/log"
+import { createWorkflow } from "@awsesh/core"
 import type { SSOSession, Account, SSOLoginInfo, ActiveCredential, TokenResult } from "@awsesh/core"
 import { markCredentialsSet, captureEvalEnvironment } from "./session-state"
 
@@ -13,8 +14,10 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
   name: "AWS",
   init: () => {
     const awsesh = useAwsesh()
-    const rolePreload = new AbortController()
-    onCleanup(() => rolePreload.abort())
+    const workflow = createWorkflow(awsesh)
+    let accountView = new AbortController()
+    let accountRefresh = 0
+    onCleanup(() => accountView.abort())
 
     const [sessions, setSessions] = createSignal<SSOSession[]>([])
     const [accounts, setAccounts] = createSignal<Account[]>([])
@@ -25,6 +28,44 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
     const [currentSession, setCurrentSession] = createSignal<SSOSession | undefined>()
     const [tokenStatus, setTokenStatus] = createSignal<Record<string, boolean>>({})
     const [activeCredentials, setActiveCredentials] = createSignal<ActiveCredential[]>([])
+
+    function resetAccountView() {
+      accountView.abort()
+      accountView = new AbortController()
+      setRefreshing(false)
+      setRefreshingRoles(false)
+    }
+
+    function clearAccountRoles() {
+      resetAccountView()
+      setLoading(false)
+      setAccounts((current) => current.map((account) => ({ ...account, roles: [], rolesLoaded: false })))
+    }
+
+    async function fetchRoles(session: SSOSession, accountId: string, signal: AbortSignal) {
+      const roles = await workflow.fetchRoles(session, accountId, signal)
+      signal.throwIfAborted()
+      setAccounts((current) => current.map((account) =>
+        account.accountId === accountId ? { ...account, roles, rolesLoaded: true } : account
+      ))
+      return roles
+    }
+
+    async function preloadRoles(session: SSOSession, accountsList: Account[], signal: AbortSignal) {
+      for (const account of accountsList) {
+        if (signal.aborted) return
+        if (accounts().find((item) => item.accountId === account.accountId)?.rolesLoaded !== false) continue
+
+        try {
+          await fetchRoles(session, account.accountId, signal)
+        } catch (e) {
+          if (signal.aborted) return
+          log.error("Failed to pre-load roles", { error: e, accountName: account.name, accountId: account.accountId })
+        }
+
+        await delay(100, undefined, { signal }).catch(() => {})
+      }
+    }
 
     ;(async () => {
       try {
@@ -69,43 +110,27 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         return tokenStatus()[startUrl] ?? false
       },
 
-      async loadAccounts(session: SSOSession): Promise<void> {
+      async loadAccounts(session: SSOSession): Promise<boolean> {
+        resetAccountView()
+        const { signal } = accountView
         setLoading(true)
         setError(undefined)
         setCurrentSession(session)
+        setAccounts([])
 
         try {
-          const cached = await awsesh.accounts.get(session.name)
-          if (cached) {
-            setAccounts(cached.accounts)
-            setLoading(false)
-            
-            const isStale = Date.now() - cached.lastUpdated > 24 * 60 * 60 * 1000
-            if (!isStale && cached.accounts.length <= Global.Limits.maxAccountsForRoleLoading) {
-              this.preloadRoles(session, cached.accounts)
-            }
-            
-            return
-          }
-
-          const token = await awsesh.tokens.get(session.startUrl)
-          if (!token) {
-            throw new Error("No valid token found. Please authenticate first.")
-          }
-
-          const accountsList = await awsesh.sso.listAccounts(session, token.token)
-
-          await awsesh.accounts.save(session.name, { accounts: accountsList, lastUpdated: Date.now() })
-          setAccounts(accountsList)
-          
-          if (accountsList.length <= Global.Limits.maxAccountsForRoleLoading) {
-            this.preloadRoles(session, accountsList)
-          }
+          const cached = await workflow.cachedAccounts(session)
+          if (signal.aborted) return false
+          if (cached) setAccounts(cached.accounts)
+          void this.refreshAccounts(cached !== undefined).catch((error) => {
+            if (!signal.aborted) setError(`Failed to load accounts: ${error}`)
+          })
         } catch (e) {
-          setError(`Failed to load accounts: ${e}`)
+          if (!signal.aborted) setError(`Failed to load accounts: ${e}`)
         } finally {
-          setLoading(false)
+          if (!signal.aborted) setLoading(false)
         }
+        return !signal.aborted
       },
 
       async refreshSessions(): Promise<void> {
@@ -124,122 +149,54 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
         }
       },
 
-      async refreshAccounts(): Promise<void> {
+      async refreshAccounts(background = false): Promise<void> {
         const session = currentSession()
         if (!session) return
+        const { signal } = accountView
+        const refresh = ++accountRefresh
 
         setRefreshing(true)
-        setError(undefined)
-
+        if (!background) setError(undefined)
         try {
-          const token = await awsesh.tokens.get(session.startUrl)
-          if (!token) {
-            throw new Error("No valid token found. Please authenticate first.")
-          }
-
-          const accountsList = await awsesh.sso.listAccounts(session, token.token)
-
-          setAccounts(accountsList)
-          await awsesh.accounts.save(session.name, { accounts: accountsList, lastUpdated: Date.now() })
-          
-          if (accountsList.length <= Global.Limits.maxAccountsForRoleLoading) {
-            this.preloadRoles(session, accountsList)
-          }
-        } catch (e) {
-          setError(`Failed to refresh accounts: ${e}`)
+          const { accounts } = await workflow.refreshAccounts(session.name)
+          if (signal.aborted || refresh !== accountRefresh) return
+          setAccounts(accounts)
+          if (accounts.length <= Global.Limits.maxAccountsForRoleLoading) void preloadRoles(session, accounts, signal)
+        } catch (error) {
+          if (signal.aborted || refresh !== accountRefresh) return
+          if (!background) throw error
+          log.warn("Failed to revalidate accounts", { error, sessionName: session.name })
         } finally {
-          setRefreshing(false)
-        }
-      },
-
-      async preloadRoles(session: SSOSession, accountsList: Account[]): Promise<void> {
-        const { signal } = rolePreload
-        if (signal.aborted) return
-        const token = await awsesh.tokens.get(session.startUrl)
-        if (!token) return
-
-        for (const account of accountsList) {
-          if (signal.aborted) return
-          if (account.rolesLoaded) continue
-
-          try {
-            const roles = await awsesh.sso.listRoles(session, token.token, account.accountId, signal)
-            if (signal.aborted) return
-            
-            setAccounts((current) =>
-              current.map((a) =>
-                a.accountId === account.accountId
-                  ? { ...a, roles, rolesLoaded: true }
-                  : a
-              )
-            )
-
-            await awsesh.accounts.save(session.name, { accounts: accounts(), lastUpdated: Date.now() })
-          } catch (e) {
-            if (signal.aborted) return
-            log.error("Failed to pre-load roles", { error: e, accountName: account.name, accountId: account.accountId })
-          }
-
-          await delay(100, undefined, { signal }).catch(() => {})
+          if (!signal.aborted && refresh === accountRefresh) setRefreshing(false)
         }
       },
 
       async loadRoles(session: SSOSession, accountId: string): Promise<string[]> {
+        const { signal } = accountView
         setLoading(true)
         setError(undefined)
 
         try {
-          const token = await awsesh.tokens.get(session.startUrl)
-          if (!token) {
-            throw new Error("No valid token found. Please authenticate first.")
-          }
-
-          const roles = await awsesh.sso.listRoles(session, token.token, accountId)
-          
-          setAccounts((current) =>
-            current.map((a) =>
-              a.accountId === accountId
-                ? { ...a, roles, rolesLoaded: true }
-                : a
-            )
-          )
-
-          await awsesh.accounts.save(session.name, { accounts: accounts(), lastUpdated: Date.now() })
-          
-          return roles
+          return await fetchRoles(session, accountId, signal)
         } catch (e) {
-          setError(`Failed to load roles: ${e}`)
+          if (!signal.aborted) setError(`Failed to load roles: ${e}`)
           return []
         } finally {
-          setLoading(false)
+          if (!signal.aborted) setLoading(false)
         }
       },
 
       async refreshRoles(session: SSOSession, accountId: string): Promise<void> {
+        const { signal } = accountView
         setRefreshingRoles(true)
         setError(undefined)
 
         try {
-          const token = await awsesh.tokens.get(session.startUrl)
-          if (!token) {
-            throw new Error("No valid token found. Please authenticate first.")
-          }
-
-          const roles = await awsesh.sso.listRoles(session, token.token, accountId)
-
-          setAccounts((current) =>
-            current.map((a) =>
-              a.accountId === accountId
-                ? { ...a, roles, rolesLoaded: true }
-                : a
-            )
-          )
-
-          await awsesh.accounts.save(session.name, { accounts: accounts(), lastUpdated: Date.now() })
+          await fetchRoles(session, accountId, signal)
         } catch (e) {
-          setError(`Failed to refresh roles: ${e}`)
+          if (!signal.aborted) setError(`Failed to refresh roles: ${e}`)
         } finally {
-          setRefreshingRoles(false)
+          if (!signal.aborted) setRefreshingRoles(false)
         }
       },
 
@@ -373,6 +330,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
 
       async killSSOSession(sessionName: string, startUrl: string): Promise<void> {
         await awsesh.tokens.remove(startUrl)
+        if (currentSession()?.startUrl === startUrl) clearAccountRoles()
         await awsesh.clearSessionCredentials(sessionName, true)
 
         setTokenStatus((prev) => ({ ...prev, [startUrl]: false }))
@@ -389,6 +347,7 @@ export const { use: useAWS, provider: AWSProvider } = createSimpleContext({
           await awsesh.tokens.remove(session.startUrl)
         }
 
+        clearAccountRoles()
         await awsesh.clearAllCredentials(true)
 
         const status: Record<string, boolean> = {}

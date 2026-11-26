@@ -112,6 +112,93 @@ describe("Full Workflow", () => {
     expect(await awsesh.credentials.listProfiles()).toEqual([]);
   });
 
+  test("account revalidation replaces the cached list without discarding roles or clearing it on failure", async () => {
+    const workflow = createWorkflow(awsesh);
+    const name = sampleSession.name;
+    const retained = { accountId: "111", name: "Old name", roles: ["ReadOnly"], rolesLoaded: true };
+    const removed = { accountId: "222", name: "Removed", roles: [], rolesLoaded: false };
+    const added = { accountId: "333", name: "Added", roles: [], rolesLoaded: false };
+    const response = Promise.withResolvers<Awaited<ReturnType<typeof awsesh.sso.listAccounts>>>();
+    await workflow.saveSession(sampleSession, true);
+    await awsesh.tokens.save(sampleSession.startUrl, "mock-token", new Date(Date.now() + 3600000));
+    await awsesh.accounts.save(name, { accounts: [retained, removed], lastUpdated: 0 });
+    let requests = 0;
+    const started = Promise.withResolvers<void>();
+    awsesh.sso.listAccounts = () => {
+      requests++;
+      started.resolve();
+      return response.promise;
+    };
+
+    const cached = await workflow.selectCachedSession(name);
+    expect(cached.accounts.map((account) => account.name)).toEqual(["Old name", "Removed"]);
+    expect(cached.accounts[0]).toMatchObject({ roles: [], rolesLoaded: false });
+
+    const refresh = workflow.refreshAccounts(name);
+    await started.promise;
+    const manualRefresh = workflow.refreshAccounts(name);
+    awsesh.sso.listRoles = async () => ["Admin"];
+    await workflow.loadRoles(name, retained.accountId);
+    expect((await awsesh.accounts.get(name))?.lastUpdated).toBe(0);
+    expect((await workflow.snapshot(name)).accounts).toHaveLength(2);
+    response.resolve([{ ...retained, name: "Renamed", roles: [], rolesLoaded: false }, added]);
+    await Promise.all([refresh, manualRefresh]);
+    expect(requests).toBe(1);
+    const refreshed = await workflow.snapshot(name);
+    expect(refreshed.accounts).toMatchObject([{ ...retained, name: "Renamed", roles: ["Admin"] }, added]);
+    expect(await awsesh.accounts.get(name)).toMatchObject({ accounts: refreshed.accounts.map(({ accountId }) => ({ accountId })) });
+
+    awsesh.sso.listAccounts = async () => { throw new Error("Service unavailable"); };
+    await expect(workflow.refreshAccounts(name)).rejects.toThrow("Service unavailable");
+    expect((await workflow.snapshot(name)).accounts).toEqual(refreshed.accounts);
+  });
+
+  test("a new sign-in refreshes independently and reloads roles for the same account", async () => {
+    const workflow = createWorkflow(awsesh);
+    const name = sampleSession.name;
+    const account = { accountId: "111", name: "Account", roles: [], rolesLoaded: false };
+    const expiresAt = new Date(Date.now() + 3600000);
+    await workflow.saveSession(sampleSession, true);
+    await awsesh.tokens.save(sampleSession.startUrl, "admin-token", expiresAt);
+    awsesh.sso.listAccounts = async () => [account];
+    awsesh.sso.listRoles = async () => ["AdministratorAccess"];
+    await workflow.refreshAccounts(name);
+    expect((await workflow.loadRoles(name, account.accountId)).accounts[0].roles).toEqual(["AdministratorAccess"]);
+
+    const rolesStarted = Promise.withResolvers<void>();
+    const obsoleteRoles = Promise.withResolvers<string[]>();
+    awsesh.sso.listRoles = () => {
+      rolesStarted.resolve();
+      return obsoleteRoles.promise;
+    };
+    const staleRoles = workflow.loadRoles(name, account.accountId, true).catch((error: unknown) => error);
+    await rolesStarted.promise;
+    const started = Promise.withResolvers<void>();
+    const obsolete = Promise.withResolvers<typeof account[]>();
+    awsesh.sso.listAccounts = async (_session, token) => {
+      if (token === "readonly-token") return [account];
+      started.resolve();
+      return obsolete.promise;
+    };
+    const staleResult = workflow.refreshAccounts(name).catch((error: unknown) => error);
+    await started.promise;
+    await workflow.signOut(name);
+    await awsesh.tokens.save(sampleSession.startUrl, "readonly-token", expiresAt);
+
+    expect((await workflow.selectCachedSession(name)).accounts[0]).toMatchObject(account);
+    expect((await workflow.refreshAccounts(name)).accounts).toEqual([account]);
+    awsesh.sso.listRoles = async (_session, token) => {
+      expect(token).toBe("readonly-token");
+      return ["ReadOnlyAccess"];
+    };
+    expect((await workflow.loadRoles(name, account.accountId)).accounts[0].roles).toEqual(["ReadOnlyAccess"]);
+    obsolete.resolve([]);
+    obsoleteRoles.resolve(["AdministratorAccess"]);
+    expect(await staleResult).toEqual(new Error("SSO session changed during refresh"));
+    expect(await staleRoles).toEqual(new Error("SSO session changed during refresh"));
+    expect((await workflow.snapshot(name)).accounts[0].roles).toEqual(["ReadOnlyAccess"]);
+  });
+
   test("interactive workflow validates session and preference inputs before writing", async () => {
     const workflow = createWorkflow(awsesh);
     await expect(workflow.saveSession({ ...sampleSession, name: "   " })).rejects.toThrow("required");
@@ -125,9 +212,12 @@ describe("Full Workflow", () => {
       lastUpdated: Date.now(),
     });
     await expect(workflow.setRegion("production", "123", "region\ninjection")).rejects.toThrow("region");
-    await expect(workflow.setProfile("production", "123", "Admin", "profile\n[default]")).rejects.toThrow("profile");
     await expect(workflow.preferRole("production", "123", "Unknown")).rejects.toThrow("not available");
     await expect(workflow.assumeRole("production", "123", "Admin")).rejects.toThrow("Sign in");
+    await awsesh.tokens.save(sampleSession.startUrl, "mock-token", new Date(Date.now() + 3600000));
+    awsesh.sso.listRoles = async () => ["Admin"];
+    await workflow.loadRoles("production", "123");
+    await expect(workflow.setProfile("production", "123", "Admin", "profile\n[default]")).rejects.toThrow("profile");
     await expect(workflow.snapshot("../escape")).rejects.toThrow("not found");
     const removed = await workflow.removeSession("production");
     expect(removed.sessions).toEqual([]);
@@ -169,8 +259,10 @@ describe("Full Workflow", () => {
     await workflow.saveSession({ ...sampleSession, name: "Other" }, true);
     await awsesh.tokens.save(sampleSession.startUrl, "mock-token", new Date(Date.now() + 3600000));
     awsesh.sso.listAccounts = async () => { throw new Error("Renaming must preserve the existing account cache"); };
+    awsesh.sso.listRoles = async () => ["Admin"];
     awsesh.sso.getCredentials = async () => sampleCreds;
     await workflow.selectSession("Lantmännen");
+    await workflow.loadRoles("Lantmännen", "123456789012");
     await workflow.preferRole("Lantmännen", "123456789012", "Admin");
     await workflow.setRegion("Lantmännen", "123456789012", "eu-north-1");
     await workflow.setProfile("Lantmännen", "123456789012", "Admin", "production-admin");
