@@ -9,7 +9,7 @@ const helperPath = path.basename(process.execPath).toLowerCase() === "awsesh-sdk
   : path.resolve(import.meta.dir, "../dist/Sesh/awsesh-sdk-linux-x64")
 const workspace = new WslWorkspace(configDir, helperPath)
 
-async function dispatch(request: unknown) {
+async function dispatch(request: unknown, id?: number) {
   if (typeof request !== "object" || request === null || !("operation" in request) || typeof request.operation !== "string") throw new Error("Invalid SDK request")
   const args = "args" in request ? request.args : {}
   if (typeof args !== "object" || args === null || Array.isArray(args)) throw new Error("Invalid SDK arguments")
@@ -32,19 +32,35 @@ async function dispatch(request: unknown) {
       return { enabled: values.enabled, snapshot }
     }
     default: return await workspace.enabled()
-      ? workspace.request(request.operation, values)
+      ? workspace.request(request.operation, values, id)
       : dispatchWorkflow(request.operation, values)
+  }
+}
+
+async function respond(request: unknown, id?: number) {
+  try {
+    const result = await dispatch(request, id)
+    process.stdout.write(`${JSON.stringify({ id, result: result ?? null })}\n`)
+  } catch (error) {
+    process.stdout.write(`${JSON.stringify({ id, error: error instanceof Error ? error.message : "SDK operation failed" })}\n`)
   }
 }
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
 try {
   for await (const line of lines) {
+    let request: unknown
     try {
-      const result = await dispatch(JSON.parse(line))
-      process.stdout.write(`${JSON.stringify({ result: result ?? null })}\n`)
-    } catch (error) {
-      process.stdout.write(`${JSON.stringify({ error: error instanceof Error ? error.message : "SDK operation failed" })}\n`)
+      request = JSON.parse(line)
+    } catch {
+      process.stdout.write(`${JSON.stringify({ error: "Invalid SDK request" })}\n`)
+      continue
+    }
+    if (typeof request === "object" && request && "operation" in request && request.operation === "revalidateAccounts" &&
+        "id" in request && typeof request.id === "number" && Number.isSafeInteger(request.id) && request.id > 0) {
+      void respond(request, request.id)
+    } else {
+      await respond(request)
     }
   }
 } finally {

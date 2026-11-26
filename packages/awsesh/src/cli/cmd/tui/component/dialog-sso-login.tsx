@@ -81,7 +81,7 @@ export function DialogSSOLogin(props: DialogSSOLoginProps) {
         if (token) {
           cleanup()
           setStatus("success")
-          await aws.loadAccounts(props.session)
+          if (!await aws.loadAccounts(props.session)) return
           dialog.clear()
           props.onSuccess()
         }

@@ -101,6 +101,28 @@ describe("helper transport", () => {
     }
   })
 
+  test("routes a background reply separately from a foreground reply", async () => {
+    const source = `import { createInterface } from "node:readline";
+      let refresh;
+      for await (const line of createInterface({ input: process.stdin })) {
+        const { id, args } = JSON.parse(line);
+        if (id) {
+          refresh = id;
+        } else {
+          console.log(JSON.stringify({ result: args }));
+          console.log(JSON.stringify({ id: refresh, error: "Refresh failed" }));
+        }
+      }`
+    const helper = new WslHelper([process.execPath, "--eval", source])
+    try {
+      const refresh = helper.request("revalidateAccounts", {}, 5000, 1).catch(error => error)
+      expect(await helper.request("snapshot", { name: "Example" }, 5000)).toEqual({ name: "Example" })
+      expect(String(await refresh)).toBe("Error: Refresh failed")
+    } finally {
+      await helper.close()
+    }
+  })
+
   test("bounds workspace startup time", async () => {
     const helper = new WslHelper([process.execPath, "--eval", 'process.stdin.resume(); process.stdin.on("end", () => process.exit(0)); setInterval(() => {}, 1000)'])
     try {
@@ -271,26 +293,27 @@ trap 'rm -rf "$root"' EXIT
 export HOME="$root" XDG_CONFIG_HOME="$root/config" XDG_DATA_HOME="$root/data" XDG_CACHE_HOME="$root/cache"
 export AWS_EC2_METADATA_DISABLED=true AWS_ENDPOINT_URL=http://127.0.0.1:1
 helper=$(wslpath -u "$1")
-mkdir -p "$XDG_DATA_HOME/awsesh/storage/accounts/by-name"
+mkdir -p "$XDG_DATA_HOME/awsesh/storage/accounts/by-name" "$XDG_DATA_HOME/awsesh/storage/preference"
 printf '%s' '{"accounts":[{"accountId":"123456789012","name":"Example","roles":["Admin"],"rolesLoaded":true}],"lastUpdated":0}' > "$XDG_DATA_HOME/awsesh/storage/accounts/${sessionStorageKey("shared")}.json"
+printf '%s' '{"shared":{"Example":{"Admin":"shared-admin"}}}' > "$XDG_DATA_HOME/awsesh/storage/preference/profile-names.json"
 printf '%s\\n' \
   '{"operation":"snapshot"}' \
   '{"operation":"saveSession","args":{"name":"shared","startUrl":"https://example.awsapps.com/start","ssoRegion":"eu-north-1","defaultRegion":"eu-north-1","creating":true}}' \
   '{"operation":"selectSession","args":{"name":"shared"}}' \
-  '{"operation":"setRegion","args":{"name":"shared","accountId":"123456789012","region":"us-east-1"}}' \
-  '{"operation":"setProfile","args":{"name":"shared","accountId":"123456789012","role":"Admin","profile":"shared-admin"}}' | "$helper"
+  '{"operation":"setRegion","args":{"name":"shared","accountId":"123456789012","region":"us-east-1"}}' | "$helper"
 printf '%s\\n' '{"operation":"snapshot","args":{"name":"shared"}}' | "$helper"`
   const child = Bun.spawn(["wsl", "--exec", "sh", "-c", script, "sesh-test", linuxHelper], { stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
   expect(stderr).toBe("")
   expect(code).toBe(0)
   const responses = stdout.trim().split("\n").map(line => JSON.parse(line))
-  expect(responses).toHaveLength(6)
+  expect(responses).toHaveLength(5)
   expect(responses.filter(response => response.error)).toEqual([])
   expect(responses[0].result.sessions).toEqual([])
-  const snapshot = responses[5].result
+  const snapshot = responses[4].result
   expect(snapshot.sessions.map((session: { name: string }) => session.name)).toEqual(["shared"])
   expect(snapshot.lastSession).toBe("shared")
   expect(snapshot.accounts[0].region).toBe("us-east-1")
+  expect(snapshot.accounts[0]).toMatchObject({ roles: [], rolesLoaded: false })
   expect(snapshot.accounts[0].profiles.Admin).toBe("shared-admin")
 }, 60000)

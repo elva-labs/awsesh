@@ -2,7 +2,9 @@ import { expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { Sessions } from "@awsesh/core"
+import { createInterface } from "node:readline"
+import { Readable } from "node:stream"
+import { createAwsesh, Sessions } from "@awsesh/core"
 
 test("native workspace protocol and desktop preferences remain local", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "sesh-native-"))
@@ -64,3 +66,71 @@ test("native workspace protocol and desktop preferences remain local", async () 
     await rm(root, { recursive: true, force: true })
   }
 }, 15000)
+
+test("foreground requests complete while AWS account revalidation is pending", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sesh-revalidation-"))
+  const requested = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch() {
+      requested.resolve()
+      await release.promise
+      return Response.json({ accountList: [{ accountId: "123456789012", accountName: "Updated" }] })
+    },
+  })
+  const session = { name: "Example", startUrl: "https://example.awsapps.com/start", ssoRegion: "eu-north-1", defaultRegion: "eu-north-1" }
+  const uncached = { ...session, name: "Uncached" }
+  const awsesh = createAwsesh({
+    configDir: path.join(root, "config", "awsesh"),
+    dataDir: path.join(root, "data", "awsesh"),
+    awsDir: path.join(root, ".aws"),
+  })
+  const child = Bun.spawn([process.execPath, "run", path.join(import.meta.dir, "index.ts")], {
+    env: {
+      ...process.env,
+      HOME: root,
+      XDG_CONFIG_HOME: path.join(root, "config"),
+      XDG_DATA_HOME: path.join(root, "data"),
+      AWS_ENDPOINT_URL: server.url.href,
+      AWS_ENDPOINT_URL_SSO: server.url.href,
+    },
+    stdin: "pipe", stdout: "pipe", stderr: "inherit",
+    timeout: 5000,
+  })
+  const lines = createInterface({ input: Readable.from(child.stdout) })
+  const replies = lines[Symbol.asyncIterator]()
+  try {
+    await awsesh.sessions.save(session)
+    await awsesh.sessions.save(uncached)
+    await awsesh.tokens.save(session.startUrl, "mock-token", new Date(Date.now() + 3600000))
+    await awsesh.accounts.save(session.name, {
+      lastUpdated: 0,
+      accounts: [{ accountId: "123456789012", name: "Cached", roles: ["Admin"], rolesLoaded: true }],
+    })
+    child.stdin.write(`${JSON.stringify({ operation: "revalidateAccounts", id: 1, args: { name: session.name } })}\n`)
+    await Promise.race([requested.promise, child.exited.then(() => { throw new Error("SDK stopped before contacting AWS") })])
+
+    const snapshot = `${JSON.stringify({ operation: "snapshot", args: { name: session.name } })}\n`
+    child.stdin.write(snapshot)
+    expect(JSON.parse((await replies.next()).value ?? "null")).toMatchObject({ result: { accounts: [{ name: "Cached" }] } })
+
+    child.stdin.write(`${JSON.stringify({
+      operation: "selectSession", args: { name: uncached.name, cachedOnly: true },
+    })}\n`)
+    expect(JSON.parse((await replies.next()).value ?? "null")).toMatchObject({ result: { session: uncached.name, accounts: [] } })
+
+    release.resolve()
+    expect(JSON.parse((await replies.next()).value ?? "null")).toEqual({ id: 1, result: null })
+    child.stdin.write(snapshot)
+    expect(JSON.parse((await replies.next()).value ?? "null")).toMatchObject({ result: { accounts: [{ name: "Updated", roles: [], rolesLoaded: false }] } })
+  } finally {
+    lines.close()
+    release.resolve()
+    server.stop(true)
+    child.stdin.end()
+    await child.exited
+    await rm(root, { recursive: true, force: true })
+  }
+}, 10000)
