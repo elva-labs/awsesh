@@ -55,7 +55,6 @@ pub struct Appearance {
     pub theme: String,
     pub mode: String,
     pub translucency: f32,
-    pub dithering: bool,
     pub sidebar_visible: bool,
     pub sidebar_width: f32,
     #[serde(default)]
@@ -73,7 +72,6 @@ impl Default for Appearance {
             theme: "system".into(),
             mode: "system".into(),
             translucency: 10.,
-            dithering: false,
             sidebar_visible: true,
             sidebar_width: 216.,
             compact_accounts: false,

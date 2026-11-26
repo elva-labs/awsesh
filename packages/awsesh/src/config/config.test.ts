@@ -201,18 +201,16 @@ describe("Config", () => {
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark" }));
         const initial = await configureAppearance(config, data);
         expect(initial.translucency).toBe(10);
-        expect(initial.dithering).toBe(false);
         expect(initial.sidebarVisible).toBe(true);
         expect(initial.sidebarWidth).toBe(216);
         expect(initial.compactAccounts).toBe(false);
         expect(initial.shortcuts).toEqual({});
         const shortcuts = { search: "alt-cmd-f", commands: "" };
-        const selected = await configureAppearance(config, data, { translucency: 5, dithering: true, sidebarVisible: false, sidebarWidth: 320, compactAccounts: true, shortcuts });
+        const selected = await configureAppearance(config, data, { translucency: 5, sidebarVisible: false, sidebarWidth: 320, compactAccounts: true, shortcuts });
         expect(selected.theme).toBe("nord");
         expect(selected.mode).toBe("dark");
         const changed = await configureAppearance(config, data, { theme: "github", mode: "light" });
         expect(changed.translucency).toBe(5);
-        expect(changed.dithering).toBe(true);
         expect(changed.sidebarVisible).toBe(false);
         expect(changed.sidebarWidth).toBe(320);
         expect(changed.compactAccounts).toBe(true);
@@ -220,13 +218,11 @@ describe("Config", () => {
         await configureAppearance(config, data, { translucency: 0 });
         const persisted = await configureAppearance(config, data);
         expect(persisted.translucency).toBe(0);
-        expect(persisted.dithering).toBe(true);
         expect(persisted.theme).toBe("github");
         expect(persisted.shortcuts).toEqual(shortcuts);
         for (const translucency of [-1, 101, NaN, Infinity, "5"]) {
           await expect(configureAppearance(config, data, { translucency })).rejects.toThrow("Translucency");
         }
-        await expect(configureAppearance(config, data, { dithering: "true" })).rejects.toThrow("boolean");
         await expect(configureAppearance(config, data, { sidebarVisible: "false" })).rejects.toThrow("boolean");
         for (const sidebarWidth of [191, 401, NaN, Infinity, "216"]) {
           await expect(configureAppearance(config, data, { sidebarWidth })).rejects.toThrow("Sidebar width");
@@ -235,7 +231,7 @@ describe("Config", () => {
           await expect(configureAppearance(config, data, { shortcuts })).rejects.toThrow(/shortcut/i);
         }
         expect(await Bun.file(path.join(config, "desktop.json")).json()).toEqual({
-          theme: "github", mode: "light", translucency: 0, dithering: true, sidebarVisible: false, sidebarWidth: 320, compactAccounts: true, shortcuts,
+          theme: "github", mode: "light", translucency: 0, sidebarVisible: false, sidebarWidth: 320, compactAccounts: true, shortcuts,
         });
         expect((await configureAppearance(config, data, { shortcuts: {} })).shortcuts).toEqual({});
         expect((await configureAppearance(config, data, { translucency: 10 })).translucency).toBe(10);
@@ -244,12 +240,12 @@ describe("Config", () => {
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark", translucent: true, translucency: 47, dithering: true }));
         const legacy = await configureAppearance(config, data);
         expect(legacy.translucency).toBe(47);
-        expect(legacy.dithering).toBe(true);
+        expect(legacy).not.toHaveProperty("dithering");
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark", translucent: false, translucency: 47 }));
         expect((await configureAppearance(config, data)).translucency).toBe(0);
         await configureAppearance(config, data, { mode: "light" });
         expect(await Bun.file(path.join(config, "desktop.json")).json()).toEqual({
-          theme: "nord", mode: "light", translucency: 0, dithering: false, sidebarVisible: true, sidebarWidth: 216, compactAccounts: false, shortcuts: {},
+          theme: "nord", mode: "light", translucency: 0, sidebarVisible: true, sidebarWidth: 216, compactAccounts: false, shortcuts: {},
         });
         await Bun.write(path.join(config, "desktop.json"), JSON.stringify({ theme: "nord", mode: "dark", translucent: true }));
         expect((await configureAppearance(config, data)).translucency).toBe(10);
