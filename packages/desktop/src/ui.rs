@@ -1106,7 +1106,7 @@ fn account_list(s: &Sesh, c: &crate::theme::Colors) -> El {
                 .center()
                 .gap(10.)
                 .child(label(
-                    if s.busy() {
+                    if s.busy() || s.accounts_loading() {
                         "Loading accounts…"
                     } else if s.search.text.is_empty() {
                         "No accounts"

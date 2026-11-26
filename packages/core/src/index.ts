@@ -5,7 +5,7 @@ export { Sessions } from "./sessions"
 export { Storage } from "./storage"
 export { createWorkflow } from "./workflow"
 
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import path from "node:path"
 import { AWSClient } from "./client"
 import { Credentials } from "./credentials"
@@ -34,6 +34,7 @@ interface TokenCacheStored {
   token: string
   expiresAt: string
   startUrl: string
+  signInId?: string
 }
 
 type AccountProfileNames = Record<string, Record<string, string>>
@@ -53,6 +54,7 @@ export function createAwsesh(options: AwseshOptions) {
   const storage = Storage.create({ dir: `${dataDir}/storage` })
   const sessions = Sessions.create({ dir: `${configDir}/sessions` })
   const clients = new Map<string, AWSClient>()
+  let accountStateAccess = Promise.resolve()
 
   function clientForRegion(region: string): AWSClient {
     const existing = clients.get(region)
@@ -74,6 +76,7 @@ export function createAwsesh(options: AwseshOptions) {
       token: data.token,
       expiresAt,
       startUrl: data.startUrl,
+      signInId: data.signInId,
     }
   }
 
@@ -102,6 +105,21 @@ export function createAwsesh(options: AwseshOptions) {
       cache: session?.name === name ? await storage.read<AccountCache>(`accounts/${legacy}`) : undefined,
       legacy: true,
     }
+  }
+
+  function withAccountState<T>(operation: () => Promise<T>) {
+    const result = accountStateAccess.then(operation)
+    accountStateAccess = result.then(() => {}, () => {})
+    return result
+  }
+
+  function updateAccountCache(name: string, update: (cache: AccountCache | undefined) => AccountCache | Promise<AccountCache>) {
+    return withAccountState(async () => {
+      const { cache } = await accountCache(name)
+      const updated = await update(cache)
+      await storage.write(`accounts/${sessionStorageKey(name)}`, updated)
+      return updated
+    })
   }
 
   async function updateAccountLayout(sessionName: string, fn: (layout: AccountLayout) => AccountLayout): Promise<AccountLayout> {
@@ -175,28 +193,29 @@ export function createAwsesh(options: AwseshOptions) {
           token: data.token,
           expiresAt: new Date(data.expiresAt),
           startUrl: data.startUrl,
+          signInId: data.signInId,
         }
       },
-      save: async (startUrl: string, token: string, expiresAt: Date): Promise<void> => {
-        const hash = hashUrl(startUrl)
-        await storage.write<TokenCacheStored>(`token/${hash}`, {
+      save: (startUrl: string, token: string, expiresAt: Date): Promise<void> =>
+        withAccountState(() => storage.write<TokenCacheStored>(`token/${hashUrl(startUrl)}`, {
           token,
           expiresAt: expiresAt.toISOString(),
           startUrl,
-        })
-      },
-      remove: async (startUrl: string): Promise<void> => {
-        const hash = hashUrl(startUrl)
-        await storage.remove(`token/${hash}`)
-      },
+          signInId: randomUUID(),
+        })),
+      remove: (startUrl: string): Promise<void> =>
+        withAccountState(() => storage.remove(`token/${hashUrl(startUrl)}`)),
       isValid: (cache: TokenCache): boolean => {
         return cache.expiresAt > new Date()
       },
     },
 
     accounts: {
-      get: async (name: string) => (await accountCache(name)).cache,
-      save: (sessionName: string, cache: AccountCache) => storage.write(`accounts/${sessionStorageKey(sessionName)}`, cache),
+      get: (name: string) => withAccountState(async () => (await accountCache(name)).cache),
+      save: async (name: string, cache: AccountCache): Promise<void> => {
+        await updateAccountCache(name, () => cache)
+      },
+      update: updateAccountCache,
     },
 
     lastSelected: {

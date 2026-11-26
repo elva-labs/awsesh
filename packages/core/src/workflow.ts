@@ -1,10 +1,25 @@
+import { createHash } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
 import type { Awsesh } from "./index"
-import type { SSOLoginInfo, SSOSession } from "./types"
+import type { AccountCache, SSOLoginInfo, SSOSession, TokenCache } from "./types"
+
+function roleScope(session: SSOSession, token: TokenCache) {
+  return createHash("sha256").update(JSON.stringify([
+    session.startUrl, session.ssoRegion, token.signInId ?? [token.token, token.expiresAt.toISOString()],
+  ])).digest("hex")
+}
+
+function accountsForSignIn(cache: AccountCache | undefined, scope: string | undefined) {
+  const accounts = cache?.accounts ?? []
+  return scope && cache?.roleScope === scope
+    ? accounts
+    : accounts.map((account) => ({ ...account, roles: [], rolesLoaded: false }))
+}
 
 /** Presentation-independent operations for interactive clients. Never returns credentials or tokens. */
 export function createWorkflow(awsesh: Awsesh) {
   const logins = new Map<string, SSOLoginInfo>()
+  const accountRefreshes = new Map<string, Promise<AccountCache>>()
 
   function validateRegion(region: string) {
     if (!/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(region)) throw new Error("Invalid AWS region")
@@ -22,17 +37,79 @@ export function createWorkflow(awsesh: Awsesh) {
     return value
   }
 
-  async function token(value: SSOSession) {
+  async function authorization(value: SSOSession) {
     const cached = await awsesh.tokens.get(value.startUrl)
     if (!cached) throw new Error("Sign in to this SSO session first")
-    return cached.token
+    return cached
+  }
+
+  async function cachedAccounts(value: SSOSession) {
+    const cache = await awsesh.accounts.get(value.name)
+    if (!cache) return
+    const token = await awsesh.tokens.get(value.startUrl)
+    return { ...cache, accounts: accountsForSignIn(cache, token && roleScope(value, token)) }
   }
 
   async function account(name: string, accountId: string) {
-    const cache = await awsesh.accounts.get(name)
+    const cache = await cachedAccounts(await session(name))
     const value = cache?.accounts.find((item) => item.accountId === accountId)
     if (!value) throw new Error("Account not found; refresh the account list")
     return value
+  }
+
+  async function verifySignIn(value: SSOSession, scope: string) {
+    const current = await awsesh.sessions.get(value.name)
+    const token = current && await awsesh.tokens.get(current.startUrl)
+    if (!current || !token || roleScope(current, token) !== scope) {
+      throw new Error("SSO session changed during refresh")
+    }
+  }
+
+  async function fetchAccounts(value: SSOSession, token: string, scope: string) {
+    const accounts = await awsesh.sso.listAccounts(value, token)
+    return awsesh.accounts.update(value.name, async (cache) => {
+      await verifySignIn(value, scope)
+      const cached = new Map(accountsForSignIn(cache, scope).map((item) => [item.accountId, item]))
+      return {
+        lastUpdated: Date.now(),
+        roleScope: scope,
+        accounts: accounts.map((item) => {
+          const previous = cached.get(item.accountId)
+          return previous?.rolesLoaded ? { ...item, roles: previous.roles, rolesLoaded: true } : item
+        }),
+      }
+    })
+  }
+
+  async function refreshAccounts(name: string) {
+    const value = await session(name)
+    const token = await authorization(value)
+    const scope = roleScope(value, token)
+    const key = JSON.stringify([name, scope])
+    const pending = accountRefreshes.get(key)
+    if (pending) return pending
+    const refresh = fetchAccounts(value, token.token, scope).finally(() => accountRefreshes.delete(key))
+    accountRefreshes.set(key, refresh)
+    return refresh
+  }
+
+  async function fetchRoles(value: SSOSession, accountId: string, signal?: AbortSignal) {
+    const token = await authorization(value)
+    const scope = roleScope(value, token)
+    const roles = await awsesh.sso.listRoles(value, token.token, accountId, signal)
+    await awsesh.accounts.update(value.name, async (cache) => {
+      await verifySignIn(value, scope)
+      signal?.throwIfAborted()
+      if (!cache) throw new Error("Account cache no longer exists")
+      return {
+        ...cache,
+        roleScope: scope,
+        accounts: accountsForSignIn(cache, scope).map((item) =>
+          item.accountId === accountId ? { ...item, roles, rolesLoaded: true } : item
+        ),
+      }
+    })
+    return roles
   }
 
   async function snapshot(name?: string) {
@@ -48,7 +125,7 @@ export function createWorkflow(awsesh: Awsesh) {
       awsesh.lastSession.get(),
     ])
     const preferences = selected && await Promise.all([
-      awsesh.accounts.get(selected.name),
+      cachedAccounts(selected),
       awsesh.preferredRoles.getAll(selected.name),
       awsesh.preferredRegions.getAll(selected.name),
       awsesh.lastProfiles.getAll(selected.name),
@@ -82,6 +159,12 @@ export function createWorkflow(awsesh: Awsesh) {
       lastAccount,
       lastSession,
     }
+  }
+
+  async function selectCachedSession(name: string) {
+    await session(name)
+    await awsesh.lastSession.save(name)
+    return snapshot(name)
   }
 
   const layout = {
@@ -134,15 +217,13 @@ export function createWorkflow(awsesh: Awsesh) {
   return {
     snapshot,
     layout,
+    refreshAccounts,
+    cachedAccounts,
+    fetchRoles,
+    selectCachedSession,
     async selectSession(name: string, refresh = false) {
-      const value = await session(name)
-      const cache = await awsesh.accounts.get(name)
-      if (refresh || !cache) {
-        const accounts = await awsesh.sso.listAccounts(value, await token(value))
-        await awsesh.accounts.save(name, { accounts, lastUpdated: Date.now() })
-      }
-      await awsesh.lastSession.save(name)
-      return snapshot(name)
+      if (refresh || !await awsesh.accounts.get(name)) await refreshAccounts(name)
+      return selectCachedSession(name)
     },
     async saveSession(value: SSOSession, creating = false, originalName?: string) {
       const url = new URL(value.startUrl)
@@ -192,13 +273,7 @@ export function createWorkflow(awsesh: Awsesh) {
       const value = await session(name)
       const selected = await account(name, accountId)
       if (selected.rolesLoaded && !refresh) return snapshot(name)
-      const roles = await awsesh.sso.listRoles(value, await token(value), accountId)
-      const cache = await awsesh.accounts.get(name)
-      if (!cache) throw new Error("Account cache no longer exists")
-      await awsesh.accounts.save(name, {
-        ...cache,
-        accounts: cache.accounts.map((item) => item.accountId === accountId ? { ...item, roles, rolesLoaded: true } : item),
-      })
+      await fetchRoles(value, accountId)
       return snapshot(name)
     },
     async preferRole(name: string, accountId: string, role: string) {
@@ -246,9 +321,10 @@ export function createWorkflow(awsesh: Awsesh) {
     },
     async assumeRole(name: string, accountId: string, role: string) {
       const value = await session(name)
+      const token = await authorization(value)
       const selected = await account(name, accountId)
       if (!selected.roles.includes(role)) throw new Error("Role is not available for this account")
-      const credentials = await awsesh.sso.getCredentials(value, await token(value), accountId, role)
+      const credentials = await awsesh.sso.getCredentials(value, token.token, accountId, role)
       const region = await awsesh.preferredRegions.get(name, accountId) ?? value.defaultRegion
       await awsesh.setCredential({ credentials, sessionName: name, accountId, accountName: selected.name, roleName: role, region })
       await awsesh.lastAccountPerSession.save(name, accountId)

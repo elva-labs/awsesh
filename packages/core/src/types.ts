@@ -30,6 +30,7 @@ export interface TokenCache {
   token: string
   expiresAt: Date
   startUrl: string
+  signInId?: string
 }
 
 export interface TokenResult {
@@ -48,6 +49,7 @@ export interface Account {
 export interface AccountCache {
   accounts: Account[]
   lastUpdated: number
+  roleScope?: string
 }
 
 export interface AccountLayout {
