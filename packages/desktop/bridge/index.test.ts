@@ -124,7 +124,7 @@ test("foreground requests complete while AWS account revalidation is pending", a
     release.resolve()
     expect(JSON.parse((await replies.next()).value ?? "null")).toEqual({ id: 1, result: null })
     child.stdin.write(snapshot)
-    expect(JSON.parse((await replies.next()).value ?? "null")).toMatchObject({ result: { accounts: [{ name: "Updated", roles: ["Admin"] }] } })
+    expect(JSON.parse((await replies.next()).value ?? "null")).toMatchObject({ result: { accounts: [{ name: "Updated", roles: [], rolesLoaded: false }] } })
   } finally {
     lines.close()
     release.resolve()

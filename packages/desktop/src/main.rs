@@ -11,7 +11,7 @@ use rune::{App, AppSpec, Key, KeyEvent, TextEdit, Tx, Waker};
 use rune_kit::{ComboboxState, ShortcutRecorderState};
 use sdk::{Account, Credential, Snapshot};
 use serde_json::{Value, json};
-use std::cell::{OnceCell, Ref, RefCell};
+use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
@@ -35,6 +35,7 @@ enum Command {
     LoadRoles,
     RefreshRoles,
     SelectRole(String),
+    GenerateProfile,
     PreferRole,
     Console,
     Portal,
@@ -43,6 +44,7 @@ enum Command {
     DeleteSession,
     SignOut,
     RemoveCredential,
+    ClearCredential(String),
     ClearAllCredentials,
     RemoveSelectedCredentials,
     Palette,
@@ -50,7 +52,6 @@ enum Command {
     Theme(String),
     OpenThemeDirectory,
     Translucency(f32),
-    Dithering(bool),
     ToggleSidebar,
     SidebarWidth(f32),
     CompactAccounts(bool),
@@ -296,7 +297,6 @@ struct Sesh {
     application: Option<rune::AppHandle<Sesh>>,
     geometry_due: f64,
     preview: bool,
-    texture: OnceCell<rune::Pixels>,
 }
 
 impl Default for Sesh {
@@ -354,7 +354,6 @@ impl Default for Sesh {
             application: None,
             geometry_due: 0.,
             preview: false,
-            texture: OnceCell::new(),
         }
     }
 }
@@ -408,14 +407,6 @@ impl Sesh {
             self.error = false;
             self.message.clear();
         }
-        if let Some(refresh) = self
-            .account_refreshes
-            .values_mut()
-            .find(|refresh| refresh.name == name)
-        {
-            refresh.manual |= manual;
-            return;
-        }
         let id = self.next_id();
         let Some(sender) = &self.sender else { return };
         let request = Request {
@@ -425,6 +416,8 @@ impl Sesh {
             form: None,
         };
         if sender.send(request).is_ok() {
+            self.account_refreshes
+                .retain(|_, refresh| refresh.name != name);
             self.account_refreshes
                 .insert(id, AccountRefresh { name, manual });
         } else if manual {
@@ -592,9 +585,6 @@ impl Sesh {
                         if pending.contains_key("translucency") {
                             appearance.translucency = self.appearance.translucency;
                         }
-                        if pending.contains_key("dithering") {
-                            appearance.dithering = self.appearance.dithering;
-                        }
                         if pending.contains_key("shortcuts") {
                             appearance.shortcuts = self.appearance.shortcuts.clone();
                         }
@@ -675,6 +665,8 @@ impl Sesh {
                     let name = login.name.clone();
                     if value["complete"].as_bool() == Some(true) {
                         self.login = None;
+                        self.account_refreshes
+                            .retain(|_, refresh| refresh.name != name);
                         self.request("selectSession", json!({"name": name, "cachedOnly": true}));
                     } else {
                         self.request("pollLogin", json!({"name": name}));
@@ -718,6 +710,10 @@ impl Sesh {
         }
         if request.operation == "assumeRole" {
             self.message = "Credentials set".into();
+        }
+        if request.operation == "signOut" {
+            self.account_refreshes
+                .retain(|_, refresh| Some(refresh.name.as_str()) != request.args["name"].as_str());
         }
         if matches!(
             request.operation,
@@ -771,11 +767,24 @@ impl Sesh {
                 .map(Self::credential_key)
                 .collect();
             self.marked_credentials.retain(|key| keys.contains(key));
-            let selected = self.visible().iter().position(|index| {
-                selected_credential
-                    .as_ref()
-                    .is_some_and(|key| *key == Self::credential_key(&self.data.credentials[*index]))
-            });
+            let visible = self.visible();
+            let selected = visible
+                .iter()
+                .position(|index| {
+                    selected_credential.as_ref().is_some_and(|key| {
+                        *key == Self::credential_key(&self.data.credentials[*index])
+                    })
+                })
+                .or_else(|| {
+                    if self.marked_credentials.is_empty() {
+                        return None;
+                    }
+                    visible.iter().position(|index| {
+                        self.marked_credentials
+                            .contains(&Self::credential_key(&self.data.credentials[*index]))
+                    })
+                });
+            drop(visible);
             self.selected = selected;
         }
         if !self.initialized {
@@ -809,6 +818,10 @@ impl Sesh {
             {
                 self.refresh_accounts(name, false);
             }
+            if !self.marked.is_empty() {
+                let ids: BTreeSet<_> = self.data.accounts.iter().map(|a| &a.account_id).collect();
+                self.marked.retain(|id| ids.contains(id));
+            }
             if let Some(previous) = &self.account {
                 let updated = self
                     .data
@@ -817,11 +830,17 @@ impl Sesh {
                     .find(|a| a.account_id == previous.account_id)
                     .cloned();
                 if let Some(account) = updated {
+                    let load_roles = request.operation == "selectSession"
+                        && !account.roles_loaded
+                        && self.authenticated();
+                    let account_id = account.account_id.clone();
                     self.sync_inspector(account, false);
+                    if load_roles {
+                        self.load_roles(&account_id);
+                    }
                 } else {
                     self.account = None;
                     self.selected = None;
-                    self.marked.clear();
                 }
             } else if (request.operation == "selectSession"
                 || request.args["accountRefresh"] == true)
@@ -1028,16 +1047,13 @@ impl Sesh {
     }
 
     fn targets(&self) -> Vec<&Account> {
-        if self.screen == Screen::Accounts && self.marked.len() > 1 {
-            let accounts: Vec<_> = self
-                .visible()
+        if self.screen == Screen::Accounts && !self.marked.is_empty() {
+            return self
+                .data
+                .accounts
                 .iter()
-                .map(|index| &self.data.accounts[*index])
                 .filter(|a| self.marked.contains(&a.account_id))
                 .collect();
-            if accounts.len() > 1 {
-                return accounts;
-            }
         }
         self.account.iter().collect()
     }
@@ -1065,6 +1081,11 @@ impl Sesh {
             credential.profile_name
         ])
         .to_string()
+    }
+
+    fn credential_args(credential: &Credential) -> Value {
+        json!({"name": credential.session_name, "accountId": credential.account_id,
+            "role": credential.role_name, "profile": credential.profile_name})
     }
 
     fn selected_credentials(&self) -> Vec<Credential> {
@@ -1097,16 +1118,20 @@ impl Sesh {
                 .cloned()
         });
         if let Some(account) = account {
-            let load = !account.roles_loaded && self.authenticated();
-            let id = account.account_id.clone();
-            let reset = self.account.as_ref().is_none_or(|a| a.account_id != id);
-            if reset {
-                self.pending = None;
-            }
-            self.sync_inspector(account, reset);
-            if load {
-                self.load_roles(&id);
-            }
+            self.inspect_account(account);
+        }
+    }
+
+    fn inspect_account(&mut self, account: Account) {
+        let load = !account.roles_loaded && self.authenticated();
+        let id = account.account_id.clone();
+        let reset = self.account.as_ref().is_none_or(|a| a.account_id != id);
+        if reset {
+            self.pending = None;
+        }
+        self.sync_inspector(account, reset);
+        if load {
+            self.load_roles(&id);
         }
     }
 
@@ -1211,6 +1236,25 @@ impl Sesh {
                 }
                 if !self.marked.insert(id.clone()) {
                     self.marked.remove(&id);
+                    self.selected = visible.iter().position(|index| {
+                        self.marked.contains(&self.data.accounts[*index].account_id)
+                    });
+                    if self.selected.is_some() {
+                        self.inspect();
+                    } else if let Some(account) = self
+                        .data
+                        .accounts
+                        .iter()
+                        .find(|account| self.marked.contains(&account.account_id))
+                        .cloned()
+                    {
+                        self.inspect_account(account);
+                    } else {
+                        self.flush_preferences();
+                        self.pending = None;
+                        self.account = None;
+                    }
+                    return;
                 }
             } else {
                 self.marked.clear();
@@ -1218,18 +1262,6 @@ impl Sesh {
         }
         self.selected = Some(position);
         self.inspect();
-        if self.screen == Screen::Accounts
-            && !self.marked.is_empty()
-            && self
-                .account
-                .as_ref()
-                .is_some_and(|account| !self.marked.contains(&account.account_id))
-        {
-            self.selected = visible
-                .iter()
-                .position(|index| self.marked.contains(&self.data.accounts[*index].account_id));
-            self.inspect();
-        }
     }
 
     fn reset_search(&mut self, tx: &mut Tx) {
@@ -1409,7 +1441,7 @@ impl Sesh {
         }
         if let Command::ItemAction(position, command) = command {
             if self.screen == Screen::Accounts
-                && self.marked.len() > 1
+                && !self.marked.is_empty()
                 && self.visible().get(position).is_some_and(|index| {
                     !self.marked.contains(&self.data.accounts[*index].account_id)
                 })
@@ -1470,6 +1502,16 @@ impl Sesh {
                 self.profile = TextEdit::new(self.account.as_ref().and_then(|a| a.profiles.get(&role)).map(String::as_str).unwrap_or(""));
                 self.role = Some(role); self.roles.close();
             }
+            Command::GenerateProfile => {
+                if let (Some(account), Some(role)) = (&self.account, &self.role)
+                    && account.roles_loaded {
+                    let profile = suggested_profile_name(account, role);
+                    if self.profile.text != profile {
+                        self.profile = TextEdit::new(&profile);
+                        self.schedule_preference("setProfile", tx);
+                    }
+                }
+            }
             Command::PreferRole => if self.role.is_some() { self.request("preferRole", args); },
             Command::SetCredentials => {
                 self.flush_preferences();
@@ -1505,14 +1547,20 @@ impl Sesh {
                 self.show_form("Sign out of this organization?", "Removes its local access token and tracked AWS credential profiles. Your browser session is not signed out.",
                     vec![], "signOut", json!({"name": name}), tx);
             },
-            Command::RemoveCredential => if let Some(c) = self.credential() {
-                self.show_form("Remove credential profile?", &format!("Removes ‘{}’ from your AWS credentials file. This cannot be undone.", c.profile_name),
-                    vec![], "clearCredential", json!({"name": c.session_name, "accountId": c.account_id, "role": c.role_name, "profile": c.profile_name}), tx);
-            },
+            Command::RemoveCredential | Command::ClearCredential(_) => {
+                let credential = match command {
+                    Command::ClearCredential(key) => self.data.credentials.iter().find(|c| Self::credential_key(c) == key),
+                    _ => self.credential(),
+                };
+                if let Some(c) = credential {
+                    self.show_form("Clear credential profile?", &format!("Removes ‘{}’ from your AWS credentials file. This cannot be undone.", c.profile_name),
+                        vec![], "clearCredential", Self::credential_args(c), tx);
+                }
+            }
             Command::RemoveSelectedCredentials => {
                 let credentials = self.selected_credentials();
                 if credentials.is_empty() { return; }
-                let items: Vec<_> = credentials.iter().map(|c| json!({"name": c.session_name, "accountId": c.account_id, "role": c.role_name, "profile": c.profile_name})).collect();
+                let items: Vec<_> = credentials.iter().map(Self::credential_args).collect();
                 self.show_form(&format!("Remove {} credential profiles?", items.len()),
                     "Removes only the selected profiles from your AWS credentials file. Other profiles and SSO sign-ins remain. This cannot be undone.",
                     vec![], "clearCredential", json!({"credentials": items}), tx);
@@ -1553,9 +1601,6 @@ impl Sesh {
             Command::Translucency(value) => {
                 self.appearance.translucency = value.clamp(0., 100.);
                 self.save_appearance("translucency", json!(self.appearance.translucency), tx);
-            }
-            Command::Dithering(enabled) => {
-                self.appearance.dithering = enabled; self.save_appearance("dithering", json!(enabled), tx);
             }
             Command::ToggleSidebar => {
                 tx.animated();
@@ -1638,6 +1683,7 @@ impl Sesh {
                 self.data.collapsed_groups.retain(|value| *value != group);
                 if collapsed { self.data.collapsed_groups.push(group.clone()); }
                 self.invalidate_list();
+                self.selected = self.account.as_ref().and_then(|account| self.account_position(&account.account_id));
                 self.request("collapseAccountGroup", json!({"name": name, "group": group, "collapsed": collapsed}));
             }
             Command::RenameGroup(group) => self.show_form("Rename group",
@@ -1777,6 +1823,32 @@ impl Sesh {
         });
         commands
     }
+}
+
+fn suggested_profile_name(account: &Account, role: &str) -> String {
+    let normalize = |value: &str| {
+        value
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+            .to_ascii_lowercase()
+    };
+    let mut account_name = normalize(&account.name);
+    if account_name.is_empty() {
+        account_name.clone_from(&account.account_id);
+    }
+    let mut role_name = normalize(role);
+    if role_name.is_empty() {
+        role_name = "role".into();
+    }
+    role_name.truncate(64);
+    account_name.truncate(127 - role_name.len());
+    format!(
+        "{}-{}",
+        account_name.trim_end_matches('-'),
+        role_name.trim_end_matches('-')
+    )
 }
 
 fn setup(state: &mut Sesh, waker: Waker) {
@@ -2572,8 +2644,40 @@ mod tests {
             },
         );
         runtime.frame(0.);
+        let regular_height = runtime.presented("account-1").unwrap().0[3];
+        runtime.update(|state, _| state.appearance.compact_accounts = true);
+        runtime.frame(1. / 60.);
+        assert!(runtime.presented("account-1").unwrap().0[3] < regular_height);
+
+        let (x, y) = runtime.find("account-1").expect("Credential row");
+        runtime.secondary_down(x, y);
+        runtime.secondary_up(x, y);
+        runtime.frame(1. / 60.);
         runtime.update(|state, tx| {
-            state.dispatch(Command::RemoveSelectedCredentials, tx);
+            let (_, clear) = state
+                .context_menu
+                .as_ref()
+                .unwrap()
+                .items
+                .iter()
+                .find(|(label, _)| label == "Clear credential…")
+                .unwrap()
+                .clone();
+            state.dispatch(clear, tx);
+            assert_eq!(state.form.as_ref().unwrap().args["profile"], "read-only");
+            assert!(state.requests.is_empty(), "Confirmation is required");
+            state.dispatch(Command::Cancel, tx);
+        });
+        runtime.frame(1. / 60.);
+        assert!(runtime.elements().iter().any(|element| {
+            element.key.as_deref() == Some("clear-selected-credentials")
+                && element.path.contains("inspector-pane")
+        }));
+        let (x, y) = runtime.find("clear-selected-credentials").unwrap();
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        runtime.update(|state, tx| {
             assert!(state.requests.is_empty(), "Confirmation is required");
             state.dispatch(Command::Confirm, tx);
         });
@@ -2655,6 +2759,23 @@ mod tests {
         assert!(runtime.state.selected_credentials().is_empty());
         assert_eq!(runtime.state.data.credentials.len(), 1);
         assert!(runtime.state.requests.is_empty());
+        assert!(runtime.elements().iter().any(|element| {
+            element.key.as_deref() == Some("clear-all-credentials")
+                && element.path.contains("inspector-pane")
+        }));
+        let (x, y) = runtime.find("clear-all-credentials").expect("Clear all");
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        assert_eq!(
+            runtime.state.form.as_ref().map(|form| form.operation),
+            Some("clearAllCredentials")
+        );
+        assert!(
+            runtime.state.requests.is_empty(),
+            "Confirmation is required"
+        );
+        runtime.update(|state, tx| state.dispatch(Command::Cancel, tx));
         runtime.update(|state, _| {
             state.screen = Screen::Accounts;
             state.selected = Some(3);
@@ -2765,6 +2886,15 @@ mod tests {
             fields.map(|key| runtime.presented(key).expect(key).0),
             ready
         );
+        let (x, y) = runtime.find("generate-profile").expect("Generate profile");
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(1. / 60.);
+        assert_eq!(runtime.state.profile.text, "galleri-readonlyaccess");
+        runtime.update(|state, _| state.flush_preferences());
+        let saved = requests.try_recv().expect("Profile preference request");
+        assert_eq!(saved.operation, "setProfile");
+        assert_eq!(saved.args["profile"], "galleri-readonlyaccess");
     }
 
     #[test]
@@ -2809,8 +2939,14 @@ mod tests {
         assert!(!state.error);
 
         state.refresh_accounts("Example".into(), false);
-        let refresh = requests.try_recv().unwrap();
+        let previous = requests.try_recv().unwrap();
         state.refresh_accounts("Example".into(), true);
+        let refresh = requests.try_recv().unwrap();
+        state.account_refresh_event(sdk::RefreshEvent::Complete(
+            previous.id,
+            Err(anyhow::anyhow!("Obsolete account refresh")),
+        ));
+        assert!(!state.error);
         assert!(requests.try_recv().is_err());
 
         state.request("snapshot", json!({"name": "Example"}));
@@ -3003,12 +3139,18 @@ mod tests {
     fn bulk_inspector_groups_actions_and_reports_clipboard_count() {
         let mut state = Sesh::default();
         ui::preview_authenticated(&mut state);
+        for account in &mut state.data.accounts[..3] {
+            account.group = Some("Production".into());
+        }
+        state.rebuild_index();
         let selected = &state.data.accounts[..3];
         let ids = selected
             .iter()
             .map(|account| account.account_id.clone())
             .collect::<Vec<_>>();
         state.marked = ids.iter().cloned().collect();
+        state.selected = state.account_position(&ids[0]);
+        state.sync_inspector(selected[0].clone(), true);
         let clipboard = rune::clipboard::memory();
         let mut runtime =
             rune::Runtime::new(state, ui::view, (960., 620.), rune::Env::new(false, 1.));
@@ -3044,6 +3186,13 @@ mod tests {
                 .count(),
             3
         );
+        runtime.update(|state, tx| state.dispatch(Command::ToggleGroup("Production".into()), tx));
+        runtime.frame(1. / 60.);
+        assert!(runtime.state.selected.is_none());
+        for id in &ids {
+            assert!(runtime.state.account_position(id).is_none());
+            assert!(runtime.find(&format!("selected-account-{id}")).is_some());
+        }
         click(&mut runtime, "bulk-copy-ids");
         let text = clipboard.text().unwrap();
         assert_eq!(

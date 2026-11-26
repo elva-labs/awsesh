@@ -205,8 +205,7 @@ AWS authorization.
 
 Account sections construct rows lazily with stable account-ID keys. Search text,
 group names and visible-list projections are cached and invalidated when snapshots,
-queries or collapsed groups change. Account menus are built only when opened,
-and the dither texture is initialized only when enabled.
+queries or collapsed groups change. Account menus are built only when opened.
 
 The helper is long-lived so device authorization stays inside the SDK. Access
 tokens, device secrets and role credentials never cross into Rust. Requests are

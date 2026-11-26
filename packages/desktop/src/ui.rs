@@ -11,6 +11,7 @@ use std::{borrow::Cow, rc::Rc};
 
 const HEADER: f32 = 40.;
 const CONTROL_HEIGHT: f32 = 36.;
+const SELECTED_ACCOUNT_HEIGHT: f32 = 44.;
 const CONTROL_HOVER_STRENGTH: f32 = 0.055;
 const BODY: TextStyle = TextStyle::new(14., 400.);
 const SMALL: TextStyle = TextStyle::new(12., 400.);
@@ -41,7 +42,12 @@ static SEARCH: Icon = Icon {
 static SETTINGS: Icon = Icon {
     name: "settings",
     view: 24.,
-    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m9 3 1-2h4l1 2 3 2 3 1v4l-2 2 1 3-1 3-3 1-2 3h-4l-2-3-3-1-1-3 1-3-2-2V6l3-1z"/><circle cx="12" cy="11" r="3"/></g>"#,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m10 2-.6 2.6a8 8 0 0 0-1.5.9L5.3 4.7l-2 3.5 2 1.8a8 8 0 0 0 0 2l-2 1.8 2 3.5 2.6-.8a8 8 0 0 0 1.5.9L10 20h4l.6-2.6a8 8 0 0 0 1.5-.9l2.6.8 2-3.5-2-1.8a8 8 0 0 0 0-2l2-1.8-2-3.5-2.6.8a8 8 0 0 0-1.5-.9L14 2z" transform="translate(0 1)"/><circle cx="12" cy="12" r="3"/></g>"#,
+};
+static GENERATE_PROFILE: Icon = Icon {
+    name: "generate-profile",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m3 18 12-12 3 3L6 21zM12 9l3 3M5 3v4M3 5h4m12 9v6m-3-3h6"/></g>"#,
 };
 static STAR: Icon = Icon {
     name: "favorite",
@@ -159,7 +165,6 @@ fn inspector_heading(key: &str, title: &str, c: &crate::theme::Colors) -> El {
 }
 
 fn credential_toolbar(s: &Sesh, c: &crate::theme::Colors) -> El {
-    let count = s.selected_credentials().len();
     row()
         .key("credential-toolbar")
         .grow(1.)
@@ -167,43 +172,9 @@ fn credential_toolbar(s: &Sesh, c: &crate::theme::Colors) -> El {
         .center_y()
         .gap(8.)
         .child(text("Active credentials").font(LABEL).color(c.text))
-        .children((count > 0).then(|| {
-            row()
-                .key("credential-selection")
-                .gap(4.)
-                .center_y()
-                .child(small(format!("{count} selected"), c.text))
-                .child(icon_button(
-                    "clear-credential-selection",
-                    "Clear selection",
-                    &CLOSE,
-                    Command::ClearSelection,
-                    c,
-                ))
-                .child(
-                    icon_button(
-                        "clear-selected-credentials",
-                        "Remove selected credentials",
-                        &REMOVE,
-                        Command::RemoveSelectedCredentials,
-                        c,
-                    )
-                    .disabled(s.busy()),
-                )
-        }))
         .child(el().grow(1.))
         .child(
             small(s.data.credentials.len().to_string(), c.muted).help("Active credential profiles"),
-        )
-        .child(
-            icon_button(
-                "clear-all-credentials",
-                "Clear all credentials",
-                &CLEAR_ALL,
-                Command::ClearAllCredentials,
-                c,
-            )
-            .disabled(s.data.credentials.is_empty() || s.busy()),
         )
 }
 
@@ -347,7 +318,7 @@ fn dropdown_trigger(
         .children(show_chevron.then(|| icon(k.glyph.chevron_down, 14.).color(c.muted)))
 }
 
-fn account_row_metrics(compact: bool) -> (f32, f32) {
+fn list_row_metrics(compact: bool) -> (f32, f32) {
     if compact { (48., 3.) } else { (74., 6.) }
 }
 
@@ -410,7 +381,7 @@ fn account_actions(s: &Sesh, id: &str) -> Vec<(String, Command)> {
             .map(|group| (format!("Move to {group}"), Command::SetGroup(Some(group)))),
     );
     items.push(("Remove from group".into(), Command::SetGroup(None)));
-    items
+    let mut items = items
         .into_iter()
         .map(|(label, command)| {
             (
@@ -418,7 +389,26 @@ fn account_actions(s: &Sesh, id: &str) -> Vec<(String, Command)> {
                 Command::AccountAction(id.to_owned(), Box::new(command)),
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let credentials = s
+        .data
+        .credentials
+        .iter()
+        .filter(|credential| {
+            credential.account_id == id && Some(&credential.session_name) == s.data.session.as_ref()
+        })
+        .collect::<Vec<_>>();
+    items.extend(credentials.iter().map(|credential| {
+        (
+            if credentials.len() == 1 {
+                "Clear credential…".into()
+            } else {
+                format!("Clear credential: {}…", credential.profile_name)
+            },
+            Command::ClearCredential(Sesh::credential_key(credential)),
+        )
+    }));
+    items
 }
 
 fn toolbar(s: &Sesh, cx: &Cx<Sesh>, c: &crate::theme::Colors) -> El {
@@ -726,7 +716,7 @@ fn section_target(key: &str) -> Option<String> {
 
 fn account_row(s: &Sesh, position: usize, index: usize, c: &crate::theme::Colors) -> El {
     let compact = s.appearance.compact_accounts;
-    let (height, _) = account_row_metrics(compact);
+    let (height, _) = list_row_metrics(compact);
     let account = &s.data.accounts[index];
     let selected = s.selected == Some(position) || s.marked.contains(&account.account_id);
     let account_id = account.account_id.clone();
@@ -992,7 +982,7 @@ fn apply_drop(s: &mut Sesh, ids: &[String], target: Option<String>) {
 
 fn account_list(s: &Sesh, c: &crate::theme::Colors) -> El {
     let entries = s.entries();
-    let (height, gap) = account_row_metrics(s.appearance.compact_accounts);
+    let (height, gap) = list_row_metrics(s.appearance.compact_accounts);
     let mut content = col().key("account-rows").w_full().gap(6.);
     let mut sections: Vec<AccountSection> = vec![];
     let mut position = 0;
@@ -1146,57 +1136,60 @@ fn account_list(s: &Sesh, c: &crate::theme::Colors) -> El {
 }
 
 fn credentials_list(s: &Sesh, c: &crate::theme::Colors) -> El {
-    let mut rows = col().w_full().gap(6.);
+    let compact = s.appearance.compact_accounts;
+    let (height, gap) = list_row_metrics(compact);
+    let mut rows = col().w_full().gap(gap);
     for (position, index) in s.visible().iter().copied().enumerate() {
         let credential = &s.data.credentials[index];
-        let items = [
-            ("Copy profile", Command::CopyProfile),
-            ("Copy account ID", Command::CopyAccount),
-            ("Copy account name", Command::CopyName),
-            ("Remove profile…", Command::RemoveCredential),
-        ]
-        .into_iter()
-        .map(|(label, command)| {
+        let key = Sesh::credential_key(credential);
+        let items = vec![
             (
-                label.into(),
-                Command::ItemAction(position, Box::new(command)),
-            )
-        })
-        .collect::<Vec<_>>();
+                "Copy profile".into(),
+                Command::CopyText(credential.profile_name.clone()),
+            ),
+            (
+                "Copy account ID".into(),
+                Command::CopyText(credential.account_id.clone()),
+            ),
+            (
+                "Copy account name".into(),
+                Command::CopyText(credential.account_name.clone()),
+            ),
+            (
+                "Clear credential…".into(),
+                Command::ClearCredential(key.clone()),
+            ),
+        ];
+        let selected = if s.marked_credentials.is_empty() {
+            s.selected == Some(position)
+        } else {
+            s.marked_credentials.contains(&key)
+        };
         rows = rows.child(
             row()
                 .key(format!("account-{position}"))
                 .w_full()
-                .h(74.)
+                .h(height)
                 .px(12.)
                 .gap(12.)
                 .center_y()
                 .radius(6.)
-                .fill(
-                    if s.marked_credentials
-                        .contains(&Sesh::credential_key(credential))
-                        || s.selected == Some(position)
-                    {
-                        c.selection
-                    } else {
-                        Color::TRANSPARENT
-                    },
-                )
+                .fill(if selected {
+                    c.selection
+                } else {
+                    Color::TRANSPARENT
+                })
                 .hover(c.text.alpha(0.035))
                 .role("row")
                 .label(&credential.profile_name)
-                .focus_selected(
-                    s.marked_credentials
-                        .contains(&Sesh::credential_key(credential))
-                        || s.selected == Some(position),
-                )
+                .focus_selected(selected)
                 .focusable(true)
-                .child(icon(&TERMINAL, 20.).color(c.muted))
+                .child(icon(&TERMINAL, if compact { 18. } else { 22. }).color(c.muted))
                 .child(
                     col()
                         .grow(1.)
                         .min_w(0.)
-                        .gap(6.)
+                        .gap(if compact { 2. } else { 7. })
                         .child(label(&credential.profile_name, c.text))
                         .child(small(
                             format!("{} · {}", credential.account_name, credential.role_name),
@@ -1468,6 +1461,29 @@ fn bulk_account_actions(
                         .label(message)
                 })),
         )
+        .child(divider(c.border))
+        .child(col().w_full().children(targets.iter().map(|account| {
+            let group = if account.pinned {
+                "Favorites"
+            } else {
+                account.group.as_deref().unwrap_or("Other accounts")
+            };
+            row()
+                .key(format!("selected-account-{}", account.account_id))
+                .h(SELECTED_ACCOUNT_HEIGHT)
+                .center_y()
+                .gap(8.)
+                .child(icon(&BUILDING, 16.).color(c.muted))
+                .child(
+                    col()
+                        .grow(1.)
+                        .min_w(0.)
+                        .gap(2.)
+                        .child(text(&account.name).font(BODY).color(c.text).truncate())
+                        .child(text(&account.account_id).font(SMALL.mono()).color(c.muted)),
+                )
+                .child(text(group).font(SMALL).color(c.muted).max_w(96.).truncate())
+        })))
 }
 
 fn inspector(
@@ -1478,6 +1494,7 @@ fn inspector(
     c: &crate::theme::Colors,
 ) -> El {
     let trailing = cx.chrome_insets().trailing;
+    let mut height: f32 = 740.;
     let mut panel = col()
         .key("inspector")
         .w(344.)
@@ -1485,24 +1502,49 @@ fn inspector(
         .h_full()
         .px(18.)
         .gap(18.);
-    if s.screen == Screen::Credentials && s.selected_credentials().len() > 1 {
+    let credential_count = if s.screen == Screen::Credentials {
+        s.selected_credentials().len()
+    } else {
+        0
+    };
+    let clear_credential_selection = || {
+        icon_button(
+            "clear-credential-selection",
+            "Clear selection",
+            &CLOSE,
+            Command::ClearSelection,
+            c,
+        )
+    };
+    let credential_clear_button = |key, title, command| {
+        disabled_button(key, title, command, s.busy(), c)
+            .fill(c.danger.alpha(0.18))
+            .border(1., c.danger.alpha(0.45))
+            .child(icon(&REMOVE, 15.).color(c.danger))
+    };
+    if credential_count > 1 {
         panel = panel
             .child(
-                row().h(HEADER).center_y().child(
-                    text(format!(
-                        "{} profiles selected",
-                        s.selected_credentials().len()
-                    ))
-                    .font(LABEL)
-                    .color(c.text),
-                ),
+                row()
+                    .h(HEADER)
+                    .pr(trailing)
+                    .center_y()
+                    .gap(4.)
+                    .child(
+                        text(format!("{credential_count} profiles selected"))
+                            .font(LABEL)
+                            .color(c.text)
+                            .truncate()
+                            .grow(1.)
+                            .min_w(0.),
+                    )
+                    .child(clear_credential_selection()),
             )
-            .child(
-                text("Remove the selected profiles using the toolbar above the list.")
-                    .font(BODY)
-                    .color(c.muted)
-                    .wrap(),
-            );
+            .child(credential_clear_button(
+                "clear-selected-credentials",
+                "Clear selected credentials",
+                Command::RemoveSelectedCredentials,
+            ));
     } else if s.screen == Screen::Credentials {
         if let Some(credential) = s.credential() {
             let expiration = chrono::DateTime::parse_from_rfc3339(&credential.expiration)
@@ -1515,8 +1557,22 @@ fn inspector(
                 .unwrap_or_else(|_| credential.expiration.clone());
             panel = panel
                 .child(
-                    inspector_heading("copy-credential-profile", &credential.profile_name, c)
-                        .pr(trailing),
+                    row()
+                        .h(HEADER)
+                        .pr(trailing)
+                        .center_y()
+                        .gap(4.)
+                        .child(
+                            inspector_heading(
+                                "copy-credential-profile",
+                                &credential.profile_name,
+                                c,
+                            )
+                            .w(0.)
+                            .grow(1.)
+                            .min_w(0.),
+                        )
+                        .child(clear_credential_selection()),
                 )
                 .child(detail_row(
                     "copy-credential-name",
@@ -1554,18 +1610,11 @@ fn inspector(
                     &expiration,
                     c,
                 ))
-                .child(
-                    button(
-                        "remove-credential",
-                        "Clear credential",
-                        Command::RemoveCredential,
-                        c,
-                    )
-                    .w_full()
-                    .fill(c.danger.alpha(0.18))
-                    .border(1., c.danger.alpha(0.45))
-                    .child(icon(&REMOVE, 15.).color(c.danger)),
-                );
+                .child(credential_clear_button(
+                    "remove-credential",
+                    "Clear credential",
+                    Command::RemoveCredential,
+                ));
         } else {
             panel = panel.child(
                 row()
@@ -1577,6 +1626,7 @@ fn inspector(
     } else if let targets = s.targets()
         && targets.len() > 1
     {
+        height = height.max(270. + SELECTED_ACCOUNT_HEIGHT * targets.len() as f32);
         panel = panel
             .key("bulk-inspector")
             .child(bulk_account_actions(s, &targets, trailing, k, layers, c));
@@ -1707,10 +1757,24 @@ fn inspector(
         panel = panel
             .child(col().gap(10.).child(label("Region", c.text)).child(region))
             .child(
-                col()
-                    .gap(10.)
-                    .child(label("CLI profile", c.text))
-                    .child(profile),
+                col().gap(10.).child(label("CLI profile", c.text)).child(
+                    row()
+                        .gap(8.)
+                        .center_y()
+                        .child(profile.grow(1.).min_w(0.))
+                        .child(
+                            icon_button(
+                                "generate-profile",
+                                "Generate profile from account and role",
+                                &GENERATE_PROFILE,
+                                Command::GenerateProfile,
+                                c,
+                            )
+                            .size(CONTROL_HEIGHT, CONTROL_HEIGHT)
+                            .fill(c.element)
+                            .disabled(!role_selected),
+                        ),
+                ),
             )
             .child(
                 row()
@@ -1753,6 +1817,19 @@ fn inspector(
                 .child(label("Select an account", c.muted)),
         );
     }
+    if s.screen == Screen::Credentials {
+        panel = panel.child(divider(c.border)).child(
+            disabled_button(
+                "clear-all-credentials",
+                "Clear all credentials",
+                Command::ClearAllCredentials,
+                s.data.credentials.is_empty() || s.busy(),
+                c,
+            )
+            .border(1., c.danger.alpha(0.45))
+            .child(icon(&CLEAR_ALL, 15.).color(c.danger)),
+        );
+    }
     row()
         .key("inspector-pane")
         .instant_changes()
@@ -1765,7 +1842,7 @@ fn inspector(
                 .scroll(ScrollSpec {
                     stick_bottom: false,
                 })
-                .child(panel.h(740.)),
+                .child(panel.h(height)),
         )
 }
 
@@ -1838,13 +1915,6 @@ fn settings(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -
         ))
         .child(translucency_slider(s, c))
         .child(switch(
-            "dithering-switch",
-            "Dither translucent backgrounds",
-            s.appearance.dithering,
-            Command::Dithering(!s.appearance.dithering),
-            c,
-        ))
-        .child(switch(
             "sidebar-switch",
             "Show organization sidebar",
             s.appearance.sidebar_visible,
@@ -1853,7 +1923,7 @@ fn settings(s: &Sesh, k: &Kit, layers: &mut Vec<El>, c: &crate::theme::Colors) -
         ))
         .child(switch(
             "compact-accounts-switch",
-            "Compact account list",
+            "Compact lists",
             s.appearance.compact_accounts,
             Command::CompactAccounts(!s.appearance.compact_accounts),
             c,
@@ -2486,31 +2556,11 @@ pub fn view(s: &Sesh, cx: &mut Cx<Sesh>) -> El {
                 "status"
             }),
         );
-    let mut root = col().key("root").w_full().h_full().child(background);
-    if s.appearance.dithering {
-        let [width, height] = cx.layout_size("root").unwrap_or([1200., 780.]);
-        let mut texture = el()
-            .key("dither-texture")
-            .pin(Some(0.), Some(0.), Some(0.), Some(0.))
-            .clip_rounded(0.)
-            .opacity(0.12)
-            .inert();
-        let mut y = 0.;
-        while y < height {
-            let mut x = 0.;
-            while x < width {
-                texture = texture.child(
-                    el().size(256., 256.)
-                        .absolute(x, y)
-                        .pixels(s.texture.get_or_init(dither_texture)),
-                );
-                x += 256.;
-            }
-            y += 256.;
-        }
-        root = root.child(texture);
-    }
-    root = root
+    let root = col()
+        .key("root")
+        .w_full()
+        .h_full()
+        .child(background)
         .child(body)
         .child(divider(c.border))
         .child(status)
@@ -2621,29 +2671,4 @@ fn remaining(expiration: &str) -> String {
     } else {
         format!("{}m", seconds / 60)
     }
-}
-
-pub fn dither_texture() -> rune::Pixels {
-    let pixels = rune::Pixels::new();
-    let matrix = [
-        [0u8, 8, 2, 10],
-        [12, 4, 14, 6],
-        [3, 11, 1, 9],
-        [15, 7, 13, 5],
-    ];
-    let mut rgba = Vec::with_capacity(256 * 256 * 4);
-    for y in 0..256 {
-        for x in 0..256 {
-            let value = matrix[(y / 2) % 4][(x / 2) % 4];
-            let channel = if value < 8 { 255 } else { 0 };
-            let alpha = if value < 8 {
-                255 - value * 34
-            } else {
-                (value - 8) * 34 + 17
-            };
-            rgba.extend_from_slice(&[channel, channel, channel, alpha]);
-        }
-    }
-    pixels.set(256, 256, rgba);
-    pixels
 }
