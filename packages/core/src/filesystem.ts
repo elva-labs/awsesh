@@ -1,6 +1,10 @@
 import path from "node:path"
 import fs from "node:fs/promises"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
+
+export function missingFile(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT"
+}
 
 export function sessionStorageKey(name: string): string {
   return `by-name/${createHash("sha256").update(name).digest("hex")}`
@@ -18,6 +22,17 @@ export async function readJsonFile<T>(filePath: string): Promise<T> {
 
 export async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(value, null, 2))
+}
+
+export async function replaceJsonFile(filePath: string, value: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  const temporary = `${filePath}.${randomUUID()}.tmp`
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
+    await fs.rename(temporary, filePath)
+  } finally {
+    await fs.rm(temporary, { force: true })
+  }
 }
 
 export async function fileExists(filePath: string): Promise<boolean> {

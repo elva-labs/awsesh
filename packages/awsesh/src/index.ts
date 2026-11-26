@@ -16,6 +16,7 @@ import { credentials } from "./cli/cmd/credentials.js"
 import { set } from "./cli/cmd/set.js"
 import { session } from "./cli/cmd/session.js"
 import { profileCommands } from "./cli/cmd/profiles.js"
+import { workspaceCommands } from "./cli/cmd/workspace.js"
 
 import { Installation } from "./installation"
 
@@ -77,6 +78,7 @@ const cli = yargs(args)
   .command(data)
   .command(session)
   .command("profiles", "Define and run with local AWS profile groups", profileCommands)
+  .command("workspace", "Inspect, approve and run with AWS profiles for this directory", workspaceCommands)
   .demandCommand(0, 1, "")
   .fail((msg, err) => {
     throw err ?? new Error(msg)

@@ -125,6 +125,22 @@ Use `awsesh.profileGroups.save(name, profiles)` to replace a local group,
 `get(name)` to load it, and `list()` to enumerate groups. Profile set resolution
 and execution also accept bindings directly, without a saved group.
 
+### Workspace Bindings
+
+`awsesh.workspaces.bind(directory, group)` binds a directory to a local profile
+group; `unbind(directory)` removes that personal binding. For a shared
+[`.sesh/workspace.json`](../../README.md#workspace-bindings), use
+`mapOrganization(org, sessionName)` to map a portable organization name to a
+local SSO session. The nearest personal binding takes precedence over any shared
+declaration within the current Git checkout (or among ancestors outside Git).
+
+`inspect(directory)` returns the effective `WorkspaceBinding` (including its
+source, resolved targets, and trust status), or `undefined` if no binding exists.
+Call `trust(directory)` to record local approval after reviewing the targets.
+`withEnvironment(directory, { credentialCommand }, run)` rejects unapproved or
+changed grants; it uses the same isolated environment and credential helper
+contract as `profileSets.withEnvironment`.
+
 ### `profileNames.getAll(sessionName)`
 
 Reads the configured CLI profile names for a session in one call. The result is

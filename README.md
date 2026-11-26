@@ -169,6 +169,7 @@ awsesh accounts
 | `awsesh session <sso> <account> [role]` | Select credentials directly |
 | `awsesh auth <sso>` | Authenticate with SSO |
 | `awsesh profiles define/list/exec` | Save, inspect or run with local AWS profile groups |
+| `awsesh workspace` | Inspect, approve or run with AWS profiles for the current directory |
 | `awsesh migrate` | Migrate from old awsesh config |
 | `awsesh config` | Open config directory |
 | `awsesh data` | Open data directory |
@@ -214,6 +215,59 @@ has no default and leaves `~/.aws` untouched. Each profile uses its session's
 default region and can obtain fresh role credentials through
 `credential_process` while the cached SSO login is valid. If the login expires,
 run `awsesh auth <session>` again.
+
+### Workspace Bindings
+
+Use a workspace binding to select named AWS profiles based on your working
+directory. A personal binding points to an existing local profile group. Run
+`awsesh workspace bind delivery` in the directory you want to bind. This
+explicit selection approves the group's current targets for that directory.
+
+A repository can instead commit a portable `.sesh/workspace.json`:
+
+```json
+{
+  "version": 1,
+  "profiles": [
+    {
+      "alias": "dev",
+      "org": "company",
+      "accountId": "012345678901",
+      "roleName": "Developer"
+    }
+  ]
+}
+```
+
+The repository names the organization. Each user explicitly maps that name to
+one of their local SSO sessions, for example `awsesh workspace map company
+my-company-sso`. Local names and approvals stay in the user's awsesh config.
+
+From the workspace directory or a subfolder:
+
+```sh
+awsesh workspace inspect
+awsesh workspace trust
+awsesh auth my-company-sso
+awsesh workspace exec -- aws --profile dev sts get-caller-identity
+```
+
+Review the effective targets with `inspect` (`--json` is available) before
+trusting them. Approval is local to the workspace directory in that checkout.
+If the effective grants change, including changes to a personal profile group,
+a shared organization's mapping, or a referenced SSO session, inspect and
+trust the new targets before executing again. Reordering the same targets does
+not require approval.
+
+Discovery walks up from the working directory to the nearest Git checkout root
+(or the filesystem root outside Git). The nearest personal binding takes
+precedence over any shared declaration in that search. Otherwise, the nearest
+declaration wins. Run `awsesh workspace unbind` in the directory where you bound
+the group to remove the override.
+
+Only `workspace exec -- …` uses the approved profiles. Its temporary AWS
+environment has no default profile and leaves `~/.aws` and the parent shell
+untouched.
 
 ### Shell Integration
 

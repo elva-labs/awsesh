@@ -1,13 +1,7 @@
-import { randomUUID } from "node:crypto"
-import fs from "node:fs/promises"
 import path from "node:path"
-import { listJsonFiles, readJsonFile } from "./filesystem"
+import { listJsonFiles, missingFile, readJsonFile, replaceJsonFile } from "./filesystem"
 import { readProfileBindings } from "./profile-sets"
 import type { ProfileBinding, ProfileGroup } from "./types"
-
-function missingFile(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT"
-}
 
 export function createProfileGroups(
   directory: string,
@@ -55,14 +49,7 @@ export function createProfileGroups(
       const target = path.join(directory, fileName(name))
       const bindings = readProfileBindings(profiles)
       await resolve(bindings)
-      await fs.mkdir(directory, { recursive: true })
-      const temporary = `${target}.${randomUUID()}.tmp`
-      try {
-        await fs.writeFile(temporary, `${JSON.stringify({ name, profiles: bindings }, null, 2)}\n`, { mode: 0o600 })
-        await fs.rename(temporary, target)
-      } finally {
-        await fs.rm(temporary, { force: true })
-      }
+      await replaceJsonFile(target, { name, profiles: bindings })
     },
   }
 }

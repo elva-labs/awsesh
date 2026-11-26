@@ -14,6 +14,11 @@ const inheritedCredentialVariables = new Set([
   "AWS_SDK_LOAD_CONFIG", "AWS_EC2_METADATA_DISABLED", "BOTO_CONFIG",
 ])
 
+type ResolvedProfile = ProfileBinding & { region: string }
+type SessionIdentity = Pick<SSOSession, "startUrl" | "ssoRegion">
+type CredentialBinding = ProfileBinding & { session?: SessionIdentity }
+export type ProfileEnvironmentOptions = { credentialCommand: readonly string[]; env?: NodeJS.ProcessEnv }
+
 interface ProfileSessionAccess {
   getSession(name: string): Promise<SSOSession | undefined>
   getToken(startUrl: string): Promise<TokenCache | undefined>
@@ -64,7 +69,7 @@ export function createProfileSets(access: ProfileSessionAccess) {
     return session
   }
 
-  async function resolve(profiles: readonly ProfileBinding[]) {
+  async function resolveTargets(profiles: readonly ProfileBinding[]) {
     const bindings = readProfileBindings(profiles)
     return Promise.all(bindings.map(async (profile) => {
       const session = await sessionFor(profile)
@@ -72,18 +77,76 @@ export function createProfileSets(access: ProfileSessionAccess) {
       if (!/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(region)) {
         throw new Error(`Invalid default region for SSO session ${JSON.stringify(session.name)}`)
       }
-      return { ...profile, region }
+      return { ...profile, region, startUrl: session.startUrl, ssoRegion: session.ssoRegion }
     }))
+  }
+
+  async function resolve(profiles: readonly ProfileBinding[]): Promise<ResolvedProfile[]> {
+    return (await resolveTargets(profiles)).map(({ alias, sessionName, accountId, roleName, region }) =>
+      ({ alias, sessionName, accountId, roleName, region }))
+  }
+
+  async function runWithEnvironment<T>(
+    profiles: readonly (CredentialBinding & { region: string })[],
+    options: ProfileEnvironmentOptions,
+    run: (env: NodeJS.ProcessEnv) => Promise<T>,
+  ): Promise<T> {
+    if (!options.credentialCommand.length) throw new Error("A credential process command is required")
+    const command = options.credentialCommand.map(quoteCommandPart).join(" ")
+    const config = profiles.map(({ region, ...profile }) => {
+      const binding = Buffer.from(JSON.stringify(profile)).toString("base64url")
+      return `[profile ${profile.alias}]\nregion = ${region}\ncredential_process = ${command} ${binding}\n`
+    }).join("\n")
+
+    const directory = await fs.mkdtemp(path.join(tmpdir(), "awsesh-profiles-"))
+    try {
+      const configFile = path.join(directory, "config")
+      const credentialsFile = path.join(directory, "credentials")
+      await fs.writeFile(configFile, config, { mode: 0o600 })
+      await fs.writeFile(credentialsFile, "", { mode: 0o600 })
+      const env = Object.fromEntries(Object.entries(options.env ?? process.env).filter(
+        ([name]) => !inheritedCredentialVariables.has(name.toUpperCase()),
+      ))
+      return await run({
+        ...env,
+        AWS_CONFIG_FILE: configFile,
+        AWS_SHARED_CREDENTIALS_FILE: credentialsFile,
+        AWS_SDK_LOAD_CONFIG: "1",
+        AWS_EC2_METADATA_DISABLED: "true",
+        BOTO_CONFIG: credentialsFile,
+      })
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true })
+    }
   }
 
   return {
     resolve,
+    resolveTargets,
+
+    async withResolvedEnvironment<T>(
+      profiles: readonly (ResolvedProfile & SessionIdentity)[],
+      options: ProfileEnvironmentOptions,
+      run: (env: NodeJS.ProcessEnv) => Promise<T>,
+    ): Promise<T> {
+      const pinned = profiles.map(({ alias, sessionName, accountId, roleName, region, startUrl, ssoRegion }) =>
+        ({ alias, sessionName, accountId, roleName, region, session: { startUrl, ssoRegion } }))
+      return runWithEnvironment(pinned, options, run)
+    },
 
     /** Resolve a binding supplied by a generated config and return AWS credential_process JSON data. */
     async credentialProcess(binding: string) {
       const decoded: unknown = JSON.parse(Buffer.from(binding, "base64url").toString("utf8"))
       const profile = readBinding(decoded)
       const session = await sessionFor(profile)
+      if (typeof decoded === "object" && decoded !== null && "session" in decoded) {
+        const expected = decoded.session
+        if (typeof expected !== "object" || expected === null
+          || !("startUrl" in expected) || expected.startUrl !== session.startUrl
+          || !("ssoRegion" in expected) || expected.ssoRegion !== session.ssoRegion) {
+          throw new Error(`SSO session changed for profile ${profile.alias}. Review and trust the workspace again.`)
+        }
+      }
       const signIn = `Run awsesh auth for SSO session ${JSON.stringify(session.name)} and try again.`
       const token = await access.getToken(session.startUrl)
       if (!token || !(token.expiresAt.getTime() > Date.now())) {
@@ -115,37 +178,10 @@ export function createProfileSets(access: ProfileSessionAccess) {
     /** Run with an isolated AWS environment. The command prefix receives an opaque binding as its last argument. */
     async withEnvironment<T>(
       profiles: readonly ProfileBinding[],
-      options: { credentialCommand: readonly string[]; env?: NodeJS.ProcessEnv },
+      options: ProfileEnvironmentOptions,
       run: (env: NodeJS.ProcessEnv) => Promise<T>,
     ): Promise<T> {
-      if (!options.credentialCommand.length) throw new Error("A credential process command is required")
-      const command = options.credentialCommand.map(quoteCommandPart).join(" ")
-      const resolved = await resolve(profiles)
-      const config = resolved.map(({ region, ...profile }) => {
-        const binding = Buffer.from(JSON.stringify(profile)).toString("base64url")
-        return `[profile ${profile.alias}]\nregion = ${region}\ncredential_process = ${command} ${binding}\n`
-      }).join("\n")
-
-      const directory = await fs.mkdtemp(path.join(tmpdir(), "awsesh-profiles-"))
-      try {
-        const configFile = path.join(directory, "config")
-        const credentialsFile = path.join(directory, "credentials")
-        await fs.writeFile(configFile, config, { mode: 0o600 })
-        await fs.writeFile(credentialsFile, "", { mode: 0o600 })
-        const env = Object.fromEntries(Object.entries(options.env ?? process.env).filter(
-          ([name]) => !inheritedCredentialVariables.has(name.toUpperCase()),
-        ))
-        return await run({
-          ...env,
-          AWS_CONFIG_FILE: configFile,
-          AWS_SHARED_CREDENTIALS_FILE: credentialsFile,
-          AWS_SDK_LOAD_CONFIG: "1",
-          AWS_EC2_METADATA_DISABLED: "true",
-          BOTO_CONFIG: credentialsFile,
-        })
-      } finally {
-        await fs.rm(directory, { recursive: true, force: true })
-      }
+      return runWithEnvironment(await resolve(profiles), options, run)
     },
   }
 }

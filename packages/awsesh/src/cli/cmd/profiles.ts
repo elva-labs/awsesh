@@ -1,26 +1,7 @@
 import type { ProfileBinding } from "@awsesh/core"
 import type { Argv } from "yargs"
 import { getAwsesh } from "@/instance"
-
-function credentialCommand(): string[] {
-  const compiled = /^(\/\$bunfs\/|[A-Za-z]:[\\/]~BUN[\\/])/.test(Bun.main)
-  const command = compiled ? [process.execPath] : [process.execPath, "run", Bun.main]
-  return [...command, "profiles", "credential-process"]
-}
-
-async function runCommand(argv: string[], env: NodeJS.ProcessEnv): Promise<number> {
-  const child = Bun.spawn(argv, { env, stdin: "inherit", stdout: "inherit", stderr: "inherit" })
-  const interrupt = () => child.kill("SIGINT")
-  const terminate = () => child.kill("SIGTERM")
-  process.on("SIGINT", interrupt)
-  process.on("SIGTERM", terminate)
-  try {
-    return await child.exited
-  } finally {
-    process.off("SIGINT", interrupt)
-    process.off("SIGTERM", terminate)
-  }
-}
+import { commandArguments, credentialCommand, runCommand } from "./util/profile-process"
 
 export function profileCommands(yargs: Argv) {
   return yargs
@@ -66,13 +47,10 @@ export function profileCommands(yargs: Argv) {
     .command(
       "exec <group>",
       "Run a command with a profile group (exec <group> -- <command> [args…])",
-      (command) => command.parserConfiguration({ "populate--": true })
+      (command) => command.parserConfiguration({ "populate--": true, "parse-positional-numbers": false })
         .positional("group", { type: "string", demandOption: true }),
       async (args) => {
-        const argv = args["--"]
-        if (!Array.isArray(argv) || !argv.length || !argv.every((argument) => typeof argument === "string")) {
-          throw new Error("Usage: awsesh profiles exec <group> -- <command> [args…]")
-        }
+        const argv = commandArguments(args["--"], "profiles exec <group>")
         const { profileGroups, profileSets } = getAwsesh()
         const group = await profileGroups.get(args.group)
         if (!group) throw new Error(`Profile group not found: ${args.group}`)
