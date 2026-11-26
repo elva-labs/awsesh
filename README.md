@@ -168,6 +168,7 @@ awsesh accounts
 | `awsesh credentials` | List credentials in ~/.aws/credentials |
 | `awsesh session <sso> <account> [role]` | Select credentials directly |
 | `awsesh auth <sso>` | Authenticate with SSO |
+| `awsesh profiles define/list/exec` | Save, inspect or run with local AWS profile groups |
 | `awsesh migrate` | Migrate from old awsesh config |
 | `awsesh config` | Open config directory |
 | `awsesh data` | Open data directory |
@@ -185,6 +186,34 @@ Options:
   -v, --version           Show version
   -h, --help              Show help
 ```
+
+### Local Profile Groups
+
+Save a set of named profiles for commands that need several AWS accounts or
+roles. Each `--profile` takes an alias, an existing local SSO session name, a
+12-digit account ID, and an IAM role name.
+
+```sh
+awsesh profiles define delivery \
+  --profile dev company 012345678901 Developer \
+  --profile prod-read company 098765432109 ReadOnly
+awsesh profiles list
+awsesh auth company
+awsesh profiles exec delivery -- sh -c '
+  aws --profile dev sts get-caller-identity &
+  aws --profile prod-read sts get-caller-identity &
+  wait
+'
+```
+
+Run `define` again to replace a group, including after renaming a referenced
+SSO session. `list --json` prints the saved definitions. `exec` makes an
+isolated AWS config available to the command and its descendants while the
+command runs. Pass `--profile` explicitly to each AWS invocation; the group
+has no default and leaves `~/.aws` untouched. Each profile uses its session's
+default region and can obtain fresh role credentials through
+`credential_process` while the cached SSO login is valid. If the login expires,
+run `awsesh auth <session>` again.
 
 ### Shell Integration
 
