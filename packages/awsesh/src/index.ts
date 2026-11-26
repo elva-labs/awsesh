@@ -15,11 +15,14 @@ import { accounts } from "./cli/cmd/accounts.js"
 import { credentials } from "./cli/cmd/credentials.js"
 import { set } from "./cli/cmd/set.js"
 import { session } from "./cli/cmd/session.js"
+import { profileCommands } from "./cli/cmd/profiles.js"
 
 import { Installation } from "./installation"
 
 const args = hideBin(process.argv)
-const showHelp = args.includes("--help") || args.includes("-h") || args[0] === "help"
+const separator = args.indexOf("--")
+const cliArgs = separator === -1 ? args : args.slice(0, separator)
+const showHelp = cliArgs.includes("--help") || cliArgs.includes("-h") || cliArgs[0] === "help"
 if (showHelp) {
   console.log(UI.logo())
 }
@@ -73,6 +76,7 @@ const cli = yargs(args)
   .command(config)
   .command(data)
   .command(session)
+  .command("profiles", "Define and run with local AWS profile groups", profileCommands)
   .demandCommand(0, 1, "")
   .fail((msg, err) => {
     throw err ?? new Error(msg)

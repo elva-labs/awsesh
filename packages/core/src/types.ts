@@ -64,6 +64,18 @@ export interface RoleCredentials {
   expiration: Date
 }
 
+export interface ProfileBinding {
+  alias: string
+  sessionName: string
+  accountId: string
+  roleName: string
+}
+
+export interface ProfileGroup {
+  name: string
+  profiles: ProfileBinding[]
+}
+
 export interface LastSelected {
   session?: string
   account?: string

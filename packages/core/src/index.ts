@@ -6,11 +6,14 @@ export { Storage } from "./storage"
 export { createWorkflow } from "./workflow"
 
 import { createHash } from "node:crypto"
+import path from "node:path"
 import { AWSClient } from "./client"
 import { Credentials } from "./credentials"
 import { Sessions } from "./sessions"
 import { Storage } from "./storage"
 import { legacySessionKey, readJsonFile, sessionStorageKey } from "./filesystem"
+import { createProfileSets } from "./profile-sets"
+import { createProfileGroups } from "./profile-groups"
 import type {
   AwseshOptions,
   SSOSession,
@@ -59,6 +62,28 @@ export function createAwsesh(options: AwseshOptions) {
     return client
   }
 
+  async function getToken(startUrl: string): Promise<TokenCache | undefined> {
+    const hash = hashUrl(startUrl)
+    const data = await storage.read<TokenCacheStored>(`token/${hash}`)
+    if (!data) return undefined
+
+    const expiresAt = new Date(data.expiresAt)
+    if (expiresAt <= new Date()) return undefined
+
+    return {
+      token: data.token,
+      expiresAt,
+      startUrl: data.startUrl,
+    }
+  }
+
+  function getRoleCredentials(session: SSOSession, token: string, accountId: string, roleName: string) {
+    return clientForRegion(session.ssoRegion).getRoleCredentials(token, accountId, roleName)
+  }
+
+  const profileSets = createProfileSets({ getSession: sessions.load, getToken, getRoleCredentials })
+  const profileGroups = createProfileGroups(path.join(configDir, "profile-groups"), profileSets.resolve)
+
   async function profileNamesForSession(sessionName: string): Promise<AccountProfileNames> {
     return own(await storage.read<SessionProfileNames>("preference/profile-names"), sessionName) ?? {}
   }
@@ -87,6 +112,9 @@ export function createAwsesh(options: AwseshOptions) {
   }
 
   return {
+    profileSets,
+    profileGroups,
+
     sessions: {
       list: () => sessions.list(),
       get: (name: string) => sessions.load(name),
@@ -130,28 +158,14 @@ export function createAwsesh(options: AwseshOptions) {
       listAccounts: (session: SSOSession, token: string) => clientForRegion(session.ssoRegion).listAccounts(token),
       listRoles: (session: SSOSession, token: string, accountId: string, signal?: AbortSignal) =>
         clientForRegion(session.ssoRegion).listAccountRoles(token, accountId, signal),
-      getCredentials: (session: SSOSession, token: string, accountId: string, roleName: string) =>
-        clientForRegion(session.ssoRegion).getRoleCredentials(token, accountId, roleName),
+      getCredentials: getRoleCredentials,
       getDashboardUrl: (session: SSOSession) => clientForRegion(session.ssoRegion).getDashboardURL(session.startUrl),
       getAccountUrl: (session: SSOSession, accountId: string, _token: string, roleName: string) =>
         clientForRegion(session.ssoRegion).getAccountURL(accountId, session.startUrl, roleName),
     },
 
     tokens: {
-      get: async (startUrl: string): Promise<TokenCache | undefined> => {
-        const hash = hashUrl(startUrl)
-        const data = await storage.read<TokenCacheStored>(`token/${hash}`)
-        if (!data) return undefined
-
-        const expiresAt = new Date(data.expiresAt)
-        if (expiresAt <= new Date()) return undefined
-
-        return {
-          token: data.token,
-          expiresAt,
-          startUrl: data.startUrl,
-        }
-      },
+      get: getToken,
       getWithExpired: async (startUrl: string): Promise<TokenCache | undefined> => {
         const hash = hashUrl(startUrl)
         const data = await storage.read<TokenCacheStored>(`token/${hash}`)

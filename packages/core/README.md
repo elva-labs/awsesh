@@ -104,6 +104,27 @@ interface AwseshOptions {
 const awsesh = createAwsesh(options)
 ```
 
+### Profile Sets and Groups
+
+Pass `ProfileBinding[]` (each binding has `alias`, `sessionName`, `accountId`,
+and `roleName`) to `awsesh.profileSets.resolve(profiles)` to validate the
+bindings and resolve their regions from the local SSO sessions. This requires
+no login or AWS requests.
+
+`awsesh.profileSets.withEnvironment(profiles, { credentialCommand }, run)`
+calls `run(env)` with temporary AWS config and credentials file paths for the
+named profiles. Pass `env` to the subprocess and await its exit in `run`; the
+SDK deletes the files when the callback finishes. Each profile's
+`credential_process` invokes the supplied command prefix with one opaque
+binding argument. The helper should write
+`JSON.stringify(await awsesh.profileSets.credentialProcess(binding))` to
+stdout, using the same awsesh config and data directories. Errors should be
+reported on stderr with a nonzero exit status.
+
+Use `awsesh.profileGroups.save(name, profiles)` to replace a local group,
+`get(name)` to load it, and `list()` to enumerate groups. Profile set resolution
+and execution also accept bindings directly, without a saved group.
+
 ### `profileNames.getAll(sessionName)`
 
 Reads the configured CLI profile names for a session in one call. The result is
