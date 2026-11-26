@@ -14,6 +14,7 @@ import { Storage } from "./storage"
 import { legacySessionKey, readJsonFile, sessionStorageKey } from "./filesystem"
 import { createProfileSets } from "./profile-sets"
 import { createProfileGroups } from "./profile-groups"
+import { createWorkspaces } from "./workspaces"
 import type {
   AwseshOptions,
   SSOSession,
@@ -84,8 +85,12 @@ export function createAwsesh(options: AwseshOptions) {
     return clientForRegion(session.ssoRegion).getRoleCredentials(token, accountId, roleName)
   }
 
-  const profileSets = createProfileSets({ getSession: sessions.load, getToken, getRoleCredentials })
+  const { resolveTargets, withResolvedEnvironment, ...profileSets } = createProfileSets({
+    getSession: sessions.load, getToken, getRoleCredentials,
+  })
   const profileGroups = createProfileGroups(path.join(configDir, "profile-groups"), profileSets.resolve)
+  const workspaces = createWorkspaces(path.join(configDir, "workspaces"), profileGroups,
+    { resolveTargets, withResolvedEnvironment }, sessions.exists)
 
   async function profileNamesForSession(sessionName: string): Promise<AccountProfileNames> {
     return own(await storage.read<SessionProfileNames>("preference/profile-names"), sessionName) ?? {}
@@ -132,6 +137,7 @@ export function createAwsesh(options: AwseshOptions) {
   return {
     profileSets,
     profileGroups,
+    workspaces,
 
     sessions: {
       list: () => sessions.list(),

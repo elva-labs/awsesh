@@ -78,6 +78,20 @@ export interface ProfileGroup {
   profiles: ProfileBinding[]
 }
 
+export interface WorkspaceTarget extends ProfileBinding {
+  org?: string
+  region: string
+  startUrl: string
+  ssoRegion: string
+}
+
+export interface WorkspaceBinding {
+  root: string
+  source: { kind: "personal"; group: string } | { kind: "shared"; file: string }
+  targets: WorkspaceTarget[]
+  trust: "untrusted" | "changed" | "trusted"
+}
+
 export interface LastSelected {
   session?: string
   account?: string
